@@ -9,3 +9,5 @@ build/
 .coverage
 .env
 .mash/
+.vscode/
+.*_history
