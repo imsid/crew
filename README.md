@@ -1,6 +1,6 @@
-# mash-crew
+# crew
 
-`mash-crew` is a Virtual crew of role-based agents built on top of mash. It has three agents:
+`crew` is a Virtual crew of role-based agents built on top of mash. It has three agents:
 
 - `pm`: help users think like a strong product manager
 - `data`: answer data and metrics questions through role-based skills
