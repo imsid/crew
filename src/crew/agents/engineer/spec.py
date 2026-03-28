@@ -44,7 +44,8 @@ class EngineerAgentSpec(AgentSpec):
 
     def build_llm(self) -> LLMProvider:
         api_key = os.getenv("ANTHROPIC_API_KEY") or ANTHROPIC_API_KEY
-        return AnthropicProvider(api_key=api_key, app_id=APP_ID)
+        model = os.getenv("ANTHROPIC_MODEL") or ANTHROPIC_MODEL
+        return AnthropicProvider(app_id=APP_ID, model=model, api_key=api_key)
 
     def build_tools(self) -> ToolRegistry:
         tools = ToolRegistry()
@@ -55,19 +56,14 @@ class EngineerAgentSpec(AgentSpec):
         return SkillRegistry()
 
     def build_agent_config(self) -> AgentConfig:
-        api_key = os.getenv("ANTHROPIC_API_KEY") or ANTHROPIC_API_KEY
-        model = os.getenv("ANTHROPIC_MODEL") or ANTHROPIC_MODEL
         return AgentConfig(
             app_id=self.get_agent_id(),
             system_prompt=self.build_system_prompt(),
-            model=model,
             max_steps=30,
             max_tokens=4096,
-            api_key=api_key,
             conversation_history_turns=3,
             compaction_token_threshold=30000,
             skills_enabled=False,
-            tool_search_enabled=False,
         )
 
     def build_mcp_servers(self) -> list[MCPServerConfig]:

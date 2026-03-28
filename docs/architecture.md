@@ -7,6 +7,8 @@
 - `crew.app:build_host` is the single app entrypoint
 - `pm` is the primary agent
 - `data` is registered as a subagent with metadata and is also directly addressable through the host API
+- `engineer` is registered as a repository-focused subagent
+- `masher` is enabled as a built-in Mash log-analysis subagent
 - the built-in Mash host API and telemetry UI are served by `mash host serve`
 
 There is no custom `crew` CLI, `crew-api`, or wrapper REPL layer.
@@ -17,6 +19,7 @@ Each role agent is implemented as an `AgentSpec`:
 
 - PM: `src/crew/agents/pm/spec.py`
 - Data: `src/crew/agents/data/spec.py`
+- Engineer: `src/crew/agents/engineer/spec.py`
 
 Each spec owns:
 
@@ -25,7 +28,7 @@ Each spec owns:
 - skill registration
 - MCP server registration
 - agent config construction
-- runtime store and log destinations
+- runtime store construction under `.mash/<agent>/state.db`
 
 ## Shared modules
 
@@ -51,3 +54,4 @@ mash invoke --agent pm "..."
 ```
 
 PM handles product and codebase questions. It delegates to Data only for metrics-layer and BigQuery-specific work.
+Masher is available for direct runtime diagnostics against the host's `.mash/<agent>/state.db` event store and recent traces.

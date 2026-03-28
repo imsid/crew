@@ -39,5 +39,6 @@ def build_host() -> MashAgentHost:
             agent_id=ENGINEER_AGENT_ID,
             metadata=build_engineer_agent_metadata(),
         )
+        .enable_masher()
         .build()
     )

@@ -42,7 +42,11 @@ class DataAgentSpec(AgentSpec):
         return APP_ID
 
     def build_llm(self) -> LLMProvider:
-        return AnthropicProvider(api_key=ANTHROPIC_API_KEY, app_id=APP_ID)
+        return AnthropicProvider(
+            app_id=APP_ID,
+            model=ANTHROPIC_MODEL,
+            api_key=ANTHROPIC_API_KEY,
+        )
 
     def build_tools(self) -> ToolRegistry:
         tools = ToolRegistry()
@@ -88,14 +92,11 @@ class DataAgentSpec(AgentSpec):
         return AgentConfig(
             app_id=self.get_agent_id(),
             system_prompt=blocks,
-            model=ANTHROPIC_MODEL,
             max_steps=30,
             max_tokens=4096,
-            api_key=ANTHROPIC_API_KEY,
             conversation_history_turns=3,
             compaction_token_threshold=100000,
             skills_enabled=True,
-            tool_search_enabled=False,
         )
 
     def build_mcp_servers(self) -> list[MCPServerConfig]:
