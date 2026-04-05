@@ -6,7 +6,6 @@ from mash.runtime import MashAgentHost, MashAgentHostBuilder
 
 from .agents.data.spec import DataAgentSpec
 from .agents.pm.spec import PMAgentSpec
-from .agents.pm.subagents import DATA_SUBAGENT_ID, build_data_subagent_metadata
 from .shared.config import load_agent_env, load_project_env
 from .shared.runtime_paths import crew_root_dir
 
@@ -15,19 +14,19 @@ def build_host() -> MashAgentHost:
     load_project_env()
     load_agent_env("pm")
     load_agent_env("data")
-    load_agent_env("engineer")
     os.environ.setdefault("MASH_DATA_DIR", str(crew_root_dir()))
-
+    pm = PMAgentSpec()
+    data = DataAgentSpec()
     return (
         MashAgentHostBuilder()
         .primary(
-            PMAgentSpec(),
-            agent_id="pm",
+            definition=pm,
+            agent_id=pm.get_agent_id(),
         )
         .subagent(
-            DataAgentSpec(),
-            agent_id=DATA_SUBAGENT_ID,
-            metadata=build_data_subagent_metadata(),
+            definition=data,
+            agent_id=data.get_agent_id(),
+            metadata=data.build_subagent_metadata(),
         )
         .enable_masher()
         .build()

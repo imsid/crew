@@ -10,14 +10,16 @@ import google.auth
 from google.auth.transport.requests import Request
 from mash.core.config import AgentConfig
 from mash.core.llm import AnthropicProvider, LLMProvider
-from mash.memory.store import SQLiteStore
 from mash.mcp import MCPServerConfig
-from mash.runtime import AgentSpec
+from mash.memory.store import SQLiteStore
+from mash.runtime import AgentSpec, SubAgentMetadata
 from mash.skills.registry import SkillRegistry
 from mash.tools.registry import ToolRegistry
 
-from ...shared.runtime_paths import PROJECT_ROOT
+from ...artifacts.tools import build_artifact_tools
 from ...metrics_layer.service.constants import METRICS_LAYER_SCHEMA_ROOT
+from ...shared.runtime_paths import PROJECT_ROOT
+from ...shared.skills import CREW_SKILLS_DIR, register_custom_skills
 from .config import (
     ANTHROPIC_API_KEY,
     ANTHROPIC_MODEL,
@@ -25,8 +27,8 @@ from .config import (
     BIGQUERY_MCP_URL,
     BIGQUERY_PROJECT_ID,
 )
-from .tools import build_analyst_tools, build_steward_tools
 from .prompt import build_base_prompt, build_roles_context, build_schema_context
+from .tools import build_analyst_tools, build_steward_tools
 
 APP_ID = "data"
 BIGQUERY_CONNECTION_NAME = "bigquery"
@@ -58,6 +60,8 @@ class DataAgentSpec(AgentSpec):
     def build_tools(self) -> ToolRegistry:
         tools = ToolRegistry()
         workspace_root = PROJECT_ROOT
+        for tool in build_artifact_tools(workspace_root=workspace_root):
+            tools.register(tool)
         for tool in build_steward_tools(workspace_root=workspace_root):
             tools.register(tool)
         for tool in build_analyst_tools(workspace_root=workspace_root):
@@ -67,8 +71,7 @@ class DataAgentSpec(AgentSpec):
     def build_skills(self) -> SkillRegistry:
         if self._skills is None:
             skills = SkillRegistry()
-            for skill in skills.get_custom_skills(SKILLS_DIR):
-                skills.register(skill)
+            register_custom_skills(skills, CREW_SKILLS_DIR, SKILLS_DIR)
             self._skills = skills
         return self._skills
 
@@ -131,6 +134,24 @@ class DataAgentSpec(AgentSpec):
                 allowed_tools=BIGQUERY_ALLOWED_TOOLS,
             )
         ]
+
+    def build_subagent_metadata(self) -> SubAgentMetadata:
+        return SubAgentMetadata(
+            display_name="Data Analytics Specialist",
+            description=(
+                "Handles metrics-layer and BigQuery workflows, including metric definitions, "
+                "SQL plan generation, and dataset-level analysis."
+            ),
+            capabilities=[
+                "metrics layer configuration",
+                "BigQuery exploration",
+                "metric SQL compilation",
+            ],
+            usage_guidance=(
+                "Delegate tasks that require metric semantics, BigQuery table/query analysis, "
+                "or changes under the metrics_layer configuration tree."
+            ),
+        )
 
     @staticmethod
     def get_cached_files() -> list[str]:

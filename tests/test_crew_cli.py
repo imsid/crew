@@ -1,0 +1,183 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+from crew.cli.main import main
+
+
+def _write_metric_fixture(root: Path) -> None:
+    metrics_root = root / ".mash" / "metrics_layer" / "configs" / "marketing"
+    (metrics_root / "sources").mkdir(parents=True, exist_ok=True)
+    (metrics_root / "metrics").mkdir(parents=True, exist_ok=True)
+    (metrics_root / "sources" / "ad_performance.yml").write_text(
+        """kind: source
+version: 1
+id: ad_performance
+dataset: marketing
+table: campaign_ads
+grain:
+  - campaign_ad_id
+dimensions:
+  - name: campaign_ad_id
+    expr: campaign_ad_id
+    data_type: INT64
+  - name: campaign_id
+    expr: campaign_id
+    data_type: INT64
+measures:
+  - name: spend_total
+    expr: spend
+    agg: SUM
+    data_type: NUMERIC
+""",
+        encoding="utf-8",
+    )
+    (metrics_root / "metrics" / "spend_total.yml").write_text(
+        """kind: metric
+version: 1
+id: spend_total
+label: Total Spend
+type: simple
+base_source: ad_performance
+expr: spend
+dimensions:
+  - campaign_id
+format: "$#,##0.00"
+""",
+        encoding="utf-8",
+    )
+
+
+def _write_artifact_fixture(root: Path) -> None:
+    artifacts_root = root / ".mash" / "artifacts"
+    artifacts_root.mkdir(parents=True, exist_ok=True)
+    (artifacts_root / "launch_readout_q2.md").write_text(
+        """---
+artifact_id: launch_readout_q2
+source_agent: pm
+title: Q2 Launch Readout
+description: Launch readiness and early performance summary.
+kind: readout
+session_id: pm-session-1
+updated_at: 2026-04-05T12:00:00Z
+---
+
+## Summary
+
+Launch readiness was green across paid and lifecycle channels.
+
+## Next Steps
+
+- Review week-two retention.
+""",
+        encoding="utf-8",
+    )
+
+
+def test_artifact_cli_list_show_and_search(monkeypatch, tmp_path: Path, capsys) -> None:
+    _write_artifact_fixture(tmp_path)
+    monkeypatch.setattr("crew.cli.main.PROJECT_ROOT", tmp_path)
+
+    assert main(["artifact", "list"]) == 0
+    list_output = capsys.readouterr().out
+    assert "launch_readout_q2" in list_output
+
+    assert main(["artifact", "show", "launch_readout_q2"]) == 0
+    show_output = capsys.readouterr().out
+    assert "Q2 Launch Readout" in show_output
+    assert "Review week-two retention" in show_output
+
+    assert main(["artifact", "search", "launch readiness"]) == 0
+    search_output = capsys.readouterr().out
+    assert "launch_readout_q2" in search_output
+
+
+def test_metrics_cli_list_show_and_compile(monkeypatch, tmp_path: Path, capsys) -> None:
+    _write_metric_fixture(tmp_path)
+    monkeypatch.setattr("crew.cli.main.PROJECT_ROOT", tmp_path)
+
+    assert main(["metrics", "list", "--dataset", "marketing"]) == 0
+    list_output = capsys.readouterr().out
+    assert "spend_total" in list_output
+
+    assert (
+        main(
+            [
+                "metrics",
+                "show",
+                "--dataset",
+                "marketing",
+                "--kind",
+                "metric",
+                "--name",
+                "spend_total",
+            ]
+        )
+        == 0
+    )
+    show_output = capsys.readouterr().out
+    assert "base_source: ad_performance" in show_output
+
+    assert (
+        main(
+            [
+                "metrics",
+                "compile",
+                "--dataset",
+                "marketing",
+                "--metric",
+                "spend_total",
+                "--dimension",
+                "campaign_id",
+            ]
+        )
+        == 0
+    )
+    compile_output = capsys.readouterr().out
+    assert "campaign_ads" in compile_output
+    assert "GROUP BY campaign_id" in compile_output
+
+
+def test_agent_repl_delegates_to_mash_remote_shell(monkeypatch) -> None:
+    class FakeClient:
+        def __init__(self, base_url: str, *, api_key: str | None = None) -> None:
+            self.base_url = base_url
+            self.api_key = api_key
+            self.closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    captured: dict[str, object] = {}
+
+    class FakeShell:
+        def __init__(self, client, target) -> None:
+            captured["client"] = client
+            captured["target"] = target
+
+        def run(self) -> None:
+            captured["ran"] = True
+
+        @staticmethod
+        def new_session_id() -> str:
+            return "session-123"
+
+    monkeypatch.setattr("crew.cli.main.MashHostClient", FakeClient)
+    monkeypatch.setattr("crew.cli.main.MashRemoteShell", FakeShell)
+
+    assert (
+        main(
+            [
+                "agent",
+                "repl",
+                "--api-base-url",
+                "http://127.0.0.1:8000",
+                "--agent",
+                "pm",
+            ]
+        )
+        == 0
+    )
+    assert captured["ran"] is True
+    assert captured["target"].agent_id == "pm"
+    assert captured["target"].session_id == "session-123"

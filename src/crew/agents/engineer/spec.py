@@ -13,7 +13,10 @@ from mash.skills.registry import SkillRegistry
 from mash.tools.bash import BashTool
 from mash.tools.registry import ToolRegistry
 
+from ...artifacts.tools import build_artifact_tools
 from ...code_index import create_cached_files
+from ...shared.runtime_paths import PROJECT_ROOT
+from ...shared.skills import CREW_SKILLS_DIR, register_custom_skills
 from .config import (
     ANTHROPIC_API_KEY,
     ANTHROPIC_MODEL,
@@ -22,7 +25,7 @@ from .config import (
     GITHUB_REPO_PATH,
     GITHUB_REPO_URL,
 )
-from .prompt import build_base_prompt, build_repo_context
+from .prompt import build_base_prompt, build_repo_context, build_skills_context
 
 APP_ID = "engineer"
 GITHUB_CONNECTION_NAME = "github"
@@ -40,6 +43,7 @@ class EngineerAgentSpec(AgentSpec):
         github_url = os.getenv("GITHUB_URL") or GITHUB_REPO_URL
         self.github_url = (github_url or "").strip() or None
         self._store: SQLiteStore | None = None
+        self._skills: SkillRegistry | None = None
 
     def get_agent_id(self) -> str:
         return APP_ID
@@ -56,11 +60,17 @@ class EngineerAgentSpec(AgentSpec):
 
     def build_tools(self) -> ToolRegistry:
         tools = ToolRegistry()
+        for tool in build_artifact_tools(PROJECT_ROOT):
+            tools.register(tool)
         tools.register(BashTool(working_dir=str(self.repo_path)))
         return tools
 
     def build_skills(self) -> SkillRegistry:
-        return SkillRegistry()
+        if self._skills is None:
+            skills = SkillRegistry()
+            register_custom_skills(skills, CREW_SKILLS_DIR)
+            self._skills = skills
+        return self._skills
 
     def build_agent_config(self) -> AgentConfig:
         return AgentConfig(
@@ -70,7 +80,7 @@ class EngineerAgentSpec(AgentSpec):
             max_tokens=4096,
             conversation_history_turns=3,
             compaction_token_threshold=30000,
-            skills_enabled=False,
+            skills_enabled=True,
         )
 
     def build_mcp_servers(self) -> list[MCPServerConfig]:
@@ -97,6 +107,7 @@ class EngineerAgentSpec(AgentSpec):
         ]
 
     def build_system_prompt(self) -> list[dict[str, Any]]:
+        skills = self.build_skills()
         blocks: list[dict[str, Any]] = [
             {
                 "type": "text",
@@ -107,6 +118,15 @@ class EngineerAgentSpec(AgentSpec):
                 "cache_control": {"type": "ephemeral"},
             }
         ]
+        skill_context = build_skills_context(skills)
+        if skill_context:
+            blocks.append(
+                {
+                    "type": "text",
+                    "text": skill_context,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            )
         repo_context = build_repo_context(
             repo=str(self.repo_path),
             cached_files=create_cached_files(str(self.repo_path)),

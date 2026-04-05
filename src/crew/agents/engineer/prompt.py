@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import List
 
+from mash.skills.registry import SkillRegistry
+
 
 def build_repo_context(repo: str, cached_files: List[str]) -> str:
     """Build repository context for local repos."""
@@ -125,3 +127,19 @@ Think in terms of:
 - Control flow
 - Boundaries between subsystems
 """
+
+
+def build_skills_context(skills: SkillRegistry) -> str:
+    available = skills.list_skills()
+    lines = [
+        "AVAILABLE SHARED SKILLS",
+        "Invoke Skill when the user explicitly asks for a reusable workflow such as artifact creation.",
+    ]
+    if not available:
+        lines.append("- No shared skills are installed.")
+        return "\n".join(lines)
+
+    for skill in available:
+        desc = skill.description or "No description provided."
+        lines.append(f"- {skill.name}: {desc}")
+    return "\n".join(lines)

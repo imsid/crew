@@ -16,6 +16,14 @@ def crew_root_dir() -> Path:
     return _ensure_dir(CREW_ROOT)
 
 
+def artifacts_dir_path() -> Path:
+    return _ensure_dir(crew_root_dir() / "artifacts")
+
+
+def artifact_file_path(artifact_id: str) -> Path:
+    return artifacts_dir_path() / f"{artifact_id}.md"
+
+
 def agent_root_dir(agent_id: str) -> Path:
     return _ensure_dir(crew_root_dir() / agent_id)
 

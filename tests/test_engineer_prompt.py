@@ -58,3 +58,4 @@ def test_engineer_system_prompt_includes_bash_and_github_guidance(tmp_path: Path
 
     assert "USING THE BASH TOOL" in joined
     assert "USING GITHUB MCP TOOLS" in joined
+    assert "create-artifact" in joined

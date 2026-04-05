@@ -12,6 +12,7 @@ def test_pm_system_prompt_is_role_first_and_lists_skills() -> None:
     assert "AVAILABLE PM ROLES" in joined
     assert "problem-definition" in joined
     assert "prioritizing-roadmap" in joined
+    assert "create-artifact" in joined
     assert "Invoke Skill with the matching role before role-specific execution." in joined
 
 
