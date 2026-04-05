@@ -3,6 +3,15 @@ revision = 1
 requires-python = ">=3.10"
 
 [[package]]
+name = "aiosqlite"
+version = "0.22.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/4e/8a/64761f4005f17809769d23e518d915db74e6310474e733e3593cfc854ef1/aiosqlite-0.22.1.tar.gz", hash = "sha256:043e0bd78d32888c0a9ca90fc788b38796843360c855a7262a532813133a0650", size = 14821 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/00/b7/e3bf5133d697a08128598c8d0abc5e16377b51465a33756de24fa7dee953/aiosqlite-0.22.1-py3-none-any.whl", hash = "sha256:21c002eb13823fad740196c5a2e9d8e62f6243bd9e7e4a1f87fb5e44ecb4fceb", size = 17405 },
+]
+
+[[package]]
 name = "annotated-doc"
 version = "0.0.4"
 source = { registry = "https://pypi.org/simple" }
@@ -718,7 +727,7 @@ dev = [
 requires-dist = [
     { name = "build", marker = "extra == 'dev'", specifier = ">=1.2.2" },
     { name = "google-auth", specifier = ">=2" },
-    { name = "mashpy", specifier = ">=0.1.9" },
+    { name = "mashpy", specifier = ">=0.2.2" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3.0" },
     { name = "python-dotenv", specifier = ">=1.0" },
     { name = "pyyaml", specifier = ">=6.0" },
@@ -728,23 +737,26 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "mashpy"
-version = "0.1.9"
+version = "0.2.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
+    { name = "aiosqlite" },
     { name = "anthropic" },
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "mcp" },
     { name = "openai" },
     { name = "prompt-toolkit" },
     { name = "pyyaml" },
     { name = "requests" },
     { name = "rich" },
+    { name = "starlette" },
     { name = "tomli", marker = "python_full_version < '3.11'" },
     { name = "uvicorn" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/b6/be/77c2f5a21f9a35ecbe05dd5576071c1ab96986540f9e6409d7d1cde7ba00/mashpy-0.1.9.tar.gz", hash = "sha256:373f5daacc0161c39aa94d8816f937a397d80569e5ba3d850dfdffe4e2e6fd22", size = 161440 }
+sdist = { url = "https://files.pythonhosted.org/packages/a9/c4/eb6c8c8fc5ba1638794d5229501846aa3bf0796598c27eca00d5132686fe/mashpy-0.2.3.tar.gz", hash = "sha256:0123897ba39808e2777ee134ec667a8a9a26179d6093d5761f59e7bfe066f23a", size = 162712 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/83/9e/029bc6e15d3c34487ea49570a034836578bca9b2fe2b9f874be0fb34465c/mashpy-0.1.9-py3-none-any.whl", hash = "sha256:80b66c29be9128f61a17582316689d38bf10a3d43ee82de4a5c4436556d913c2", size = 185265 },
+    { url = "https://files.pythonhosted.org/packages/76/54/f4b819dfcf4a66771c22135aed1a865c7ee88da2781189d060540f8d5e3b/mashpy-0.2.3-py3-none-any.whl", hash = "sha256:6d758ea69b2ea82e7d883316bdb85cf73f66fafa57bb84561766fcee5ed9f1e8", size = 186661 },
 ]
 
 [[package]]

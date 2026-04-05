@@ -12,7 +12,7 @@
 
 Set `MASH_DATA_DIR` to the directory where runtime state for every agent is stored. By default, `build_host()` sets `MASH_DATA_DIR=.mash`, so Mash stores each agent under `.mash/<agent>/state.db`. Structured runtime events live in that SQLite database's `logs` table.
 
-If you are upgrading an existing local `.mash` directory from an older Mash schema, point `MASH_DATA_DIR` at a fresh directory or recreate `.mash` before the first `0.1.9` run.
+If you are upgrading an existing local `.mash` directory from an older Mash schema, point `MASH_DATA_DIR` at a fresh directory or recreate `.mash` before the first `0.2.2` run.
 
 Start the built-in Mash host:
 

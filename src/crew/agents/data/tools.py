@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List
+from typing import Any, Callable, List
 
 from mash.tools.base import FunctionTool, Tool
 
@@ -16,6 +16,15 @@ from ...metrics_layer.service.tool_entrypoints import (
     validate_and_write_metrics_layer_config,
     validate_yaml,
 )
+
+
+def _async_tool_executor(
+    func: Callable[[dict[str, Any], Any], Any], context: Any
+) -> Callable[[dict[str, Any]], Any]:
+    async def _executor(args: dict[str, Any]) -> Any:
+        return func(args, context)
+
+    return _executor
 
 
 def build_steward_tools(workspace_root: Path) -> List[Tool]:
@@ -38,7 +47,7 @@ def build_steward_tools(workspace_root: Path) -> List[Tool]:
                     }
                 },
             },
-            _executor=lambda args: list_metrics_layer_configs(args, context),
+            _executor=_async_tool_executor(list_metrics_layer_configs, context),
         ),
         FunctionTool(
             name="read_metrics_layer_config",
@@ -62,7 +71,7 @@ def build_steward_tools(workspace_root: Path) -> List[Tool]:
                 },
                 "required": ["kind", "dataset_id", "name"],
             },
-            _executor=lambda args: read_metrics_layer_config(args, context),
+            _executor=_async_tool_executor(read_metrics_layer_config, context),
         ),
         FunctionTool(
             name="validate_and_write_metrics_layer_config",
@@ -94,7 +103,9 @@ def build_steward_tools(workspace_root: Path) -> List[Tool]:
                 },
                 "required": ["kind", "dataset_id", "name", "content"],
             },
-            _executor=lambda args: validate_and_write_metrics_layer_config(args, context),
+            _executor=_async_tool_executor(
+                validate_and_write_metrics_layer_config, context
+            ),
         ),
         FunctionTool(
             name="get_metrics_layer_schema",
@@ -111,7 +122,7 @@ def build_steward_tools(workspace_root: Path) -> List[Tool]:
                 },
                 "required": ["schema_kind"],
             },
-            _executor=lambda args: get_metrics_layer_schema(args, context),
+            _executor=_async_tool_executor(get_metrics_layer_schema, context),
         ),
         FunctionTool(
             name="validate_yaml",
@@ -130,7 +141,7 @@ def build_steward_tools(workspace_root: Path) -> List[Tool]:
                 },
                 "required": ["document_text", "schema_text"],
             },
-            _executor=lambda args: validate_yaml(args, context),
+            _executor=_async_tool_executor(validate_yaml, context),
         ),
     ]
 
@@ -194,6 +205,6 @@ def build_analyst_tools(workspace_root: Path) -> List[Tool]:
                 },
                 "required": ["dataset_id", "metric_names"],
             },
-            _executor=lambda args: compile_metric_configs_to_sql(args, context),
+            _executor=_async_tool_executor(compile_metric_configs_to_sql, context),
         )
     ]

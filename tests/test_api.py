@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Optional
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -35,7 +35,7 @@ class _EchoLLM(LLMProvider):
     def model(self) -> str:
         return "test-model"
 
-    def send(self, request: LLMRequest) -> LLMResponse:
+    async def send(self, request: LLMRequest) -> LLMResponse:
         user_text = ""
         for message in reversed(request.messages):
             if message.role != "user":
@@ -70,7 +70,7 @@ class _DelegatingLLM(LLMProvider):
     def model(self) -> str:
         return "test-model"
 
-    def send(self, request: LLMRequest) -> LLMResponse:
+    async def send(self, request: LLMRequest) -> LLMResponse:
         del request
         self._step += 1
         if self._step == 1:
@@ -130,7 +130,11 @@ def test_health_lists_pm_primary_and_support_agents(tmp_path: Path) -> None:
     with patch.object(PMAgentSpec, "build_llm", return_value=_EchoLLM()), patch.object(
         DataAgentSpec, "build_llm", return_value=_EchoLLM()
     ), patch.object(
+        DataAgentSpec, "build_mcp_servers", return_value=[]
+    ), patch.object(
         EngineerAgentSpec, "build_llm", return_value=_EchoLLM()
+    ), patch.object(
+        EngineerAgentSpec, "build_mcp_servers", return_value=[]
     ), patch.object(
         MasherAgentSpec, "build_llm", return_value=_EchoLLM()
     ):
@@ -151,27 +155,31 @@ def test_agents_can_be_invoked_directly(tmp_path: Path) -> None:
     with patch.object(PMAgentSpec, "build_llm", return_value=_EchoLLM()), patch.object(
         DataAgentSpec, "build_llm", return_value=_EchoLLM()
     ), patch.object(
+        DataAgentSpec, "build_mcp_servers", return_value=[]
+    ), patch.object(
         EngineerAgentSpec, "build_llm", return_value=_EchoLLM()
+    ), patch.object(
+        EngineerAgentSpec, "build_mcp_servers", return_value=[]
     ), patch.object(
         MasherAgentSpec, "build_llm", return_value=_EchoLLM()
     ):
         with _build_test_client(tmp_path) as client:
             pm_invoke = client.post(
-                "/api/v1/agents/pm/invoke",
+                "/api/v1/agent/pm/invoke",
                 json={"message": "hello pm", "session_id": "pm-session"},
             )
             assert pm_invoke.status_code == 200
             assert pm_invoke.json()["data"]["response"]["text"] == "echo:hello pm"
 
             data_invoke = client.post(
-                "/api/v1/agents/data/invoke",
+                "/api/v1/agent/data/invoke",
                 json={"message": "hello data", "session_id": "data-session"},
             )
             assert data_invoke.status_code == 200
             assert data_invoke.json()["data"]["response"]["text"] == "echo:hello data"
 
             engineer_invoke = client.post(
-                "/api/v1/agents/engineer/invoke",
+                "/api/v1/agent/engineer/invoke",
                 json={"message": "hello engineer", "session_id": "engineer-session"},
             )
             assert engineer_invoke.status_code == 200
@@ -181,7 +189,7 @@ def test_agents_can_be_invoked_directly(tmp_path: Path) -> None:
             )
 
             masher_invoke = client.post(
-                "/api/v1/agents/masher/invoke",
+                "/api/v1/agent/masher/invoke",
                 json={"message": "hello masher", "session_id": "masher-session"},
             )
             assert masher_invoke.status_code == 200
@@ -192,66 +200,67 @@ def test_pm_can_delegate_to_data_subagent(tmp_path: Path) -> None:
     with patch.object(PMAgentSpec, "build_llm", return_value=_DelegatingLLM()), patch.object(
         DataAgentSpec, "build_llm", return_value=_EchoLLM()
     ), patch.object(
+        DataAgentSpec, "build_mcp_servers", return_value=[]
+    ), patch.object(
         EngineerAgentSpec, "build_llm", return_value=_EchoLLM()
+    ), patch.object(
+        EngineerAgentSpec, "build_mcp_servers", return_value=[]
     ), patch.object(
         MasherAgentSpec, "build_llm", return_value=_EchoLLM()
     ):
         with _build_test_client(tmp_path) as client:
-            data_runtime = client.app.state.runtime_state.host.get_agent("data")
-            with patch.object(data_runtime.agent, "run", return_value=_response("data-ok")):
-                response = client.post(
-                    "/api/v1/agents/pm/invoke",
-                    json={"message": "please delegate", "session_id": "pm-delegate"},
-                )
-                assert response.status_code == 200
-                assert response.json()["data"]["response"]["text"] == "delegated:data-ok"
+            response = client.post(
+                "/api/v1/agent/pm/invoke",
+                json={"message": "please delegate", "session_id": "pm-delegate"},
+            )
+            assert response.status_code == 200
+            assert response.json()["data"]["response"]["text"] == "delegated:data-ok"
 
 
 def test_telemetry_events_are_read_from_agent_store(tmp_path: Path) -> None:
     with patch.object(PMAgentSpec, "build_llm", return_value=_EchoLLM()), patch.object(
         DataAgentSpec, "build_llm", return_value=_EchoLLM()
     ), patch.object(
+        DataAgentSpec, "build_mcp_servers", return_value=[]
+    ), patch.object(
         EngineerAgentSpec, "build_llm", return_value=_EchoLLM()
+    ), patch.object(
+        EngineerAgentSpec, "build_mcp_servers", return_value=[]
     ), patch.object(
         MasherAgentSpec, "build_llm", return_value=_EchoLLM()
     ):
         with _build_test_client(tmp_path) as client:
-            runtime = client.app.state.runtime_state.host.get_agent("pm")
-            runtime.store.save_logs(
-                [
-                    {
-                        "app_id": "pm",
-                        "session_id": "pm-session",
-                        "trace_id": "trace-1",
-                        "event_class": "AgentTraceEvent",
-                        "event_type": "agent.run.start",
-                        "created_at": 1.0,
-                        "payload": {"payload": {"step": 1}},
-                    }
-                ]
+            invoke = client.post(
+                "/api/v1/agent/pm/invoke",
+                json={"message": "record telemetry", "session_id": "pm-session"},
             )
+            assert invoke.status_code == 200
 
             response = client.get("/api/v1/telemetry/events", params={"agent_id": "pm"})
             assert response.status_code == 200
             payload = response.json()["data"]
             assert payload["path"].endswith("/pm/state.db")
-            assert payload["events"][0]["event_type"] == "agent.run.start"
-            assert payload["events"][0]["payload"]["step"] == 1
-            assert "log_id" not in payload["events"][0]
+            assert any(
+                event["event_type"] == "agent.run.start" for event in payload["events"]
+            )
+            assert all("log_id" not in event for event in payload["events"])
 
 
 def test_pm_invoke_persists_unused_tool_signals(tmp_path: Path) -> None:
     with patch.object(PMAgentSpec, "build_llm", return_value=_EchoLLM()), patch.object(
         DataAgentSpec, "build_llm", return_value=_EchoLLM()
     ), patch.object(
+        DataAgentSpec, "build_mcp_servers", return_value=[]
+    ), patch.object(
         EngineerAgentSpec, "build_llm", return_value=_EchoLLM()
+    ), patch.object(
+        EngineerAgentSpec, "build_mcp_servers", return_value=[]
     ), patch.object(
         MasherAgentSpec, "build_llm", return_value=_EchoLLM()
     ):
         with _build_test_client(tmp_path) as client:
-            runtime = client.app.state.runtime_state.host.get_agent("pm")
             response = client.post(
-                "/api/v1/agents/pm/invoke",
+                "/api/v1/agent/pm/invoke",
                 json={"message": "capture signals", "session_id": "pm-signals"},
             )
             assert response.status_code == 200
@@ -262,7 +271,9 @@ def test_pm_invoke_persists_unused_tool_signals(tmp_path: Path) -> None:
             assert signals["unused_tools"]
             assert int(signals["unused_tool_tokens"]) > 0
 
-            turns = runtime.store.get_turns(session_id="pm-signals", limit=1)
+            history = client.get("/api/v1/agent/pm/sessions/pm-signals/history")
+            assert history.status_code == 200
+            turns = history.json()["data"]["turns"]
             assert len(turns) == 1
             assert turns[0]["signals"]["unused_tools"] == signals["unused_tools"]
             assert int(turns[0]["signals"]["unused_tool_tokens"]) == int(

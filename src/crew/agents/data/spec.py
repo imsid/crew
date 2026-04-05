@@ -10,6 +10,7 @@ import google.auth
 from google.auth.transport.requests import Request
 from mash.core.config import AgentConfig
 from mash.core.llm import AnthropicProvider, LLMProvider
+from mash.memory.store import SQLiteStore
 from mash.mcp import MCPServerConfig
 from mash.runtime import AgentSpec
 from mash.skills.registry import SkillRegistry
@@ -37,9 +38,15 @@ class DataAgentSpec(AgentSpec):
 
     def __init__(self) -> None:
         self._skills: SkillRegistry | None = None
+        self._store: SQLiteStore | None = None
 
     def get_agent_id(self) -> str:
         return APP_ID
+
+    def build_store(self) -> SQLiteStore:
+        if self._store is None:
+            self._store = SQLiteStore(self.get_agent_data_dir() / "state.db")
+        return self._store
 
     def build_llm(self) -> LLMProvider:
         return AnthropicProvider(
@@ -100,6 +107,8 @@ class DataAgentSpec(AgentSpec):
         )
 
     def build_mcp_servers(self) -> list[MCPServerConfig]:
+        if not BIGQUERY_MCP_URL or not BIGQUERY_PROJECT_ID:
+            return []
         try:
             access_token = self._generate_access_token()
         except RuntimeError as exc:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import ast
 import json
 import tempfile
@@ -31,8 +32,11 @@ class CompileMetricConfigsToSQLTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.tmpdir.cleanup()
 
+    def _execute(self, args: dict[str, object]):
+        return asyncio.run(self.tool.execute(args))
+
     def test_compile_simple_metric_default_limit(self) -> None:
-        result = self.tool.execute(
+        result = self._execute(
             {
                 "dataset_id": "marketing",
                 "metric_names": ["spend_total"],
@@ -68,7 +72,7 @@ class CompileMetricConfigsToSQLTests(unittest.TestCase):
         self.assertEqual(plan["limit"], 100)
 
     def test_compile_ratio_metric_with_referenced_metric_ids(self) -> None:
-        result = self.tool.execute(
+        result = self._execute(
             {
                 "dataset_id": "marketing",
                 "metric_names": ["ctr"],
@@ -87,7 +91,7 @@ class CompileMetricConfigsToSQLTests(unittest.TestCase):
         self.assertIn("ORDER BY metric_value DESC", sql)
 
     def test_compile_ratio_metric_with_embedded_metric_expression(self) -> None:
-        result = self.tool.execute(
+        result = self._execute(
             {
                 "dataset_id": "marketing",
                 "metric_names": ["cpm"],
@@ -102,7 +106,7 @@ class CompileMetricConfigsToSQLTests(unittest.TestCase):
         self.assertIn("/ 1000", sql)
 
     def test_compile_multiple_metrics_preserves_input_order(self) -> None:
-        result = self.tool.execute(
+        result = self._execute(
             {
                 "dataset_id": "marketing",
                 "metric_names": ["clicks_total", "spend_total"],
@@ -118,7 +122,7 @@ class CompileMetricConfigsToSQLTests(unittest.TestCase):
         )
 
     def test_rejects_unknown_metric(self) -> None:
-        result = self.tool.execute(
+        result = self._execute(
             {
                 "dataset_id": "marketing",
                 "metric_names": ["does_not_exist"],
@@ -131,7 +135,7 @@ class CompileMetricConfigsToSQLTests(unittest.TestCase):
         self.assertEqual(payload["errors"][0]["metric_name"], "does_not_exist")
 
     def test_rejects_unknown_source(self) -> None:
-        result = self.tool.execute(
+        result = self._execute(
             {
                 "dataset_id": "marketing",
                 "metric_names": ["broken_source"],
@@ -145,7 +149,7 @@ class CompileMetricConfigsToSQLTests(unittest.TestCase):
         self.assertIn("source config file not found", payload["errors"][0]["error"])
 
     def test_rejects_invalid_dimension(self) -> None:
-        result = self.tool.execute(
+        result = self._execute(
             {
                 "dataset_id": "marketing",
                 "metric_names": ["spend_total"],
@@ -159,7 +163,7 @@ class CompileMetricConfigsToSQLTests(unittest.TestCase):
         self.assertIn("not found in source", payload["errors"][0]["error"])
 
     def test_rejects_invalid_date_range(self) -> None:
-        result = self.tool.execute(
+        result = self._execute(
             {
                 "dataset_id": "marketing",
                 "metric_names": ["spend_total"],
@@ -177,7 +181,7 @@ class CompileMetricConfigsToSQLTests(unittest.TestCase):
         self.assertIn("YYYY-MM-DD", payload["errors"][0]["error"])
 
     def test_rejects_invalid_order_field(self) -> None:
-        result = self.tool.execute(
+        result = self._execute(
             {
                 "dataset_id": "marketing",
                 "metric_names": ["spend_total"],
@@ -191,7 +195,7 @@ class CompileMetricConfigsToSQLTests(unittest.TestCase):
         self.assertIn("must be one of", payload["errors"][0]["error"])
 
     def test_limit_default_and_max_bound(self) -> None:
-        default_result = self.tool.execute(
+        default_result = self._execute(
             {
                 "dataset_id": "marketing",
                 "metric_names": ["clicks_total"],
@@ -201,7 +205,7 @@ class CompileMetricConfigsToSQLTests(unittest.TestCase):
         default_payload = json.loads(default_result.content)
         self.assertEqual(default_payload["plans"][0]["limit"], 100)
 
-        max_bound_result = self.tool.execute(
+        max_bound_result = self._execute(
             {
                 "dataset_id": "marketing",
                 "metric_names": ["clicks_total"],
@@ -341,7 +345,7 @@ class ToolsModuleStructureTests(unittest.TestCase):
         ]
         self.assertEqual(
             function_names,
-            ["build_steward_tools", "build_analyst_tools"],
+            ["_async_tool_executor", "build_steward_tools", "build_analyst_tools"],
         )
 
 
