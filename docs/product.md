@@ -56,12 +56,21 @@ Users begin with the `data` agent. When a question requires product judgment rat
 
 ```mermaid
 flowchart LR
-    U["User question"] --> D["Data agent"]
-    D --> ML["Metrics layer + BigQuery evidence"]
-    D --> P["PM subagent"]
-    ML --> O["Grounded answer"]
-    P --> O
-    O --> A["Optional artifact"]
+    U["User question"] --> D["Data Agent"]
+    D --> AL
+
+    subgraph AL["Agent Loop"]
+        MD["LLM"]
+        ML["Metrics layer"]
+        EA["Artifact"]
+        P["PM subagent"]
+        MD --> ML
+        MD --> EA
+        MD --> P
+    end
+
+    AL --> O["Grounded answer"]
+    O --> A["Publish Artifact"]
 ```
 
 Examples:
