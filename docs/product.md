@@ -1,3 +1,10 @@
+---
+title: Crew Agent
+doc_type: product-overview
+status: current
+audience: stakeholders
+---
+
 # Crew Agent
 
 `crew` is a local agent workspace built on top of `mash`.

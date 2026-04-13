@@ -1,3 +1,10 @@
+---
+title: Mash Crew Workspace Proposal
+doc_type: proposal
+status: proposal
+audience: stakeholders
+---
+
 # Mash Crew: Internal-First Agentic Workspace for PM + GTM
 
 ## Summary

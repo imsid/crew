@@ -1,3 +1,10 @@
+---
+title: crew README
+doc_type: setup-guide
+status: current
+audience: developers
+---
+
 # crew
 
 `crew` is a local agent workspace built on top of `mash`.
