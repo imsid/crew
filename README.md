@@ -32,7 +32,7 @@ Connect once to write the default `api_base_url`, optional `api_key`, and option
 Later `mash repl`, `mash status`, `mash agents`, and `crew agent ...` can reuse that config.
 
 ```bash
-mash connect --api-base-url http://127.0.0.1:8000 --agent pm
+mash connect --api-base-url http://127.0.0.1:8000 --agent data
 ```
 
 Use the built-in Mash CLI for conversational work:
@@ -73,7 +73,7 @@ The shared `create-artifact` skill uses Mash runtime memory tools to inspect the
 Examples:
 
 ```bash
-crew agent repl --agent pm
+crew agent repl --agent data
 crew agent invoke --agent data "Compile metric spend_total for marketing"
 
 crew artifact list

@@ -77,27 +77,21 @@ class DataAgentSpec(AgentSpec):
 
     def build_agent_config(self) -> AgentConfig:
         skills = self.build_skills()
-        blocks: list[dict[str, Any]] = [
-            {
-                "type": "text",
-                "text": build_base_prompt(BIGQUERY_PROJECT_ID),
-                "cache_control": {"type": "ephemeral"},
-            },
-            {
-                "type": "text",
-                "text": build_roles_context(skills),
-                "cache_control": {"type": "ephemeral"},
-            },
+        sections = [
+            build_base_prompt(BIGQUERY_PROJECT_ID),
+            build_roles_context(skills),
         ]
         schema_context = build_schema_context(self.get_cached_files())
         if schema_context:
-            blocks.append(
-                {
-                    "type": "text",
-                    "text": schema_context,
-                    "cache_control": {"type": "ephemeral"},
-                }
-            )
+            sections.append(schema_context)
+
+        blocks: list[dict[str, Any]] = [
+            {
+                "type": "text",
+                "text": "\n\n".join(section for section in sections if section),
+                "cache_control": {"type": "ephemeral"},
+            }
+        ]
 
         return AgentConfig(
             app_id=self.get_agent_id(),

@@ -13,7 +13,6 @@ from mash.core.llm import LLMProvider
 from mash.core.llm.types import LLMContentBlock, LLMRequest, LLMResponse, LLMTokenUsage
 
 from crew.agents.data.spec import DataAgentSpec
-from crew.agents.engineer.spec import EngineerAgentSpec
 from crew.agents.pm.spec import PMAgentSpec
 from crew.app import build_host
 
@@ -126,15 +125,11 @@ def _build_test_client(tmp_path: Path) -> TestClient:
     return TestClient(app)
 
 
-def test_health_lists_pm_primary_and_support_agents(tmp_path: Path) -> None:
+def test_health_lists_data_primary_and_support_agents(tmp_path: Path) -> None:
     with patch.object(PMAgentSpec, "build_llm", return_value=_EchoLLM()), patch.object(
         DataAgentSpec, "build_llm", return_value=_EchoLLM()
     ), patch.object(
         DataAgentSpec, "build_mcp_servers", return_value=[]
-    ), patch.object(
-        EngineerAgentSpec, "build_llm", return_value=_EchoLLM()
-    ), patch.object(
-        EngineerAgentSpec, "build_mcp_servers", return_value=[]
     ), patch.object(
         MasherAgentSpec, "build_llm", return_value=_EchoLLM()
     ):
@@ -142,11 +137,10 @@ def test_health_lists_pm_primary_and_support_agents(tmp_path: Path) -> None:
             health = client.get("/api/v1/health")
             assert health.status_code == 200
             payload = health.json()["data"]
-            assert payload["deployment"]["primary_agent_id"] == "pm"
+            assert payload["deployment"]["primary_agent_id"] == "data"
             assert {agent["agent_id"] for agent in payload["deployment"]["agents"]} == {
                 "pm",
                 "data",
-                "engineer",
                 "masher",
             }
 
@@ -156,10 +150,6 @@ def test_agents_can_be_invoked_directly(tmp_path: Path) -> None:
         DataAgentSpec, "build_llm", return_value=_EchoLLM()
     ), patch.object(
         DataAgentSpec, "build_mcp_servers", return_value=[]
-    ), patch.object(
-        EngineerAgentSpec, "build_llm", return_value=_EchoLLM()
-    ), patch.object(
-        EngineerAgentSpec, "build_mcp_servers", return_value=[]
     ), patch.object(
         MasherAgentSpec, "build_llm", return_value=_EchoLLM()
     ):
@@ -178,16 +168,6 @@ def test_agents_can_be_invoked_directly(tmp_path: Path) -> None:
             assert data_invoke.status_code == 200
             assert data_invoke.json()["data"]["response"]["text"] == "echo:hello data"
 
-            engineer_invoke = client.post(
-                "/api/v1/agent/engineer/invoke",
-                json={"message": "hello engineer", "session_id": "engineer-session"},
-            )
-            assert engineer_invoke.status_code == 200
-            assert (
-                engineer_invoke.json()["data"]["response"]["text"]
-                == "echo:hello engineer"
-            )
-
             masher_invoke = client.post(
                 "/api/v1/agent/masher/invoke",
                 json={"message": "hello masher", "session_id": "masher-session"},
@@ -201,10 +181,6 @@ def test_pm_can_delegate_to_data_subagent(tmp_path: Path) -> None:
         DataAgentSpec, "build_llm", return_value=_EchoLLM()
     ), patch.object(
         DataAgentSpec, "build_mcp_servers", return_value=[]
-    ), patch.object(
-        EngineerAgentSpec, "build_llm", return_value=_EchoLLM()
-    ), patch.object(
-        EngineerAgentSpec, "build_mcp_servers", return_value=[]
     ), patch.object(
         MasherAgentSpec, "build_llm", return_value=_EchoLLM()
     ):
@@ -222,10 +198,6 @@ def test_telemetry_events_are_read_from_agent_store(tmp_path: Path) -> None:
         DataAgentSpec, "build_llm", return_value=_EchoLLM()
     ), patch.object(
         DataAgentSpec, "build_mcp_servers", return_value=[]
-    ), patch.object(
-        EngineerAgentSpec, "build_llm", return_value=_EchoLLM()
-    ), patch.object(
-        EngineerAgentSpec, "build_mcp_servers", return_value=[]
     ), patch.object(
         MasherAgentSpec, "build_llm", return_value=_EchoLLM()
     ):
@@ -251,10 +223,6 @@ def test_pm_invoke_persists_unused_tool_signals(tmp_path: Path) -> None:
         DataAgentSpec, "build_llm", return_value=_EchoLLM()
     ), patch.object(
         DataAgentSpec, "build_mcp_servers", return_value=[]
-    ), patch.object(
-        EngineerAgentSpec, "build_llm", return_value=_EchoLLM()
-    ), patch.object(
-        EngineerAgentSpec, "build_mcp_servers", return_value=[]
     ), patch.object(
         MasherAgentSpec, "build_llm", return_value=_EchoLLM()
     ):

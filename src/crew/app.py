@@ -20,13 +20,13 @@ def build_host() -> MashAgentHost:
     return (
         MashAgentHostBuilder()
         .primary(
-            definition=pm,
-            agent_id=pm.get_agent_id(),
-        )
-        .subagent(
             definition=data,
             agent_id=data.get_agent_id(),
-            metadata=data.build_subagent_metadata(),
+        )
+        .subagent(
+            definition=pm,
+            agent_id=pm.get_agent_id(),
+            metadata=pm.build_subagent_metadata(),
         )
         .enable_masher()
         .build()

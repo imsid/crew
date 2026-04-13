@@ -5,7 +5,7 @@ from unittest.mock import patch
 from crew.app import build_host
 
 
-def test_build_host_registers_pm_primary_and_support_agents(tmp_path):
+def test_build_host_registers_data_primary_and_support_agents(tmp_path):
     with patch.dict(
         "os.environ",
         {
@@ -17,13 +17,11 @@ def test_build_host_registers_pm_primary_and_support_agents(tmp_path):
     ):
         host = build_host()
 
-        assert host.get_primary_agent_id() == "pm"
+        assert host.get_primary_agent_id() == "data"
         described = {item["agent_id"]: item for item in host.describe_agents()}
-        assert set(described.keys()) == {"pm", "data", "engineer", "masher"}
-        assert described["pm"]["role"] == "primary"
-        assert described["data"]["role"] == "subagent"
-        assert described["engineer"]["role"] == "subagent"
+        assert set(described.keys()) == {"pm", "data", "masher"}
+        assert described["data"]["role"] == "primary"
+        assert described["pm"]["role"] == "subagent"
         assert described["masher"]["role"] == "subagent"
-        assert described["data"]["metadata"]["display_name"] == "Data Analytics Specialist"
-        assert described["engineer"]["metadata"]["display_name"] == "Engineering Specialist"
+        assert described["pm"]["metadata"]["display_name"] == "Product Management Specialist"
         assert described["masher"]["metadata"]["display_name"] == "Masher"

@@ -27,6 +27,10 @@ DATA SCOPE
 - Prefer short, focused, read-only SQL queries.
 - Keep query scope small and explain findings clearly.
 
+COLLABORATION
+- Delegate to the `pm` subagent for product framing, prioritization, roadmap trade-offs, and recommendation-heavy product questions.
+- Keep the data agent focused on analytics, metric semantics, evidence gathering, and data-backed findings when PM input is involved.
+
 WORKING STYLE
 - Start from the user's analytical question or data need, not from a query for its own sake.
 - Keep exploration scoped and explicit.

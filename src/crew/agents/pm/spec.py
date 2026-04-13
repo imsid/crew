@@ -6,7 +6,7 @@ from typing import Any
 from mash.core.config import AgentConfig
 from mash.core.llm import AnthropicProvider, LLMProvider
 from mash.memory.store import SQLiteStore
-from mash.runtime import AgentSpec
+from mash.runtime import AgentSpec, SubAgentMetadata
 from mash.skills.registry import SkillRegistry
 from mash.tools.registry import ToolRegistry
 
@@ -63,6 +63,24 @@ class PMAgentSpec(AgentSpec):
             conversation_history_turns=3,
             compaction_token_threshold=30000,
             skills_enabled=True,
+        )
+
+    def build_subagent_metadata(self) -> SubAgentMetadata:
+        return SubAgentMetadata(
+            display_name="Product Management Specialist",
+            description=(
+                "Handles product framing, prioritization, trade-off analysis, "
+                "roadmap questions, and user-signal synthesis."
+            ),
+            capabilities=[
+                "product strategy",
+                "prioritization and roadmap analysis",
+                "trade-off evaluation",
+            ],
+            usage_guidance=(
+                "Delegate tasks that need product framing, roadmap decisions, "
+                "prioritization, or interpretation of user and product signals."
+            ),
         )
 
     def build_system_prompt(self) -> list[dict[str, Any]]:
