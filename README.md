@@ -1,97 +1,152 @@
 # crew
 
-`crew` is a virtual crew of role-based agents built on top of `mash`.
-It currently centers on two hosted agents:
+`crew` is a local agent workspace built on top of `mash`.
+It currently runs a data-first host where:
 
-- `pm`: help users think like a strong product manager
-- `data`: answer data and metrics questions through role-based skills
+- `data` is the primary agent for analytics, metrics, and evidence gathering
+- `pm` is a supporting subagent for product framing, prioritization, and trade-off analysis
+- `masher` is enabled for runtime diagnostics and evals.
 
-Two shared product surfaces are now first-class in the repo:
+For a higher-level product overview, see [docs/product.md](docs/product.md).
 
-- `metrics_layer`: deterministic semantic metric configs and SQL compilation
-- `artifacts`: reusable Markdown files created from agent conversations
+## What Crew Includes
 
-Artifacts are created explicitly by the agent via the shared `create-artifact` skill. Artifact files live under `.mash/artifacts/`.
+- `metrics_layer`: semantic metric and source definitions plus SQL compilation
+- `artifacts`: reusable Markdown outputs created from agent conversations
+- `crew` CLI: the main interface for conversational work, metrics commands, and artifact commands
+- Mash host runtime: the execution engine that powers the local agent host
 
-## Running the host
+## Local Setup
 
-Set `MASH_DATA_DIR` to the directory where runtime state for every agent is stored.
-By default, `build_host()` sets `MASH_DATA_DIR=.mash`, so Mash stores each agent under `.mash/<agent>/state.db`.
-Structured runtime events and turns live in that SQLite database's `logs` and `turns` table respectively.
+### Prerequisites
 
-Start the built-in Mash host:
+- Python 3.10+
+- [`uv`](https://docs.astral.sh/uv/)
+- an Anthropic API key
+- BigQuery access for the data agent
+
+### 1. Clone the repo
+
+```bash
+git clone <your-repo-url>
+cd mash-crew
+```
+
+### 2. Install dependencies
+
+```bash
+uv sync --extra dev
+source .venv/bin/activate
+```
+
+Activating `.venv` puts the local `crew` and `mash` entrypoints on your `PATH` for the current shell.
+
+### 3. Configure agent environment
+
+`crew.app:build_host` currently loads the `data` and `pm` agent environments.
+Shell environment variables take precedence over agent `.env` files.
+
+Create `src/crew/agents/data/.env` with:
+
+```bash
+ANTHROPIC_API_KEY=your_anthropic_key
+ANTHROPIC_MODEL=claude-haiku-4-5-20251001
+BIGQUERY_PROJECT_ID=your_gcp_project_id
+BIGQUERY_MCP_URL=https://bigquery.googleapis.com/mcp
+GOOGLE_APPLICATION_CREDENTIALS=/absolute/path/to/service-account.json
+GOOGLE_CLOUD_PROJECT=your_gcp_project_id
+```
+
+Field notes:
+
+- `ANTHROPIC_API_KEY`: required
+- `ANTHROPIC_MODEL`: optional, defaults to `claude-haiku-4-5-20251001`
+- `BIGQUERY_PROJECT_ID`: required for the current data-agent workflow
+- `BIGQUERY_MCP_URL`: optional, defaults to `https://bigquery.googleapis.com/mcp`
+- `GOOGLE_APPLICATION_CREDENTIALS`: required for the standard local service-account setup
+- `GOOGLE_CLOUD_PROJECT`: recommended for local ADC / Google client resolution
+
+Create `src/crew/agents/pm/.env` with:
+
+```bash
+ANTHROPIC_API_KEY=your_anthropic_key
+ANTHROPIC_MODEL=claude-haiku-4-5-20251001
+```
+
+Field notes:
+
+- `ANTHROPIC_API_KEY`: required
+- `ANTHROPIC_MODEL`: optional, defaults to `claude-haiku-4-5-20251001`
+
+### 4. Start the local host
+
+`crew` uses Mash as its host runtime. Start the host with:
 
 ```bash
 mash host serve --host-app crew.app:build_host
 ```
 
+By default, runtime state is stored under `.mash/`.
+If `MASH_DATA_DIR` is not set, `build_host()` defaults it to `.mash`.
 
-## Interacting with the agents
+### 5. Connect once
 
-Connect once to write the default `api_base_url`, optional `api_key`, and optional default agent to `~/.mash/cli.json`.
-Later `mash repl`, `mash status`, `mash agents`, and `crew agent ...` can reuse that config.
+Save the local host URL and default agent:
 
 ```bash
 mash connect --api-base-url http://127.0.0.1:8000 --agent data
 ```
 
-Use the built-in Mash CLI for conversational work:
+After this, `crew agent ...` commands can reuse the saved connection.
+
+## Using The Crew CLI
+
+### Agent mode
+
+Use agent mode for free-form questions and conversational workflows:
 
 ```bash
-mash repl
-mash repl --agent data
-mash invoke "Create an artifact from this session"
-mash invoke --agent data "Compile metric spend_total for marketing"
+crew agent repl --agent data
+crew agent invoke --agent data "What changed in activation over the last 4 weeks?"
 ```
 
-PM is the default primary agent.
-Data is directly addressable by agent id and available to PM through `InvokeSubagent`.
-Masher is registered as a built-in subagent for runtime diagnostics against the configured Mash event store, including recent sessions and traces.
+### Command mode
 
-## Artifact workflow
+Use command mode for direct deterministic operations against metrics and artifacts:
+
+```bash
+crew metrics list --dataset marketing
+crew metrics show --dataset marketing --kind metric --name spend_total
+crew metrics compile --dataset marketing --metric spend_total --dimension campaign_id
+
+crew artifact list
+crew artifact show launch_readout_q2
+crew artifact search "launch readiness"
+```
+
+## Artifact Workflow
 
 Artifacts are created inside an agent conversation, not through a separate CLI mutation command.
 
 Typical flow:
 
 ```bash
-mash repl
+crew agent repl --agent data
 ```
 
-Then ask the current agent to:
+Then ask the agent to:
 
 - `create an artifact from this session`
 - `turn this analysis into an artifact`
 - `find the artifact about activation experiments`
 
-The shared `create-artifact` skill uses Mash runtime memory tools to inspect the current session, drafts flexible Markdown with required frontmatter plus `## Summary` and `## Next Steps`, and writes the file to `.mash/artifacts/<artifact_id>.md`.
+Artifact files live under `.mash/artifacts/`.
+They are reusable Markdown outputs that teams can search, read, and reference later.
 
-## Crew CLI
-
-`crew` is a lightweight wrapper around Mash plus local deterministic services.
-
-Examples:
-
-```bash
-crew agent repl --agent data
-crew agent invoke --agent data "Compile metric spend_total for marketing"
-
-crew artifact list
-crew artifact show launch_readout_q2
-crew artifact search "launch readiness"
-
-crew metrics list --dataset marketing
-crew metrics show --dataset marketing --kind metric --name spend_total
-crew metrics compile --dataset marketing --metric spend_total --dimension campaign_id
-```
-
-`crew artifact` is read-only in v1.
-Artifact creation remains agent-led inside `mash repl`.
-
-## Internal modules
+## Internal Modules
 
 - `crew.app`: host entrypoint with `build_host()`
-- `crew.metrics_layer`: shared metrics-layer validation and SQL compilation
+- `crew.metrics_layer`: semantic metric definitions and SQL compilation
 - `crew.artifacts`: artifact schema, deterministic CRUD/search services, and agent tools
 - `crew.skills`: shared skills available to crew agents, including `create-artifact`
-- `crew.cli`: lightweight wrapper for `agent`, `artifact`, and `metrics` commands
+- `crew.cli`: CLI for agent mode plus metrics and artifact command mode

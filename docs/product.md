@@ -1,106 +1,169 @@
-# Crew Product Capabilities
+# Crew Agent
 
-`crew` is an internal agent workspace for data, product and go-to-market teams. At a high level, it helps teams ask better questions, ground answers in trusted metrics, and turn useful outputs into reusable artifacts.
+`crew` is a local agent workspace built on top of `mash`.
+Its current product model is intentionally simple:
 
-## What Crew Does
+- `data` is the primary agent and main user entry point
+- `pm` is a specialist subagent for product judgment
+- `crew` CLI exposes both conversational workflows and direct command workflows
 
-- Gives stakeholders a conversational interface for product and data questions.
-- Grounds analytical answers in the `metrics_layer` instead of ad hoc warehouse logic.
-- Brings in product reasoning when a request needs prioritization, trade-off analysis, or roadmap framing.
-- Turns strong outputs into reusable Markdown artifacts that teams can share, revisit, and build on together.
+The goal is to help teams move from business questions to grounded answers, and from one-off answers to reusable collaborative artifacts and shared operating model. Current warehouse support is BigQuery.
 
-## Core Experience
 
-Today, `crew` works as a focused two-agent system:
+## Two Ways To Use Crew
 
-- `data`: the primary agent for analytics, metrics, SQL planning, evidence gathering, and first-pass stakeholder support
-- `pm`: a specialist subagent for product framing, prioritization, recommendations, and trade-off analysis
+### Command Mode
 
-This means users do not need to know which agent to ask first. They start with one prompt, and `crew` routes to the right capability as needed.
+Command mode is for direct, deterministic interactions with local product surfaces.
+Instead of asking a free-form question, the user calls a specific CLI command.
+
+Examples:
+
+```bash
+crew metrics list --dataset marketing
+crew metrics show --dataset marketing --kind metric --name spend_total
+crew metrics compile --dataset marketing --metric spend_total --dimension campaign_id
+
+crew artifact list
+crew artifact show launch_readout_q2
+crew artifact search "launch readiness"
+```
+
+Use command mode when:
+
+- the user knows exactly what they want to inspect
+- the task is operational rather than conversational
+- the user wants direct access to metric configs, compiled SQL, or saved artifacts
+
+### Agent Mode
+
+Agent mode is for free-form, conversational questions.
+This is the right mode when the user wants `crew` to interpret the request, choose the right analytical path, and respond interactively.
+
+`crew` is a focused two-agent system:
+
+- `data`: analytics, metrics, SQL planning, evidence gathering, and first-pass stakeholder support
+- `pm`: prioritization, roadmap framing, trade-off analysis, and recommendation support
+
+Users begin with the `data` agent. When a question requires product judgment rather than just analysis, `crew` can bring in the `pm` subagent.
 
 ```mermaid
 flowchart LR
     U["User question"] --> D["Data agent"]
-    D --> M["Metrics layer + BigQuery evidence"]
-    D --> P["PM subagent (when product judgment is needed)"]
-    M --> O["Grounded answer"]
+    D --> ML["Metrics layer + BigQuery evidence"]
+    D --> P["PM subagent"]
+    ML --> O["Grounded answer"]
     P --> O
     O --> A["Optional artifact"]
 ```
 
-## Why The Data Agent Matters
+Examples:
 
-The `data` agent is the main way stakeholders interact with `crew`. It is designed to answer the first question most teams have: "What is happening, and what does the evidence say?"
+```bash
+crew agent repl --agent data
+crew agent invoke --agent data "What changed in activation over the last 4 weeks?"
+crew agent invoke --agent data "Turn this analysis into a short launch readout."
+```
 
-High-level capabilities:
+Use agent mode when:
 
-- Analyze product, marketing, and funnel performance through trusted metric definitions
-- Translate business questions into metric selections, dimensions, filters, and SQL plans
-- Investigate trends, changes, segment performance, and metric behavior
-- Pull in PM support when a question shifts from analysis into prioritization or recommendation
-- Turn strong findings into artifacts that can be reused across teams
+- the question is open-ended
+- the user wants analysis plus explanation
+- the task may become a reusable artifact
+- the data agent may need PM support for framing or recommendation
 
-## What Stakeholders Can Use It For
+## Common questions
 
-- Understand performance: ask about metrics, trends, cohorts, and funnel questions
-- Make product decisions: bring data-backed findings into prioritization and trade-off discussions
-- Create reusable outputs: turn a good session into a brief, readout, or analysis artifact
-- Revisit prior work: search and read saved artifacts without rerunning the full conversation
+- "what changed in activation over the last 4 weeks?"
+- "break down paid conversion by channel and campaign."
+- "which step in the onboarding funnel is driving the largest drop-off?"
+- "how did retention move for users acquired after the new launch?"
+- "what metrics should we use to evaluate this launch?"
+- "what metrics do we already have for the marketing dataset?"
+- "create a metric for weekly activated users."
+- "update the retention metric so it supports platform as a dimension."
+- "add a source config for our new onboarding events table."
+- "turn this analysis into a short launch readout I can share."
+- "given these results, what should we prioritize next quarter?"
 
-## Example Questions Stakeholders Can Ask
+## Context and Memory
 
-- "What changed in activation over the last 4 weeks?"
-- "Break down paid conversion by channel and campaign."
-- "Which step in the onboarding funnel is driving the largest drop-off?"
-- "How did retention move for users acquired after the new launch?"
-- "What metrics should we use to evaluate this launch?"
-- "Turn this analysis into a short launch readout I can share."
-- "Given these results, what should we prioritize next quarter?"
+The `data` agent is not meant to answer from intuition alone.
+It is grounded by four core product layers:
 
-## How Answers Stay Grounded
+- the `metrics_layer` service
+- the `artifacts` service
+- the `data-analyst` and `data-steward` skills
+- inbuilt `MemoryStore` layer provided by mash
 
-`crew` is designed to separate opinion from evidence.
+Together, these give the agent a structured way to reason about business logic, reuse prior work, and keep analysis tied to durable definitions.
 
-- Data questions are resolved through the semantic `metrics_layer`
-- Metric definitions are compiled into SQL before execution
-- Product recommendations can incorporate PM reasoning, but the supporting evidence still comes from the data path
+The memory layer is what preserves conversational context over time. Agent sessions are stored through the `MemoryStore` interface, which persists conversation turns, structured logs, signals, preferences, and app data for each session. In the current local setup, that memory is backed by SQLite, which gives the agent durable session history instead of treating every interaction as stateless.
+
+## Metrics Layer
+
+The `metrics_layer` is the semantic source of truth for metric and source definitions. It offers:
+
+- stable source and metric configs
+- schema-driven validation for metric authoring
+- deterministic compilation from semantic metric definitions to executable SQL
+- a clean contract between business logic and warehouse execution
+
+This is what keeps the data agent grounded in config-defined business logic rather than handwritten ad hoc SQL.
+
+In practice, the flow is:
 
 ```mermaid
 flowchart TD
-    Q["Business question"] --> C["Crew"]
-    C --> ML["Metrics layer config"]
-    ML --> SQL["Compiled SQL plan"]
+    Q["Business question"] --> M["Metrics layer config"]
+    M --> SQL["Compiled SQL plan"]
     SQL --> BQ["BigQuery execution"]
     BQ --> F["Findings"]
-    F --> PM["Optional PM framing"]
-    PM --> R["Answer or artifact"]
-    F --> R
 ```
 
-## Artifacts As A Collaboration Layer
+## Artifacts Service
 
-Artifacts are how useful work in `crew` becomes reusable team knowledge.
+The `artifacts` service is the collaboration layer for `crew`. It offers:
 
-- A good analysis can be turned into a Markdown artifact instead of staying trapped in one chat
-- Teams can search, open, and reference artifacts later without recreating the work
-- Product, GTM, and data stakeholders can align around the same written output
-- Artifacts make it easier to share readouts, launch briefs, and analyses across functions
+- durable Markdown outputs stored under `.mash/artifacts/`
+- searchable prior analyses, readouts, briefs, and plans
+- reusable context that the data agent can pull back into a live conversation
+- a lightweight way for product, GTM, and data teams to align on the same written output
 
-In practice, artifacts turn `crew` from a question-answering tool into a lightweight collaboration surface.
+Artifacts matter because they turn a useful conversation into team knowledge instead of leaving it trapped in one session.
 
-## Outputs Teams Can Expect
+## Data-Agent Skills
 
-- A direct answer to the original question
-- Clear evidence and analytical reasoning behind the answer
-- Product framing when the question requires prioritization or a recommendation
-- A reusable Markdown artifact when the output should persist beyond the chat and be shared with others
+The data agent relies on specialized skills to stay disciplined about how it works.
 
-## Why This Matters
+### `data-analyst`
 
-The value of `crew` is not just that it answers questions. It helps teams move from:
+The `data-analyst` skill is for metric-backed analysis.
+It keeps the agent focused on:
 
-- raw metrics to decisions
-- one-off analysis to reusable artifacts
-- separate product and data conversations to a single workflow
+- reading metric and source definitions
+- selecting the right dimensions, filters, and date ranges
+- compiling semantic metrics to SQL
+- executing analysis through the warehouse path rather than inventing business logic on the fly
 
-In practice, that means faster stakeholder readouts, more consistent decision quality, and less time lost recreating work that already happened in a previous thread.
+### `data-steward`
+
+The `data-steward` skill is for semantic config authoring and refinement.
+It keeps config changes:
+
+- schema-driven
+- deterministic
+- approval-gated
+- grounded in the existing metrics-layer model
+
+This is important because it means `crew` can support both analysis and semantic maintenance without collapsing those two jobs into one uncontrolled workflow.
+
+
+## Upcoming Features
+
+The next layer of value comes from making the outputs more interactive, collaborative, and portable.
+
+- interactive visualizations for metric-backed analysis
+- richer artifact collaboration and sharing workflows
+- broader workflow support around reusable analysis paths
+- support for additional databases and warehouses beyond BigQuery

@@ -16,6 +16,7 @@ def test_data_system_prompt_includes_pm_delegation_guidance() -> None:
     assert "Delegate to the `pm` subagent" in joined
     assert "product framing" in joined
     assert "roadmap trade-offs" in joined
+    assert "search artifacts before recreating the work" in joined
 
 
 def test_data_system_prompt_uses_one_cached_block_before_runtime_injection() -> None:
