@@ -62,14 +62,18 @@ Users begin with the `data` agent. When a question requires product judgment rat
 flowchart LR
     U["User question"] --> D
     D --> O["Grounded answer"]
-    O --> A["Publish artifact"]
+    O --> PA["Publish artifact"]
 
     subgraph D["Data agent"]
-        direction LR
+        MD["LLM"]
         ML["Metrics layer"]
         E["Experimentation service"]
         A["Artifacts"]
         P["PM subagent"]
+        MD --> ML
+        MD --> E
+        MD --> A
+        MD --> P
     end
 ```
 
