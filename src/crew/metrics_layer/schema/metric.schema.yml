@@ -7,6 +7,7 @@ required:
   - label
   - type
   - base_source
+additionalProperties: false
 properties:
   kind:
     type: string

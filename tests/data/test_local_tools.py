@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-import asyncio
 import ast
+import asyncio
 import json
 import tempfile
 import unittest
 from pathlib import Path
 
-from crew.agents.data.tools import build_analyst_tools
+from crew.agents.data.tools import build_analyst_tools, build_steward_tools
 
 
 class CompileMetricConfigsToSQLTests(unittest.TestCase):
@@ -17,7 +17,7 @@ class CompileMetricConfigsToSQLTests(unittest.TestCase):
         self.tmpdir = tempfile.TemporaryDirectory()
         self.root = Path(self.tmpdir.name)
         self.metrics_root = (
-            self.root / ".mash" / "metrics_layer" / "configs" / "marketing"
+            self.root / ".mash" / "metrics_layer" / "configs" / "marketing_db"
         )
         (self.metrics_root / "sources").mkdir(parents=True, exist_ok=True)
         (self.metrics_root / "metrics").mkdir(parents=True, exist_ok=True)
@@ -38,7 +38,7 @@ class CompileMetricConfigsToSQLTests(unittest.TestCase):
     def test_compile_simple_metric_default_limit(self) -> None:
         result = self._execute(
             {
-                "dataset_id": "marketing",
+                "dataset_id": "marketing_db",
                 "metric_names": ["spend_total"],
             }
         )
@@ -47,7 +47,7 @@ class CompileMetricConfigsToSQLTests(unittest.TestCase):
         payload = json.loads(result.content)
 
         self.assertEqual(list(payload.keys()), ["dataset_id", "count", "plans"])
-        self.assertEqual(payload["dataset_id"], "marketing")
+        self.assertEqual(payload["dataset_id"], "marketing_db")
         self.assertEqual(payload["count"], 1)
 
         plan = payload["plans"][0]
@@ -66,7 +66,7 @@ class CompileMetricConfigsToSQLTests(unittest.TestCase):
             ],
         )
         self.assertEqual(plan["metric_name"], "spend_total")
-        self.assertIn("marketing.campaign_ads", plan["table_ref"])
+        self.assertIn("marketing_db.campaign_ads", plan["table_ref"])
         self.assertIn("SUM(spend) AS metric_value", plan["sql"])
         self.assertIn("LIMIT 100", plan["sql"])
         self.assertEqual(plan["limit"], 100)
@@ -74,7 +74,7 @@ class CompileMetricConfigsToSQLTests(unittest.TestCase):
     def test_compile_ratio_metric_with_referenced_metric_ids(self) -> None:
         result = self._execute(
             {
-                "dataset_id": "marketing",
+                "dataset_id": "marketing_db",
                 "metric_names": ["ctr"],
                 "dimensions": ["campaign_id"],
                 "order_by": [{"field": "metric_value", "direction": "DESC"}],
@@ -93,7 +93,7 @@ class CompileMetricConfigsToSQLTests(unittest.TestCase):
     def test_compile_ratio_metric_with_embedded_metric_expression(self) -> None:
         result = self._execute(
             {
-                "dataset_id": "marketing",
+                "dataset_id": "marketing_db",
                 "metric_names": ["cpm"],
             }
         )
@@ -108,7 +108,7 @@ class CompileMetricConfigsToSQLTests(unittest.TestCase):
     def test_compile_multiple_metrics_preserves_input_order(self) -> None:
         result = self._execute(
             {
-                "dataset_id": "marketing",
+                "dataset_id": "marketing_db",
                 "metric_names": ["clicks_total", "spend_total"],
             }
         )
@@ -124,7 +124,7 @@ class CompileMetricConfigsToSQLTests(unittest.TestCase):
     def test_rejects_unknown_metric(self) -> None:
         result = self._execute(
             {
-                "dataset_id": "marketing",
+                "dataset_id": "marketing_db",
                 "metric_names": ["does_not_exist"],
             }
         )
@@ -137,7 +137,7 @@ class CompileMetricConfigsToSQLTests(unittest.TestCase):
     def test_rejects_unknown_source(self) -> None:
         result = self._execute(
             {
-                "dataset_id": "marketing",
+                "dataset_id": "marketing_db",
                 "metric_names": ["broken_source"],
             }
         )
@@ -151,7 +151,7 @@ class CompileMetricConfigsToSQLTests(unittest.TestCase):
     def test_rejects_invalid_dimension(self) -> None:
         result = self._execute(
             {
-                "dataset_id": "marketing",
+                "dataset_id": "marketing_db",
                 "metric_names": ["spend_total"],
                 "dimensions": ["not_a_dimension"],
             }
@@ -165,7 +165,7 @@ class CompileMetricConfigsToSQLTests(unittest.TestCase):
     def test_rejects_invalid_date_range(self) -> None:
         result = self._execute(
             {
-                "dataset_id": "marketing",
+                "dataset_id": "marketing_db",
                 "metric_names": ["spend_total"],
                 "date_range": {
                     "dimension": "start_date",
@@ -183,7 +183,7 @@ class CompileMetricConfigsToSQLTests(unittest.TestCase):
     def test_rejects_invalid_order_field(self) -> None:
         result = self._execute(
             {
-                "dataset_id": "marketing",
+                "dataset_id": "marketing_db",
                 "metric_names": ["spend_total"],
                 "order_by": [{"field": "campaign_id", "direction": "ASC"}],
             }
@@ -197,7 +197,7 @@ class CompileMetricConfigsToSQLTests(unittest.TestCase):
     def test_limit_default_and_max_bound(self) -> None:
         default_result = self._execute(
             {
-                "dataset_id": "marketing",
+                "dataset_id": "marketing_db",
                 "metric_names": ["clicks_total"],
             }
         )
@@ -207,7 +207,7 @@ class CompileMetricConfigsToSQLTests(unittest.TestCase):
 
         max_bound_result = self._execute(
             {
-                "dataset_id": "marketing",
+                "dataset_id": "marketing_db",
                 "metric_names": ["clicks_total"],
                 "limit": 1001,
             }
@@ -223,10 +223,11 @@ class CompileMetricConfigsToSQLTests(unittest.TestCase):
             """kind: source
 version: 1
 id: ad_performance
-dataset: marketing
+dataset: marketing_db
 table: campaign_ads
-grain:
+subject:
   - campaign_ad_id
+ts: start_date
 dimensions:
   - name: campaign_ad_id
     expr: campaign_ad_id
@@ -327,6 +328,122 @@ expr: spend
         for metric_name, content in metrics.items():
             metric_path = self.metrics_root / "metrics" / f"{metric_name}.yml"
             metric_path.write_text(content, encoding="utf-8")
+
+
+class StewardSourceValidationTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmpdir.name)
+        tools = build_steward_tools(workspace_root=self.root)
+        self.write_tool = next(
+            tool
+            for tool in tools
+            if tool.name == "validate_and_write_metrics_layer_config"
+        )
+
+    def tearDown(self) -> None:
+        self.tmpdir.cleanup()
+
+    def _execute(self, args: dict[str, object]):
+        return asyncio.run(self.write_tool.execute(args))
+
+    def test_accepts_source_with_subject_and_ts(self) -> None:
+        result = self._execute(
+            {
+                "kind": "source",
+                "dataset_id": "marketing_db",
+                "name": "customers",
+                "create_dirs": True,
+                "content": """kind: source
+version: 1
+id: customers
+dataset: marketing_db
+table: customers
+subject:
+  - customer_id
+ts: created_at
+dimensions:
+  - name: customer_id
+    expr: customer_id
+    data_type: STRING
+  - name: created_at
+    expr: created_at
+    data_type: TIMESTAMP
+measures:
+  - name: row_count
+    expr: "1"
+    agg: COUNT
+    data_type: INT64
+""",
+            }
+        )
+
+        self.assertFalse(result.is_error)
+        payload = json.loads(result.content)
+        self.assertEqual(payload["status"], "written")
+
+    def test_rejects_legacy_grain_field(self) -> None:
+        result = self._execute(
+            {
+                "kind": "source",
+                "dataset_id": "marketing_db",
+                "name": "customers",
+                "create_dirs": True,
+                "content": """kind: source
+version: 1
+id: customers
+dataset: marketing_db
+table: customers
+grain:
+  - customer_id
+dimensions:
+  - name: customer_id
+    expr: customer_id
+    data_type: STRING
+measures:
+  - name: row_count
+    expr: "1"
+    agg: COUNT
+    data_type: INT64
+""",
+            }
+        )
+
+        self.assertTrue(result.is_error)
+        self.assertIn("unexpected key 'grain'", result.content)
+
+    def test_rejects_ts_not_declared_as_dimension(self) -> None:
+        result = self._execute(
+            {
+                "kind": "source",
+                "dataset_id": "marketing_db",
+                "name": "customers",
+                "create_dirs": True,
+                "content": """kind: source
+version: 1
+id: customers
+dataset: marketing_db
+table: customers
+subject:
+  - customer_id
+ts: created_at
+dimensions:
+  - name: customer_id
+    expr: customer_id
+    data_type: STRING
+measures:
+  - name: row_count
+    expr: "1"
+    agg: COUNT
+    data_type: INT64
+""",
+            }
+        )
+
+        self.assertTrue(result.is_error)
+        self.assertIn(
+            "source.ts 'created_at' must reference a declared dimension", result.content
+        )
 
 
 class ToolsModuleStructureTests(unittest.TestCase):

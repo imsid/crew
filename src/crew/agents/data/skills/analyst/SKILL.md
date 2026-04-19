@@ -1,5 +1,5 @@
 ---
-name: data-analyst
+name: analyst
 description: Role for metrics-driven analysis grounded in metrics_layer source and metric configs. Use when the user asks to analyze performance with metrics, list available metrics, discover analysis themes, or identify/suggest missing metrics to create.
 ---
 

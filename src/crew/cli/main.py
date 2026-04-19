@@ -12,6 +12,14 @@ from mash.cli.shell import MashRemoteShell, ShellTarget
 
 from ..artifacts.service.context import build_tool_context as build_artifact_context
 from ..artifacts.service.repo import list_artifacts, read_artifact, search_artifacts
+from ..experimentation.service.context import (
+    build_tool_context as build_experiment_context,
+)
+from ..experimentation.service.tool_entrypoints import (
+    compile_experiment_analysis_sql,
+    list_experiment_configs_tool,
+    read_experiment_config_tool,
+)
 from ..metrics_layer.service.context import build_tool_context as build_metrics_context
 from ..metrics_layer.service.tool_entrypoints import (
     compile_metric_configs_to_sql,
@@ -146,6 +154,28 @@ def build_parser() -> argparse.ArgumentParser:
     metrics_compile.add_argument("--start", default=None, help="Date range start YYYY-MM-DD")
     metrics_compile.add_argument("--end", default=None, help="Date range end YYYY-MM-DD")
 
+    experiment = subparsers.add_parser(
+        "experiment", help="Inspect local experimentation configs"
+    )
+    experiment_subparsers = experiment.add_subparsers(dest="experiment_command")
+
+    experiment_list = experiment_subparsers.add_parser(
+        "list", help="List experiment configs"
+    )
+    experiment_list.add_argument("--dataset", required=True, help="Dataset identifier")
+
+    experiment_show = experiment_subparsers.add_parser(
+        "show", help="Show one experiment config"
+    )
+    experiment_show.add_argument("--dataset", required=True, help="Dataset identifier")
+    experiment_show.add_argument("--name", required=True, help="Experiment config name")
+
+    experiment_plan = experiment_subparsers.add_parser(
+        "plan", help="Compile experiment SQL plans"
+    )
+    experiment_plan.add_argument("--dataset", required=True, help="Dataset identifier")
+    experiment_plan.add_argument("--name", required=True, help="Experiment config name")
+
     return parser
 
 
@@ -161,6 +191,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run_artifact_command(args, renderer)
         if args.command == "metrics":
             return _run_metrics_command(args, renderer)
+        if args.command == "experiment":
+            return _run_experiment_command(args, renderer)
     except Exception as exc:
         renderer.error(str(exc))
         return 1
@@ -325,6 +357,51 @@ def _run_metrics_command(args: argparse.Namespace, renderer: RichRenderer) -> in
         return 0
 
     raise ValueError("metrics command is required")
+
+
+def _run_experiment_command(args: argparse.Namespace, renderer: RichRenderer) -> int:
+    context = build_experiment_context(PROJECT_ROOT)
+
+    if args.experiment_command == "list":
+        result = list_experiment_configs_tool({"dataset_id": args.dataset}, context)
+        if result.is_error:
+            raise ValueError(result.content)
+        payload = json.loads(result.content)
+        rows = [[item["name"], item["path"]] for item in payload["configs"]]
+        renderer.table(["Experiment", "Path"], rows)
+        return 0
+
+    if args.experiment_command == "show":
+        result = read_experiment_config_tool(
+            {"dataset_id": args.dataset, "name": args.name},
+            context,
+        )
+        if result.is_error:
+            raise ValueError(result.content)
+        payload = json.loads(result.content)
+        renderer.info(f"Path: {payload['path']}")
+        renderer.markdown(f"```yaml\n{payload['content']}\n```")
+        return 0
+
+    if args.experiment_command == "plan":
+        result = compile_experiment_analysis_sql(
+            {"dataset_id": args.dataset, "name": args.name},
+            context,
+        )
+        if result.is_error:
+            raise ValueError(result.content)
+        payload = json.loads(result.content)
+        renderer.info(
+            f"Experiment: {payload['experiment_id']} | Variants: {len(payload['variants'])}"
+        )
+        renderer.info("Exposure summary")
+        renderer.markdown(f"```sql\n{payload['plans']['exposure_summary']['sql']}\n```")
+        for metric_plan in payload["plans"]["metric_summaries"]:
+            renderer.info(f"Metric: {metric_plan['metric_id']}")
+            renderer.markdown(f"```sql\n{metric_plan['sql']}\n```")
+        return 0
+
+    raise ValueError("experiment command is required")
 
 
 if __name__ == "__main__":

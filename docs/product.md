@@ -27,9 +27,13 @@ Instead of asking a free-form question, the user calls a specific CLI command.
 Examples:
 
 ```bash
-crew metrics list --dataset marketing
-crew metrics show --dataset marketing --kind metric --name spend_total
-crew metrics compile --dataset marketing --metric spend_total --dimension campaign_id
+crew metrics list --dataset marketing_db
+crew metrics show --dataset marketing_db --kind metric --name spend_total
+crew metrics compile --dataset marketing_db --metric spend_total --dimension campaign_id
+
+crew experiment list --dataset marketing_db
+crew experiment show --dataset marketing_db --name signup_checkout_test
+crew experiment plan --dataset marketing_db --name signup_checkout_test
 
 crew artifact list
 crew artifact show launch_readout_q2
@@ -40,7 +44,7 @@ Use command mode when:
 
 - the user knows exactly what they want to inspect
 - the task is operational rather than conversational
-- the user wants direct access to metric configs, compiled SQL, or saved artifacts
+- the user wants direct access to metric configs, experiment configs, compiled SQL, or saved artifacts
 
 ### Agent Mode
 
@@ -56,12 +60,16 @@ Users begin with the `data` agent. When a question requires product judgment rat
 
 ```mermaid
 flowchart LR
-    U["User question"] --> D["Data agent"]
-    D --> ML["Metrics layer + BigQuery evidence"]
-    D --> P["PM subagent"]
-    ML --> O["Grounded answer"]
-    P --> O
-    O --> A["Optional artifact"]
+    U["User question"] --> D
+    D --> O["Grounded answer"]
+    O --> A["Publish artifact"]
+
+    subgraph D["Data agent"]
+        direction LR
+        ML["Metrics layer"]
+        E["Experimentation service"]
+        P["PM subagent"]
+    end
 ```
 
 Examples:
@@ -85,6 +93,8 @@ Use agent mode when:
 - "break down paid conversion by channel and campaign."
 - "which step in the onboarding funnel is driving the largest drop-off?"
 - "how did retention move for users acquired after the new launch?"
+- "show me the results of signup_checkout_test."
+- "is there any imbalance in homepage_hero_test?"
 - "what metrics should we use to evaluate this launch?"
 - "what metrics do we already have for the marketing dataset?"
 - "create a metric for weekly activated users."
@@ -96,11 +106,12 @@ Use agent mode when:
 ## Context and Memory
 
 The `data` agent is not meant to answer from intuition alone.
-It is grounded by four core product layers:
+It is grounded by five core product layers:
 
 - the `metrics_layer` service
+- the `experimentation` service
 - the `artifacts` service
-- the `data-analyst` and `data-steward` skills
+- the `analyst`, `experiment-analyst`, and `steward` skills
 - inbuilt `MemoryStore` layer provided by mash
 
 Together, these give the agent a structured way to reason about business logic, reuse prior work, and keep analysis tied to durable definitions.
@@ -128,6 +139,49 @@ flowchart TD
     BQ --> F["Findings"]
 ```
 
+The source contract now makes experiment joinability explicit:
+
+- `subject`: one or more declared dimension names that tie a source back to the experiment subject
+- `ts`: the canonical timestamp dimension used for post-exposure attribution and filtering
+
+This keeps experiment analysis grounded in the same semantic source definitions as regular metric analysis.
+
+## Experimentation Service
+
+The `experimentation` service is the deterministic layer for experiment readouts. It offers:
+
+- experiment configs stored under `.mash/experimentation/configs/<dataset_id>/experiments/`
+- a fixed exposure-table contract backed by the BigQuery `experiment_exposures` table
+- validation that experiment configs reference metrics-layer metric ids only
+- deterministic SQL planning for:
+  - canonical first exposures by subject and variant
+  - SRM / imbalance inputs
+  - post-exposure metric summary plans using metrics-layer source `subject` and `ts`
+- local statistical analysis for experiment readouts after the warehouse queries return
+
+This is what keeps experiment workflows grounded in stable config and source-of-truth exposure events instead of ad hoc joins.
+
+In practice, the flow is:
+
+```mermaid
+flowchart TD
+    Q["Experiment question"] --> C["Experiment config"]
+    C --> X["Canonical experiment_exposures logic"]
+    C --> M["Metrics-layer metric ids"]
+    X --> SQL["Deterministic SQL plans"]
+    M --> SQL
+    SQL --> BQ["BigQuery execution"]
+    BQ --> S["Local stats engine"]
+    S --> F["Experiment findings"]
+```
+
+The current experiment contract assumes:
+
+- `experiment_exposures` is the only trusted source for assignment/exposure state
+- experiment configs declare variants, control arm, subject type, and metrics
+- experiment metrics must be metrics-layer metrics
+- v1 automatic experiment analysis supports sources with exactly one `subject` and a declared `ts`
+
 ## Artifacts Service
 
 The `artifacts` service is the collaboration layer for `crew`. It offers:
@@ -143,9 +197,9 @@ Artifacts matter because they turn a useful conversation into team knowledge ins
 
 The data agent relies on specialized skills to stay disciplined about how it works.
 
-### `data-analyst`
+### `analyst`
 
-The `data-analyst` skill is for metric-backed analysis.
+The `analyst` skill is for metric-backed analysis.
 It keeps the agent focused on:
 
 - reading metric and source definitions
@@ -153,9 +207,20 @@ It keeps the agent focused on:
 - compiling semantic metrics to SQL
 - executing analysis through the warehouse path rather than inventing business logic on the fly
 
-### `data-steward`
+### `experiment-analyst`
 
-The `data-steward` skill is for semantic config authoring and refinement.
+The `experiment-analyst` skill is for experiment-backed analysis.
+It keeps the agent focused on:
+
+- resolving experiment configs before querying
+- grounding assignment logic in `experiment_exposures`
+- grounding outcome logic in metrics-layer metric ids only
+- compiling deterministic exposure and metric summary SQL
+- answering questions like experiment results and SRM / imbalance checks interactively
+
+### `steward`
+
+The `steward` skill is for semantic config authoring and refinement.
 It keeps config changes:
 
 - schema-driven

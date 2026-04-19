@@ -17,6 +17,7 @@ from mash.skills.registry import SkillRegistry
 from mash.tools.registry import ToolRegistry
 
 from ...artifacts.tools import build_artifact_tools
+from ...experimentation.tools import build_experimentation_tools
 from ...metrics_layer.service.constants import METRICS_LAYER_SCHEMA_ROOT
 from ...shared.runtime_paths import PROJECT_ROOT
 from ...shared.skills import CREW_SKILLS_DIR, register_custom_skills
@@ -61,6 +62,8 @@ class DataAgentSpec(AgentSpec):
         tools = ToolRegistry()
         workspace_root = PROJECT_ROOT
         for tool in build_artifact_tools(workspace_root=workspace_root):
+            tools.register(tool)
+        for tool in build_experimentation_tools(workspace_root=workspace_root):
             tools.register(tool)
         for tool in build_steward_tools(workspace_root=workspace_root):
             tools.register(tool)
@@ -134,16 +137,17 @@ class DataAgentSpec(AgentSpec):
             display_name="Data Analytics Specialist",
             description=(
                 "Handles metrics-layer and BigQuery workflows, including metric definitions, "
-                "SQL plan generation, and dataset-level analysis."
+                "SQL plan generation, experiment analysis, and dataset-level analysis."
             ),
             capabilities=[
                 "metrics layer configuration",
                 "BigQuery exploration",
                 "metric SQL compilation",
+                "experiment analysis planning",
             ],
             usage_guidance=(
                 "Delegate tasks that require metric semantics, BigQuery table/query analysis, "
-                "or changes under the metrics_layer configuration tree."
+                "experiment analysis, or changes under the metrics_layer configuration tree."
             ),
         )
 

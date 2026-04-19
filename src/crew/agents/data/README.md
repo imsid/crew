@@ -7,6 +7,7 @@ The Data agent is hosted through `crew.app:build_host` and is addressed with `--
 - BigQuery MCP (remote exploration)
 - Metrics-layer configs under `.mash/metrics_layer/configs/`
 - Metrics-layer schemas under `src/crew/metrics_layer/schema/`
+- Experiment configs under `.mash/experimentation/configs/`
 
 ## Runtime state
 

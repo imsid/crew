@@ -18,7 +18,7 @@ The v1 product should be a collaborative workspace, not a smarter CLI. Users int
 - Use a web app as the primary surface. Keep the existing Mash host as the execution engine and add a thin crew application layer for threads, artifacts, workflows, and collaboration.
 - Treat every useful output as a first-class artifact. Good answers should become reusable team assets instead of disappearing in a chat log.
 - Make visualizations native. Every metric-backed answer should be able to render as a chart card, KPI card, table, or saved dashboard section.
-- Design around shared workflows, not isolated personas. Marketing analyses should be reusable by PM; PM launch artifacts should be reusable by GTM; support insights should feed product discovery.
+- Design around shared workflows, not isolated personas. marketing_db analyses should be reusable by PM; PM launch artifacts should be reusable by GTM; support insights should feed product discovery.
 
 ## Core Experience
 - `Workspace`: team-scoped home for threads, saved artifacts, dashboards, metric collections, and workflow runs.
@@ -120,7 +120,7 @@ The v1 product should be a collaborative workspace, not a smarter CLI. Users int
   - Add handoff and approval flows.
 - Phase 3: collaboration and scale
   - Shared dashboards, recurring review rooms, and richer comments/remix flows.
-  - Expand to marketing, sales, support, and research through the same workflow/artifact model rather than separate bespoke apps.
+  - Expand to marketing_db, sales, support, and research through the same workflow/artifact model rather than separate bespoke apps.
 
 ## Test Plan
 - Host tests

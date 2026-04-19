@@ -11,6 +11,8 @@ dependencies = [
   "python-dotenv>=1.0",
   "google-auth>=2",
   "PyYAML>=6.0",
+  "scipy>=1.13",
+  "statsmodels>=0.14",
 ]
 
 [project.scripts]

@@ -19,6 +19,7 @@ For a higher-level product overview, see [docs/product.md](docs/product.md).
 ## What Crew Includes
 
 - `metrics_layer`: semantic metric and source definitions plus SQL compilation
+- `experimentation`: deterministic experiment contracts and SQL planning
 - `artifacts`: reusable Markdown outputs created from agent conversations
 - `crew` CLI: the main interface for conversational work, metrics commands, and artifact commands
 - Mash host runtime: the execution engine that powers the local agent host
@@ -122,9 +123,13 @@ crew agent invoke --agent data "What changed in activation over the last 4 weeks
 Use command mode for direct deterministic operations against metrics and artifacts:
 
 ```bash
-crew metrics list --dataset marketing
-crew metrics show --dataset marketing --kind metric --name spend_total
-crew metrics compile --dataset marketing --metric spend_total --dimension campaign_id
+crew metrics list --dataset marketing_db
+crew metrics show --dataset marketing_db --kind metric --name spend_total
+crew metrics compile --dataset marketing_db --metric spend_total --dimension campaign_id
+
+crew experiment list --dataset marketing_db
+crew experiment show --dataset marketing_db --name signup_checkout_test
+crew experiment plan --dataset marketing_db --name signup_checkout_test
 
 crew artifact list
 crew artifact show launch_readout_q2
@@ -154,6 +159,7 @@ They are reusable Markdown outputs that teams can search, read, and reference la
 
 - `crew.app`: host entrypoint with `build_host()`
 - `crew.metrics_layer`: semantic metric definitions and SQL compilation
+- `crew.experimentation`: experiment configs, deterministic SQL planning, and stats helpers
 - `crew.artifacts`: artifact schema, deterministic CRUD/search services, and agent tools
 - `crew.skills`: shared skills available to crew agents, including `create-artifact`
 - `crew.cli`: CLI for agent mode plus metrics and artifact command mode

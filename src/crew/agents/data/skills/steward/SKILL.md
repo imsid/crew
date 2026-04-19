@@ -1,5 +1,5 @@
 ---
-name: data-steward
+name: steward
 description: Role for creating and updating metrics_layer source and metric configs with concise approval-gated workflows and strong config quality standards.
 ---
 
@@ -81,7 +81,8 @@ Use schema descriptions for field semantics and required structure. Use these be
 
 ### Source config
 - Keep naming consistent across related sources so joins and downstream metrics remain predictable.
-- Keep `grain` minimal and stable; avoid derived uniqueness keys unless required.
+- Keep `subject` aligned with the entity you need to join back to experiment assignment when relevant.
+- Use `ts` for the canonical event time when the source may participate in attribution workflows.
 - Prefer simple column expressions first; use computed expressions only when semantics require it.
 - Add joins only for real relationships and set conservative, accurate cardinality.
 - Prefer additive measures for reuse and easier rollups.

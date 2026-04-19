@@ -1,0 +1,71 @@
+type: object
+description: Schema for an experimentation config file.
+required:
+  - kind
+  - version
+  - id
+  - label
+  - dataset
+  - experiment_version
+  - control_variant
+  - subject_type
+  - variants
+  - metrics
+additionalProperties: false
+properties:
+  kind:
+    type: string
+    description: Discriminator for experiment config documents.
+    enum: [experiment]
+  version:
+    type: integer
+    description: Schema version for this experiment definition.
+  id:
+    type: string
+    description: Stable experiment identifier matching experiment_exposures.experiment_id.
+  label:
+    type: string
+    description: Human-readable experiment label.
+  dataset:
+    type: string
+    description: Logical dataset id for experimentation configs.
+  experiment_version:
+    type: string
+    description: Version discriminator matching experiment_exposures.experiment_version.
+  control_variant:
+    type: string
+    description: Control variant id used as the baseline comparison arm.
+  subject_type:
+    type: string
+    description: Subject type matching experiment_exposures.assignment_unit_type.
+  variants:
+    type: array
+    description: Declared experiment variants.
+    items:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+      properties:
+        id:
+          type: string
+          description: Stable variant identifier.
+        allocation_weight:
+          type: number
+          description: Optional expected allocation weight for SRM.
+  metrics:
+    type: array
+    description: Metrics-layer metrics to analyze for this experiment.
+    items:
+      type: object
+      additionalProperties: false
+      required:
+        - metric_id
+        - attribution_window_days
+      properties:
+        metric_id:
+          type: string
+          description: Metrics-layer metric identifier.
+        attribution_window_days:
+          type: integer
+          description: Number of days after exposure to include source rows for this metric.

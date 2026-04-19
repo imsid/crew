@@ -28,6 +28,5 @@ def build_host() -> MashAgentHost:
             agent_id=pm.get_agent_id(),
             metadata=pm.build_subagent_metadata(),
         )
-        .enable_masher()
         .build()
     )

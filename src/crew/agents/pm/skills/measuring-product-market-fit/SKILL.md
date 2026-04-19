@@ -48,7 +48,7 @@ Do not confuse broad awareness with indispensable value.
 - "What do retention and repeat usage look like for that segment?"
 - "Would those users be very disappointed if the product disappeared?"
 - "What evidence shows the product is becoming indispensable?"
-- "Are you seeing pull from users, or mostly push from marketing and sales?"
+- "Are you seeing pull from users, or mostly push from marketing_db and sales?"
 - "Which jobs-to-be-done have the clearest fit today?"
 
 ## Common Mistakes to Flag

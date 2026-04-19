@@ -84,7 +84,50 @@ def read_yaml_config(path: Path, expected_kind: str) -> Dict[str, Any]:
         raise ValueError(
             f"expected kind '{expected_kind}' but found '{kind}' in {path.as_posix()}"
         )
+    validate_config_semantics(parsed, expected_kind=expected_kind)
     return parsed
+
+
+def validate_config_semantics(config: Dict[str, Any], expected_kind: str) -> None:
+    if expected_kind == "source":
+        _validate_source_config_semantics(config)
+
+
+def _validate_source_config_semantics(config: Dict[str, Any]) -> None:
+    dimensions_raw = config.get("dimensions")
+    if not isinstance(dimensions_raw, list):
+        raise ValueError("source.dimensions must be an array")
+
+    dimension_names = set()
+    for idx, dimension_raw in enumerate(dimensions_raw):
+        if not isinstance(dimension_raw, dict):
+            raise ValueError(f"source.dimensions[{idx}] must be an object")
+        dimension_names.add(
+            normalize_identifier(dimension_raw.get("name"), "source.dimensions[].name")
+        )
+
+    subject_raw = config.get("subject")
+    if not isinstance(subject_raw, list) or not subject_raw:
+        raise ValueError("source.subject must be a non-empty array")
+
+    seen_subjects = set()
+    for idx, subject_value in enumerate(subject_raw):
+        subject_name = normalize_identifier(subject_value, "source.subject[]")
+        if subject_name in seen_subjects:
+            raise ValueError(f"source.subject[{idx}] duplicates '{subject_name}'")
+        seen_subjects.add(subject_name)
+        if subject_name not in dimension_names:
+            raise ValueError(
+                f"source.subject[{idx}] '{subject_name}' must reference a declared dimension"
+            )
+
+    ts_raw = config.get("ts")
+    if ts_raw is not None:
+        ts_name = normalize_identifier(ts_raw, "source.ts")
+        if ts_name not in dimension_names:
+            raise ValueError(
+                f"source.ts '{ts_name}' must reference a declared dimension"
+            )
 
 
 def load_metric_entries_by_dataset(

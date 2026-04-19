@@ -6,9 +6,10 @@ required:
   - id
   - dataset
   - table
-  - grain
+  - subject
   - dimensions
   - measures
+additionalProperties: false
 properties:
   kind:
     type: string
@@ -26,18 +27,22 @@ properties:
   table:
     type: string
     description: Physical BigQuery table name backing this source.
-  grain:
+  subject:
     type: array
-    description: Columns or expressions that uniquely identify a row.
+    description: Dimension names that tie rows in this source back to the experiment subject.
     items:
       type: string
-      description: A grain key column or expression.
+      description: A declared dimension name used as a subject join key.
+  ts:
+    type: string
+    description: Optional canonical timestamp dimension name for attribution and post-exposure filtering.
   dimensions:
     type: array
     description: Non-aggregated fields available for filtering and grouping.
     items:
       type: object
       description: Dimension field definition.
+      additionalProperties: false
       required:
         - name
         - expr
@@ -61,6 +66,7 @@ properties:
     items:
       type: object
       description: Measure field definition.
+      additionalProperties: false
       required:
         - name
         - expr
@@ -85,6 +91,7 @@ properties:
     items:
       type: object
       description: Join relationship definition.
+      additionalProperties: false
       required:
         - to_source
         - join_type

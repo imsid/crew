@@ -6,6 +6,7 @@ import hashlib
 import json
 from typing import Any, Dict, List, Optional
 
+import yaml
 from mash.tools.base import ToolResult
 
 from ...agents.data.config import BIGQUERY_PROJECT_ID
@@ -13,6 +14,7 @@ from .config_repo import (
     list_configs,
     load_metric_entries_by_dataset,
     read_config,
+    validate_config_semantics,
 )
 from .context import ToolContext
 from .pathing import ensure_kind, normalize_identifier, normalize_identifier_list, resolve_config_path
@@ -23,7 +25,11 @@ from .query_args import (
     normalize_order_by,
 )
 from .sql_compiler import compile_metric_plan
-from .yaml_schema import load_metrics_layer_schema_text, validate_yaml_text
+from .yaml_schema import (
+    describe_schema_path,
+    load_metrics_layer_schema_text,
+    validate_yaml_text,
+)
 
 
 def _to_json(payload: Dict[str, Any]) -> ToolResult:
@@ -96,7 +102,7 @@ def validate_and_write_metrics_layer_config(
                         "kind": kind,
                         "dataset_id": dataset_id,
                         "name": name,
-                        "schema_path": schema_path.relative_to(root).as_posix(),
+                        "schema_path": describe_schema_path(schema_path, root),
                         "error": parse_error,
                     },
                     ensure_ascii=True,
@@ -112,8 +118,43 @@ def validate_and_write_metrics_layer_config(
                         "kind": kind,
                         "dataset_id": dataset_id,
                         "name": name,
-                        "schema_path": schema_path.relative_to(root).as_posix(),
+                        "schema_path": describe_schema_path(schema_path, root),
                         "errors": validation_errors,
+                    },
+                    ensure_ascii=True,
+                    indent=2,
+                )
+            )
+        parsed = yaml.safe_load(content)
+        if not isinstance(parsed, dict):
+            return ToolResult.error(
+                json.dumps(
+                    {
+                        "status": "validation_failed",
+                        "stage": "parse",
+                        "kind": kind,
+                        "dataset_id": dataset_id,
+                        "name": name,
+                        "schema_path": describe_schema_path(schema_path, root),
+                        "error": "yaml document must parse to an object",
+                    },
+                    ensure_ascii=True,
+                    indent=2,
+                )
+            )
+        try:
+            validate_config_semantics(parsed, expected_kind=kind)
+        except Exception as exc:
+            return ToolResult.error(
+                json.dumps(
+                    {
+                        "status": "validation_failed",
+                        "stage": "schema_validation",
+                        "kind": kind,
+                        "dataset_id": dataset_id,
+                        "name": name,
+                        "schema_path": describe_schema_path(schema_path, root),
+                        "errors": [str(exc)],
                     },
                     ensure_ascii=True,
                     indent=2,
@@ -144,7 +185,7 @@ def validate_and_write_metrics_layer_config(
             "dataset_id": dataset_id,
             "name": name,
             "path": path.relative_to(root).as_posix(),
-            "schema_path": schema_path.relative_to(root).as_posix(),
+            "schema_path": describe_schema_path(schema_path, root),
             "validation": {"valid": True, "errors": []},
             "bytes_written": len(content.encode("utf-8")),
             "sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
@@ -183,7 +224,7 @@ def get_metrics_layer_schema(args: Dict[str, Any], context: ToolContext) -> Tool
         )
         payload = {
             "schema_kind": schema_kind,
-            "path": schema_path.relative_to(root).as_posix(),
+            "path": describe_schema_path(schema_path, root),
             "size": len(content),
             "content": content,
         }

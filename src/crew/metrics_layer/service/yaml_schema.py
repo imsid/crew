@@ -10,6 +10,13 @@ import yaml
 from .context import ToolContext
 
 
+def describe_schema_path(path: Path, root: Path) -> str:
+    try:
+        return path.relative_to(root).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
 def load_metrics_layer_schema_text(
     context: ToolContext, schema_kind: str
 ) -> Tuple[Path, str]:
@@ -18,7 +25,7 @@ def load_metrics_layer_schema_text(
     schema_path = schema_root / f"{schema_kind}.schema.yml"
     if not schema_path.exists() or not schema_path.is_file():
         raise ValueError(
-            f"schema not found: {schema_path.relative_to(root).as_posix()}"
+            f"schema not found: {describe_schema_path(schema_path, root)}"
         )
     content = schema_path.read_text(encoding="utf-8")
     return schema_path, content

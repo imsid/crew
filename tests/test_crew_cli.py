@@ -6,17 +6,18 @@ from crew.cli.main import main
 
 
 def _write_metric_fixture(root: Path) -> None:
-    metrics_root = root / ".mash" / "metrics_layer" / "configs" / "marketing"
+    metrics_root = root / ".mash" / "metrics_layer" / "configs" / "marketing_db"
     (metrics_root / "sources").mkdir(parents=True, exist_ok=True)
     (metrics_root / "metrics").mkdir(parents=True, exist_ok=True)
     (metrics_root / "sources" / "ad_performance.yml").write_text(
         """kind: source
 version: 1
 id: ad_performance
-dataset: marketing
+dataset: marketing_db
 table: campaign_ads
-grain:
+subject:
   - campaign_ad_id
+ts: start_date
 dimensions:
   - name: campaign_ad_id
     expr: campaign_ad_id
@@ -24,6 +25,9 @@ dimensions:
   - name: campaign_id
     expr: campaign_id
     data_type: INT64
+  - name: start_date
+    expr: start_date
+    data_type: DATE
 measures:
   - name: spend_total
     expr: spend
@@ -43,6 +47,80 @@ expr: spend
 dimensions:
   - campaign_id
 format: "$#,##0.00"
+""",
+        encoding="utf-8",
+    )
+
+
+def _write_experiment_fixture(root: Path) -> None:
+    _write_metric_fixture(root)
+    metrics_root = root / ".mash" / "metrics_layer" / "configs" / "marketing_db"
+    (metrics_root / "sources" / "conversion_events.yml").write_text(
+        """kind: source
+version: 1
+id: conversion_events
+dataset: marketing_db
+table: conversion_events
+subject:
+  - customer_id
+ts: created_at
+dimensions:
+  - name: conversion_id
+    expr: conversion_id
+    data_type: INT64
+  - name: customer_id
+    expr: customer_id
+    data_type: INT64
+  - name: created_at
+    expr: created_at
+    data_type: TIMESTAMP
+measures:
+  - name: conversion_count
+    expr: conversion_id
+    agg: COUNT_DISTINCT
+    data_type: INT64
+  - name: conversion_value_total
+    expr: value
+    agg: SUM
+    data_type: NUMERIC
+""",
+        encoding="utf-8",
+    )
+    (metrics_root / "metrics" / "conversions_total.yml").write_text(
+        """kind: metric
+version: 1
+id: conversions_total
+label: Total Conversions
+type: simple
+base_source: conversion_events
+expr: conversion_count
+dimensions:
+  - customer_id
+format: "#,##0"
+""",
+        encoding="utf-8",
+    )
+    experimentation_root = (
+        root / ".mash" / "experimentation" / "configs" / "marketing_db" / "experiments"
+    )
+    experimentation_root.mkdir(parents=True, exist_ok=True)
+    (experimentation_root / "signup_checkout_test.yml").write_text(
+        """kind: experiment
+version: 1
+id: signup_checkout_test
+label: Signup Checkout Test
+dataset: marketing_db
+experiment_version: v1
+control_variant: control
+subject_type: customer
+variants:
+  - id: control
+    allocation_weight: 0.5
+  - id: treatment
+    allocation_weight: 0.5
+metrics:
+  - metric_id: conversions_total
+    attribution_window_days: 14
 """,
         encoding="utf-8",
     )
@@ -96,7 +174,7 @@ def test_metrics_cli_list_show_and_compile(monkeypatch, tmp_path: Path, capsys) 
     _write_metric_fixture(tmp_path)
     monkeypatch.setattr("crew.cli.main.PROJECT_ROOT", tmp_path)
 
-    assert main(["metrics", "list", "--dataset", "marketing"]) == 0
+    assert main(["metrics", "list", "--dataset", "marketing_db"]) == 0
     list_output = capsys.readouterr().out
     assert "spend_total" in list_output
 
@@ -106,7 +184,7 @@ def test_metrics_cli_list_show_and_compile(monkeypatch, tmp_path: Path, capsys) 
                 "metrics",
                 "show",
                 "--dataset",
-                "marketing",
+                "marketing_db",
                 "--kind",
                 "metric",
                 "--name",
@@ -124,7 +202,7 @@ def test_metrics_cli_list_show_and_compile(monkeypatch, tmp_path: Path, capsys) 
                 "metrics",
                 "compile",
                 "--dataset",
-                "marketing",
+                "marketing_db",
                 "--metric",
                 "spend_total",
                 "--dimension",
@@ -136,6 +214,49 @@ def test_metrics_cli_list_show_and_compile(monkeypatch, tmp_path: Path, capsys) 
     compile_output = capsys.readouterr().out
     assert "campaign_ads" in compile_output
     assert "GROUP BY campaign_id" in compile_output
+
+
+def test_experiment_cli_list_show_and_plan(monkeypatch, tmp_path: Path, capsys) -> None:
+    _write_experiment_fixture(tmp_path)
+    monkeypatch.setattr("crew.cli.main.PROJECT_ROOT", tmp_path)
+
+    assert main(["experiment", "list", "--dataset", "marketing_db"]) == 0
+    list_output = capsys.readouterr().out
+    assert "signup_checkout_test" in list_output
+
+    assert (
+        main(
+            [
+                "experiment",
+                "show",
+                "--dataset",
+                "marketing_db",
+                "--name",
+                "signup_checkout_test",
+            ]
+        )
+        == 0
+    )
+    show_output = capsys.readouterr().out
+    assert "control_variant: control" in show_output
+
+    assert (
+        main(
+            [
+                "experiment",
+                "plan",
+                "--dataset",
+                "marketing_db",
+                "--name",
+                "signup_checkout_test",
+            ]
+        )
+        == 0
+    )
+    plan_output = capsys.readouterr().out
+    assert "experiment_exposures" in plan_output
+    assert "assignment_unit_id" in plan_output
+    assert "created_at" in plan_output
 
 
 def test_agent_repl_delegates_to_mash_remote_shell(monkeypatch) -> None:
