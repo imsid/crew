@@ -95,18 +95,11 @@ Use agent mode when:
 ## Common questions
 
 - "what changed in activation over the last 4 weeks?"
-- "break down paid conversion by channel and campaign."
 - "which step in the onboarding funnel is driving the largest drop-off?"
-- "how did retention move for users acquired after the new launch?"
 - "show me the results of signup_checkout_test."
 - "is there any imbalance in homepage_hero_test?"
-- "what metrics should we use to evaluate this launch?"
 - "what metrics do we already have for the marketing dataset?"
-- "create a metric for weekly activated users."
-- "update the retention metric so it supports platform as a dimension."
-- "add a source config for our new onboarding events table."
 - "turn this analysis into a short launch readout I can share."
-- "given these results, what should we prioritize next quarter?"
 
 ## Context and Memory
 
@@ -200,40 +193,19 @@ Artifacts matter because they turn a useful conversation into team knowledge ins
 
 ## Data-Agent Skills
 
-The data agent relies on specialized skills to stay disciplined about how it works.
+The data agent relies on three skills:
 
 ### `analyst`
 
-The `analyst` skill is for metric-backed analysis.
-It keeps the agent focused on:
-
-- reading metric and source definitions
-- selecting the right dimensions, filters, and date ranges
-- compiling semantic metrics to SQL
-- executing analysis through the warehouse path rather than inventing business logic on the fly
+For metric-backed analysis using metrics-layer definitions and compiled SQL.
 
 ### `experiment-analyst`
 
-The `experiment-analyst` skill is for experiment-backed analysis.
-It keeps the agent focused on:
-
-- resolving experiment configs before querying
-- grounding assignment logic in `experiment_exposures`
-- grounding outcome logic in metrics-layer metric ids only
-- compiling deterministic exposure and metric summary SQL
-- answering questions like experiment results and SRM / imbalance checks interactively
+For experiment readouts grounded in experiment configs, `experiment_exposures`, and metrics-layer metric ids.
 
 ### `steward`
 
-The `steward` skill is for semantic config authoring and refinement.
-It keeps config changes:
-
-- schema-driven
-- deterministic
-- approval-gated
-- grounded in the existing metrics-layer model
-
-This is important because it means `crew` can support both analysis and semantic maintenance without collapsing those two jobs into one uncontrolled workflow.
+For schema-driven, approval-gated source and metric config authoring.
 
 
 ## Upcoming Features
