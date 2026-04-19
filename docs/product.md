@@ -68,6 +68,7 @@ flowchart LR
         direction LR
         ML["Metrics layer"]
         E["Experimentation service"]
+        A["Artifacts"]
         P["PM subagent"]
     end
 ```
