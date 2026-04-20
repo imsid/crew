@@ -33,5 +33,5 @@ Concise summary of the artifact.
 ## Notes
 
 - Additional sections are allowed.
-- Artifact files are stored under `.mash/artifacts/`.
+- Artifact files are stored under `workspace/<name>/artifacts/`.
 - `artifact_id` must be unique within the artifact store.

@@ -19,9 +19,7 @@ def test_build_host_registers_data_primary_and_support_agents(tmp_path):
 
         assert host.get_primary_agent_id() == "data"
         described = {item["agent_id"]: item for item in host.describe_agents()}
-        assert set(described.keys()) == {"pm", "data", "masher"}
+        assert set(described.keys()) == {"pm", "data"}
         assert described["data"]["role"] == "primary"
         assert described["pm"]["role"] == "subagent"
-        assert described["masher"]["role"] == "subagent"
         assert described["pm"]["metadata"]["display_name"] == "Product Management Specialist"
-        assert described["masher"]["metadata"]["display_name"] == "Masher"

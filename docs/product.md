@@ -206,13 +206,3 @@ For experiment readouts grounded in experiment configs, `experiment_exposures`, 
 ### `steward`
 
 For schema-driven, approval-gated source and metric config authoring.
-
-
-## Upcoming Features
-
-The next layer of value comes from making the outputs more interactive, collaborative, and portable.
-
-- interactive visualizations for metric-backed analysis
-- richer artifact collaboration and sharing workflows
-- broader workflow support around reusable analysis paths
-- support for additional databases and warehouses beyond BigQuery

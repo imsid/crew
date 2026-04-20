@@ -11,7 +11,7 @@ Use this skill when the user explicitly asks to create an artifact from the curr
 
 - Artifact creation is explicit and conversational.
 - Create artifacts only inside the active Mash agent session.
-- Store artifact files under `.mash/artifacts/<artifact_id>.md`.
+- Store artifact files under `workspace/<name>/artifacts/<artifact_id>.md`.
 - Reuse existing artifacts through `search_artifacts` and `read_artifact`.
 
 ## Tools for this skill

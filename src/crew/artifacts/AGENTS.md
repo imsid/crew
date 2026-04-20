@@ -5,7 +5,7 @@ Artifact schema (`schema/`), deterministic artifact service code (`service/`), a
 agent tool registration in `src/crew/artifacts/tools.py`.
 
 ## Invariants
-- Artifacts live under `.mash/artifacts/<artifact_id>.md`.
+- Artifacts live under `workspace/<name>/artifacts/<artifact_id>.md`.
 - Artifact files are the source of truth.
 - Required frontmatter fields:
   - `artifact_id`

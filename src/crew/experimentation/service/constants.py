@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-EXPERIMENTATION_CONFIG_ROOT = Path(".mash") / "experimentation" / "configs"
+EXPERIMENTATION_CONFIG_ROOT = Path("experimentation") / "configs"
 EXPERIMENTATION_SCHEMA_ROOT = Path(__file__).resolve().parents[1] / "schema"
 EXPOSURE_TABLE_NAME = "experiment_exposures"
 
@@ -70,4 +70,3 @@ EXPOSURE_TABLE_COLUMNS = [
         "description": "Warehouse ingestion timestamp.",
     },
 ]
-

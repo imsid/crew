@@ -12,19 +12,22 @@ from pathlib import Path
 from crew.agents.data.tools import build_analyst_tools, build_steward_tools
 
 
+def _workspace_root(root: Path) -> Path:
+    return root / "marketing_db"
+
+
 class CompileMetricConfigsToSQLTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmpdir = tempfile.TemporaryDirectory()
         self.root = Path(self.tmpdir.name)
-        self.metrics_root = (
-            self.root / ".mash" / "metrics_layer" / "configs" / "marketing_db"
-        )
+        self.workspace_root = _workspace_root(self.root)
+        self.metrics_root = self.workspace_root / "metrics_layer" / "configs"
         (self.metrics_root / "sources").mkdir(parents=True, exist_ok=True)
         (self.metrics_root / "metrics").mkdir(parents=True, exist_ok=True)
         self._write_source_config()
         self._write_metric_configs()
 
-        tools = build_analyst_tools(workspace_root=self.root)
+        tools = build_analyst_tools(workspace_root=self.workspace_root)
         self.tool = next(
             tool for tool in tools if tool.name == "compile_metric_configs_to_sql"
         )
@@ -38,7 +41,6 @@ class CompileMetricConfigsToSQLTests(unittest.TestCase):
     def test_compile_simple_metric_default_limit(self) -> None:
         result = self._execute(
             {
-                "dataset_id": "marketing_db",
                 "metric_names": ["spend_total"],
             }
         )
@@ -74,7 +76,6 @@ class CompileMetricConfigsToSQLTests(unittest.TestCase):
     def test_compile_ratio_metric_with_referenced_metric_ids(self) -> None:
         result = self._execute(
             {
-                "dataset_id": "marketing_db",
                 "metric_names": ["ctr"],
                 "dimensions": ["campaign_id"],
                 "order_by": [{"field": "metric_value", "direction": "DESC"}],
@@ -93,7 +94,6 @@ class CompileMetricConfigsToSQLTests(unittest.TestCase):
     def test_compile_ratio_metric_with_embedded_metric_expression(self) -> None:
         result = self._execute(
             {
-                "dataset_id": "marketing_db",
                 "metric_names": ["cpm"],
             }
         )
@@ -108,7 +108,6 @@ class CompileMetricConfigsToSQLTests(unittest.TestCase):
     def test_compile_multiple_metrics_preserves_input_order(self) -> None:
         result = self._execute(
             {
-                "dataset_id": "marketing_db",
                 "metric_names": ["clicks_total", "spend_total"],
             }
         )
@@ -124,7 +123,6 @@ class CompileMetricConfigsToSQLTests(unittest.TestCase):
     def test_rejects_unknown_metric(self) -> None:
         result = self._execute(
             {
-                "dataset_id": "marketing_db",
                 "metric_names": ["does_not_exist"],
             }
         )
@@ -137,7 +135,6 @@ class CompileMetricConfigsToSQLTests(unittest.TestCase):
     def test_rejects_unknown_source(self) -> None:
         result = self._execute(
             {
-                "dataset_id": "marketing_db",
                 "metric_names": ["broken_source"],
             }
         )
@@ -151,7 +148,6 @@ class CompileMetricConfigsToSQLTests(unittest.TestCase):
     def test_rejects_invalid_dimension(self) -> None:
         result = self._execute(
             {
-                "dataset_id": "marketing_db",
                 "metric_names": ["spend_total"],
                 "dimensions": ["not_a_dimension"],
             }
@@ -165,7 +161,6 @@ class CompileMetricConfigsToSQLTests(unittest.TestCase):
     def test_rejects_invalid_date_range(self) -> None:
         result = self._execute(
             {
-                "dataset_id": "marketing_db",
                 "metric_names": ["spend_total"],
                 "date_range": {
                     "dimension": "start_date",
@@ -183,7 +178,6 @@ class CompileMetricConfigsToSQLTests(unittest.TestCase):
     def test_rejects_invalid_order_field(self) -> None:
         result = self._execute(
             {
-                "dataset_id": "marketing_db",
                 "metric_names": ["spend_total"],
                 "order_by": [{"field": "campaign_id", "direction": "ASC"}],
             }
@@ -197,7 +191,6 @@ class CompileMetricConfigsToSQLTests(unittest.TestCase):
     def test_limit_default_and_max_bound(self) -> None:
         default_result = self._execute(
             {
-                "dataset_id": "marketing_db",
                 "metric_names": ["clicks_total"],
             }
         )
@@ -207,7 +200,6 @@ class CompileMetricConfigsToSQLTests(unittest.TestCase):
 
         max_bound_result = self._execute(
             {
-                "dataset_id": "marketing_db",
                 "metric_names": ["clicks_total"],
                 "limit": 1001,
             }
@@ -334,7 +326,8 @@ class StewardSourceValidationTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmpdir = tempfile.TemporaryDirectory()
         self.root = Path(self.tmpdir.name)
-        tools = build_steward_tools(workspace_root=self.root)
+        self.workspace_root = _workspace_root(self.root)
+        tools = build_steward_tools(workspace_root=self.workspace_root)
         self.write_tool = next(
             tool
             for tool in tools
@@ -351,7 +344,6 @@ class StewardSourceValidationTests(unittest.TestCase):
         result = self._execute(
             {
                 "kind": "source",
-                "dataset_id": "marketing_db",
                 "name": "customers",
                 "create_dirs": True,
                 "content": """kind: source
@@ -386,7 +378,6 @@ measures:
         result = self._execute(
             {
                 "kind": "source",
-                "dataset_id": "marketing_db",
                 "name": "customers",
                 "create_dirs": True,
                 "content": """kind: source
@@ -416,7 +407,6 @@ measures:
         result = self._execute(
             {
                 "kind": "source",
-                "dataset_id": "marketing_db",
                 "name": "customers",
                 "create_dirs": True,
                 "content": """kind: source
@@ -443,6 +433,42 @@ measures:
         self.assertTrue(result.is_error)
         self.assertIn(
             "source.ts 'created_at' must reference a declared dimension", result.content
+        )
+
+    def test_rejects_workspace_dataset_mismatch(self) -> None:
+        result = self._execute(
+            {
+                "kind": "source",
+                "name": "customers",
+                "create_dirs": True,
+                "content": """kind: source
+version: 1
+id: customers
+dataset: sales_db
+table: customers
+subject:
+  - customer_id
+ts: created_at
+dimensions:
+  - name: customer_id
+    expr: customer_id
+    data_type: STRING
+  - name: created_at
+    expr: created_at
+    data_type: TIMESTAMP
+measures:
+  - name: row_count
+    expr: "1"
+    agg: COUNT
+    data_type: INT64
+""",
+            }
+        )
+
+        self.assertTrue(result.is_error)
+        self.assertIn(
+            "source.dataset 'sales_db' must match selected workspace 'marketing_db'",
+            result.content,
         )
 
 

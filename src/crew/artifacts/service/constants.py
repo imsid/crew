@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-ARTIFACTS_ROOT = Path(".mash") / "artifacts"
+ARTIFACTS_ROOT = Path("artifacts")
 ARTIFACT_SCHEMA_ROOT = Path(__file__).resolve().parents[1] / "schema"
 ARTIFACT_SCHEMA_PATH = ARTIFACT_SCHEMA_ROOT / "ARTIFACT.md"
 ARTIFACT_REQUIRED_FRONTMATTER_FIELDS = [

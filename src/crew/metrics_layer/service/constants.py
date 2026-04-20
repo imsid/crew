@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-METRICS_LAYER_CONFIG_ROOT = Path(".mash") / "metrics_layer" / "configs"
+METRICS_LAYER_CONFIG_ROOT = Path("metrics_layer") / "configs"
 METRICS_LAYER_SCHEMA_ROOT = Path(__file__).resolve().parents[1] / "schema"
 
 KIND_TO_SUBDIR = {

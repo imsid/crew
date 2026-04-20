@@ -31,16 +31,29 @@ def ensure_kind(raw_kind: Any) -> str:
     return kind
 
 
-def resolve_config_path(
-    context: ToolContext, kind: str, dataset_id: Any, name: Any
-) -> Tuple[Path, str, str]:
+def resolve_workspace_dataset_id(context: ToolContext, dataset_id: Any = None) -> str:
+    workspace_dataset = normalize_identifier(context["root"].name, "workspace")
+    if dataset_id is None:
+        return workspace_dataset
     normalized_dataset = normalize_identifier(dataset_id, "dataset_id")
+    if normalized_dataset != workspace_dataset:
+        raise ValueError(
+            f"dataset_id '{normalized_dataset}' does not match selected workspace '{workspace_dataset}'"
+        )
+    return workspace_dataset
+
+
+def resolve_config_path(
+    context: ToolContext,
+    kind: str,
+    name: Any,
+    dataset_id: Any = None,
+) -> Tuple[Path, str, str]:
+    normalized_dataset = resolve_workspace_dataset_id(context, dataset_id)
     normalized_name = normalize_identifier(name, "name")
     subdir = KIND_TO_SUBDIR[kind]
     metrics_root = context["metrics_root"].resolve()
-    resolved = (
-        metrics_root / normalized_dataset / subdir / f"{normalized_name}.yml"
-    ).resolve()
+    resolved = (metrics_root / subdir / f"{normalized_name}.yml").resolve()
     if not resolved.is_relative_to(metrics_root):
         raise ValueError("config path resolved outside metrics root")
     return resolved, normalized_dataset, normalized_name

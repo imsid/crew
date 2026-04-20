@@ -26,7 +26,14 @@ from ..metrics_layer.service.tool_entrypoints import (
     list_metrics_layer_configs,
     read_metrics_layer_config,
 )
-from ..shared.runtime_paths import PROJECT_ROOT
+from ..shared.runtime_paths import (
+    crew_root_dir,
+    default_workspace_name,
+    selected_workspace_name,
+    workspace_dir,
+    workspace_root_dir,
+)
+from ..shared.version import crew_version
 
 
 def _resolve_connection(args: argparse.Namespace) -> tuple[str, str | None, str | None]:
@@ -80,7 +87,13 @@ def build_parser() -> argparse.ArgumentParser:
         prog="crew",
         description="Crew CLI for agents, artifacts, and metrics.",
     )
+    parser.add_argument(
+        "--workspace",
+        default=None,
+        help=f"Workspace name. Defaults to {default_workspace_name()}.",
+    )
     subparsers = parser.add_subparsers(dest="command")
+    subparsers.add_parser("version", help="Show crew runtime information")
 
     common_remote = argparse.ArgumentParser(add_help=False)
     common_remote.add_argument("--api-base-url", default=None, help="Mash host base URL")
@@ -125,15 +138,12 @@ def build_parser() -> argparse.ArgumentParser:
     metrics_subparsers = metrics.add_subparsers(dest="metrics_command")
 
     metrics_list = metrics_subparsers.add_parser("list", help="List metric configs")
-    metrics_list.add_argument("--dataset", required=True, help="Dataset identifier")
 
     metrics_show = metrics_subparsers.add_parser("show", help="Show one config")
-    metrics_show.add_argument("--dataset", required=True, help="Dataset identifier")
     metrics_show.add_argument("--kind", required=True, choices=["source", "metric"])
     metrics_show.add_argument("--name", required=True, help="Config name")
 
     metrics_compile = metrics_subparsers.add_parser("compile", help="Compile metric configs to SQL")
-    metrics_compile.add_argument("--dataset", required=True, help="Dataset identifier")
     metrics_compile.add_argument(
         "--metric", action="append", required=True, help="Metric name (repeatable)"
     )
@@ -162,18 +172,15 @@ def build_parser() -> argparse.ArgumentParser:
     experiment_list = experiment_subparsers.add_parser(
         "list", help="List experiment configs"
     )
-    experiment_list.add_argument("--dataset", required=True, help="Dataset identifier")
 
     experiment_show = experiment_subparsers.add_parser(
         "show", help="Show one experiment config"
     )
-    experiment_show.add_argument("--dataset", required=True, help="Dataset identifier")
     experiment_show.add_argument("--name", required=True, help="Experiment config name")
 
     experiment_plan = experiment_subparsers.add_parser(
         "plan", help="Compile experiment SQL plans"
     )
-    experiment_plan.add_argument("--dataset", required=True, help="Dataset identifier")
     experiment_plan.add_argument("--name", required=True, help="Experiment config name")
 
     return parser
@@ -193,6 +200,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run_metrics_command(args, renderer)
         if args.command == "experiment":
             return _run_experiment_command(args, renderer)
+        if args.command == "version":
+            workspace_name = selected_workspace_name(getattr(args, "workspace", None))
+            renderer.info(f"Version: {crew_version()}")
+            renderer.info(f"Workspace Root: {workspace_root_dir()}")
+            renderer.info(f"Workspace: {workspace_name}")
+            renderer.info(f"Workspace Path: {workspace_dir(workspace_name)}")
+            renderer.info(f"State: {crew_root_dir()}")
+            return 0
     except Exception as exc:
         renderer.error(str(exc))
         return 1
@@ -249,7 +264,9 @@ def _run_agent_command(args: argparse.Namespace, renderer: RichRenderer) -> int:
 
 
 def _run_artifact_command(args: argparse.Namespace, renderer: RichRenderer) -> int:
-    context = build_artifact_context(PROJECT_ROOT)
+    context = build_artifact_context(
+        workspace_dir(getattr(args, "workspace", None), require_exists=True)
+    )
     if args.artifact_command == "list":
         payload = list_artifacts(context=context, kind_filter=args.kind, limit=args.limit)
         rows = [
@@ -291,10 +308,12 @@ def _run_artifact_command(args: argparse.Namespace, renderer: RichRenderer) -> i
 
 
 def _run_metrics_command(args: argparse.Namespace, renderer: RichRenderer) -> int:
-    context = build_metrics_context(PROJECT_ROOT)
+    context = build_metrics_context(
+        workspace_dir(getattr(args, "workspace", None), require_exists=True)
+    )
 
     if args.metrics_command == "list":
-        result = list_metrics_layer_configs({"dataset_id": args.dataset}, context)
+        result = list_metrics_layer_configs({}, context)
         if result.is_error:
             raise ValueError(result.content)
         payload = json.loads(result.content)
@@ -310,7 +329,6 @@ def _run_metrics_command(args: argparse.Namespace, renderer: RichRenderer) -> in
         result = read_metrics_layer_config(
             {
                 "kind": args.kind,
-                "dataset_id": args.dataset,
                 "name": args.name,
             },
             context,
@@ -333,7 +351,6 @@ def _run_metrics_command(args: argparse.Namespace, renderer: RichRenderer) -> in
 
         result = compile_metric_configs_to_sql(
             {
-                "dataset_id": args.dataset,
                 "metric_names": list(args.metric),
                 "dimensions": list(args.dimension or []),
                 "filters": list(args.filter or []),
@@ -360,10 +377,12 @@ def _run_metrics_command(args: argparse.Namespace, renderer: RichRenderer) -> in
 
 
 def _run_experiment_command(args: argparse.Namespace, renderer: RichRenderer) -> int:
-    context = build_experiment_context(PROJECT_ROOT)
+    context = build_experiment_context(
+        workspace_dir(getattr(args, "workspace", None), require_exists=True)
+    )
 
     if args.experiment_command == "list":
-        result = list_experiment_configs_tool({"dataset_id": args.dataset}, context)
+        result = list_experiment_configs_tool({}, context)
         if result.is_error:
             raise ValueError(result.content)
         payload = json.loads(result.content)
@@ -373,7 +392,7 @@ def _run_experiment_command(args: argparse.Namespace, renderer: RichRenderer) ->
 
     if args.experiment_command == "show":
         result = read_experiment_config_tool(
-            {"dataset_id": args.dataset, "name": args.name},
+            {"name": args.name},
             context,
         )
         if result.is_error:
@@ -385,7 +404,7 @@ def _run_experiment_command(args: argparse.Namespace, renderer: RichRenderer) ->
 
     if args.experiment_command == "plan":
         result = compile_experiment_analysis_sql(
-            {"dataset_id": args.dataset, "name": args.name},
+            {"name": args.name},
             context,
         )
         if result.is_error:

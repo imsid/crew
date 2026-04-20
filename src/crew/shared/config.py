@@ -1,35 +1,38 @@
 from __future__ import annotations
 
-from functools import lru_cache
 from pathlib import Path
 
 from dotenv import load_dotenv
 
+from .runtime_paths import source_root
 
-@lru_cache(maxsize=1)
+
 def project_root() -> Path:
-    current = Path(__file__).resolve()
-    for parent in [current.parent, *current.parents]:
-        if (parent / "pyproject.toml").exists():
-            return parent
-    raise RuntimeError("Could not locate mash-crew project root")
+    root = source_root()
+    if root is None:
+        raise RuntimeError("Could not locate mash-crew project root")
+    return root
 
 
-@lru_cache(maxsize=1)
 def load_project_env() -> Path:
-    env_path = project_root() / ".env"
-    load_dotenv(env_path)
+    root = source_root()
+    env_path = (root / ".env") if root else Path(".env")
+    if env_path.exists():
+        load_dotenv(env_path, override=False)
     return env_path
 
 
 def agent_env_path(agent_id: str) -> Path:
-    return project_root() / "src" / "crew" / "agents" / agent_id / ".env"
+    root = source_root()
+    if root is None:
+        return Path(f".missing-agent-env/{agent_id}.env")
+    return root / "src" / "crew" / "agents" / agent_id / ".env"
 
 
-@lru_cache(maxsize=8)
 def load_agent_env(agent_id: str) -> Path:
     env_path = agent_env_path(agent_id)
     # Precedence: shell env > agent .env > project .env
-    load_dotenv(env_path)
+    if env_path.exists():
+        load_dotenv(env_path, override=False)
     load_project_env()
     return env_path

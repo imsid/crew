@@ -30,7 +30,7 @@ def build_artifact_tools(workspace_root: Path) -> List[Tool]:
     return [
         FunctionTool(
             name="list_artifacts",
-            description="List artifact markdown files stored under .mash/artifacts.",
+            description="List artifact markdown files stored under the selected workspace artifacts directory.",
             parameters={
                 "type": "object",
                 "properties": {
@@ -54,7 +54,7 @@ def build_artifact_tools(workspace_root: Path) -> List[Tool]:
         ),
         FunctionTool(
             name="search_artifacts",
-            description="Search artifact markdown files by keyword across metadata and content.",
+            description="Search workspace artifact markdown files by keyword across metadata and content.",
             parameters={
                 "type": "object",
                 "properties": {

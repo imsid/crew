@@ -8,22 +8,25 @@ from typing import Any, Dict, List, Optional
 import yaml
 
 from .context import ToolContext
-from .pathing import normalize_identifier, resolve_config_path
+from .pathing import (
+    normalize_identifier,
+    resolve_config_path,
+    resolve_workspace_dataset_id,
+)
 
 
 def list_configs(context: ToolContext, dataset_filter: Optional[str]) -> Dict[str, Any]:
     metrics_root = context["metrics_root"]
     root = context["root"]
+    dataset_id = resolve_workspace_dataset_id(context, dataset_filter)
 
     configs: List[Dict[str, Any]] = []
     for candidate in metrics_root.rglob("*.yml"):
         relative = candidate.relative_to(metrics_root).as_posix()
         parts = relative.split("/")
-        if len(parts) != 3:
+        if len(parts) != 2:
             continue
-        dataset_id, subdir, filename = parts
-        if dataset_filter and dataset_id != dataset_filter:
-            continue
+        subdir, filename = parts
         if subdir not in {"sources", "metrics"}:
             continue
         kind = "source" if subdir == "sources" else "metric"
@@ -38,24 +41,31 @@ def list_configs(context: ToolContext, dataset_filter: Optional[str]) -> Dict[st
 
     return {
         "root": metrics_root.relative_to(root).as_posix(),
-        "dataset_id": dataset_filter,
+        "dataset_id": dataset_id,
         "count": len(configs),
         "configs": sorted(configs, key=lambda item: item["path"]),
     }
 
 
 def read_config(
-    context: ToolContext, kind: str, dataset_id: Any, name: Any
+    context: ToolContext,
+    kind: str,
+    name: Any,
+    dataset_id: Any = None,
 ) -> Dict[str, Any]:
     root = context["root"]
     path, normalized_dataset_id, normalized_name = resolve_config_path(
         context=context,
         kind=kind,
-        dataset_id=dataset_id,
         name=name,
+        dataset_id=dataset_id,
     )
     if not path.exists():
-        raise ValueError(f"config file not found: {path.relative_to(root).as_posix()}")
+        raise ValueError(
+            "config file not found: "
+            f"{path.relative_to(root).as_posix()} "
+            f"in workspace '{normalized_dataset_id}'."
+        )
     if not path.is_file():
         raise ValueError(f"config path is not a file: {path.relative_to(root).as_posix()}")
     content = path.read_text(encoding="utf-8")
@@ -70,7 +80,12 @@ def read_config(
     }
 
 
-def read_yaml_config(path: Path, expected_kind: str) -> Dict[str, Any]:
+def read_yaml_config(
+    path: Path,
+    expected_kind: str,
+    *,
+    expected_dataset_id: str | None = None,
+) -> Dict[str, Any]:
     if not path.exists() or not path.is_file():
         raise ValueError(f"{expected_kind} config file not found: {path.as_posix()}")
     try:
@@ -84,16 +99,38 @@ def read_yaml_config(path: Path, expected_kind: str) -> Dict[str, Any]:
         raise ValueError(
             f"expected kind '{expected_kind}' but found '{kind}' in {path.as_posix()}"
         )
-    validate_config_semantics(parsed, expected_kind=expected_kind)
+    validate_config_semantics(
+        parsed,
+        expected_kind=expected_kind,
+        expected_dataset_id=expected_dataset_id,
+    )
     return parsed
 
 
-def validate_config_semantics(config: Dict[str, Any], expected_kind: str) -> None:
+def validate_config_semantics(
+    config: Dict[str, Any],
+    expected_kind: str,
+    *,
+    expected_dataset_id: str | None = None,
+) -> None:
     if expected_kind == "source":
-        _validate_source_config_semantics(config)
+        _validate_source_config_semantics(
+            config, expected_dataset_id=expected_dataset_id
+        )
 
 
-def _validate_source_config_semantics(config: Dict[str, Any]) -> None:
+def _validate_source_config_semantics(
+    config: Dict[str, Any],
+    *,
+    expected_dataset_id: str | None = None,
+) -> None:
+    if expected_dataset_id is not None:
+        dataset_name = normalize_identifier(config.get("dataset"), "source.dataset")
+        if dataset_name != expected_dataset_id:
+            raise ValueError(
+                f"source.dataset '{dataset_name}' must match selected workspace '{expected_dataset_id}'"
+            )
+
     dimensions_raw = config.get("dimensions")
     if not isinstance(dimensions_raw, list):
         raise ValueError("source.dimensions must be an array")
@@ -131,21 +168,28 @@ def _validate_source_config_semantics(config: Dict[str, Any]) -> None:
 
 
 def load_metric_entries_by_dataset(
-    context: ToolContext, dataset_id: str
+    context: ToolContext, dataset_id: Any = None
 ) -> Dict[str, Dict[str, Any]]:
-    metrics_dir = context["metrics_root"] / dataset_id / "metrics"
+    normalized_dataset_id = resolve_workspace_dataset_id(context, dataset_id)
+    metrics_dir = context["metrics_root"] / "metrics"
     if not metrics_dir.exists() or not metrics_dir.is_dir():
-        raise ValueError(f"metrics directory not found for dataset '{dataset_id}'")
+        raise ValueError(
+            f"metrics directory not found in workspace '{normalized_dataset_id}'"
+        )
 
     entries: Dict[str, Dict[str, Any]] = {}
     for path in sorted(metrics_dir.glob("*.yml")):
-        config = read_yaml_config(path=path, expected_kind="metric")
+        config = read_yaml_config(
+            path=path,
+            expected_kind="metric",
+            expected_dataset_id=normalized_dataset_id,
+        )
         metric_id = normalize_identifier(config.get("id"), "metric.id")
         entry = {"id": metric_id, "name": path.stem, "path": path, "config": config}
         for alias in {metric_id, path.stem}:
             if alias in entries:
                 raise ValueError(
-                    f"duplicate metric alias '{alias}' in dataset '{dataset_id}'"
+                    f"duplicate metric alias '{alias}' in workspace '{normalized_dataset_id}'"
                 )
             entries[alias] = entry
     return entries
@@ -153,19 +197,24 @@ def load_metric_entries_by_dataset(
 
 def load_source_config(
     context: ToolContext,
-    dataset_id: str,
     source_id: str,
     source_cache: Dict[str, Dict[str, Any]],
+    dataset_id: Any = None,
 ) -> Dict[str, Any]:
     if source_id in source_cache:
         return source_cache[source_id]
 
+    normalized_dataset_id = resolve_workspace_dataset_id(context, dataset_id)
     source_path, _, _ = resolve_config_path(
         context=context,
         kind="source",
-        dataset_id=dataset_id,
         name=source_id,
+        dataset_id=normalized_dataset_id,
     )
-    source_cfg = read_yaml_config(path=source_path, expected_kind="source")
+    source_cfg = read_yaml_config(
+        path=source_path,
+        expected_kind="source",
+        expected_dataset_id=normalized_dataset_id,
+    )
     source_cache[source_id] = source_cfg
     return source_cfg

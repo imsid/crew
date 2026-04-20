@@ -7,7 +7,10 @@ from typing import Any, Dict, Optional
 
 from mash.tools.base import ToolResult
 
-from ...metrics_layer.service.pathing import normalize_identifier
+from ...metrics_layer.service.pathing import (
+    normalize_identifier,
+    resolve_workspace_dataset_id,
+)
 from .config_repo import (
     list_experiment_configs,
     load_experiment_config,
@@ -27,13 +30,9 @@ def _to_json(payload: Dict[str, Any]) -> ToolResult:
 def list_experiment_configs_tool(
     args: Dict[str, Any], context: ToolContext
 ) -> ToolResult:
-    dataset_arg = args.get("dataset_id")
     try:
-        dataset_filter = None
-        if dataset_arg is not None:
-            dataset_filter = normalize_identifier(dataset_arg, "dataset_id")
         return _to_json(
-            list_experiment_configs(context=context, dataset_filter=dataset_filter)
+            list_experiment_configs(context=context, dataset_filter=args.get("dataset_id"))
         )
     except Exception as exc:
         return ToolResult.error(f"list_experiment_configs failed: {exc}")
@@ -46,8 +45,8 @@ def read_experiment_config_tool(
         return _to_json(
             read_experiment_config(
                 context=context,
-                dataset_id=args.get("dataset_id"),
                 name=args.get("name"),
+                dataset_id=args.get("dataset_id"),
             )
         )
     except Exception as exc:
@@ -59,12 +58,12 @@ def compile_experiment_analysis_sql(
 ) -> ToolResult:
     dataset_id: Optional[str] = None
     try:
-        dataset_id = normalize_identifier(args.get("dataset_id"), "dataset_id")
+        dataset_id = resolve_workspace_dataset_id(context, args.get("dataset_id"))
         experiment_name = normalize_identifier(args.get("name"), "name")
         experiment_cfg = load_experiment_config(
             context=context,
-            dataset_id=dataset_id,
             name=experiment_name,
+            dataset_id=dataset_id,
         )
         schema_path, schema_text = load_experimentation_schema_text(
             context=context, schema_kind="experiment"
@@ -137,4 +136,3 @@ def compute_experiment_analysis(
         )
     except Exception as exc:
         return ToolResult.error(f"compute_experiment_analysis failed: {exc}")
-

@@ -38,21 +38,13 @@ def build_steward_tools(workspace_root: Path) -> List[Tool]:
             description=(
                 "List source/metric config files under metrics_layer."
             ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "dataset_id": {
-                        "type": "string",
-                        "description": "Optional dataset id filter.",
-                    }
-                },
-            },
+            parameters={"type": "object", "properties": {}},
             _executor=_async_tool_executor(list_metrics_layer_configs, context),
         ),
         FunctionTool(
             name="read_metrics_layer_config",
             description=(
-                "Read one deterministic source/metric config by kind, dataset_id, and name."
+                "Read one deterministic source/metric config by kind and name."
             ),
             parameters={
                 "type": "object",
@@ -61,15 +53,12 @@ def build_steward_tools(workspace_root: Path) -> List[Tool]:
                         "type": "string",
                         "enum": ["source", "metric"],
                     },
-                    "dataset_id": {
-                        "type": "string",
-                    },
                     "name": {
                         "type": "string",
                         "description": "Config name without path; .yml optional.",
                     },
                 },
-                "required": ["kind", "dataset_id", "name"],
+                "required": ["kind", "name"],
             },
             _executor=_async_tool_executor(read_metrics_layer_config, context),
         ),
@@ -85,9 +74,6 @@ def build_steward_tools(workspace_root: Path) -> List[Tool]:
                         "type": "string",
                         "enum": ["source", "metric"],
                     },
-                    "dataset_id": {
-                        "type": "string",
-                    },
                     "name": {
                         "type": "string",
                         "description": "Config name without path; .yml optional.",
@@ -101,7 +87,7 @@ def build_steward_tools(workspace_root: Path) -> List[Tool]:
                         "description": "Create parent directories when missing.",
                     },
                 },
-                "required": ["kind", "dataset_id", "name", "content"],
+                "required": ["kind", "name", "content"],
             },
             _executor=_async_tool_executor(
                 validate_and_write_metrics_layer_config, context
@@ -161,7 +147,6 @@ def build_analyst_tools(workspace_root: Path) -> List[Tool]:
             parameters={
                 "type": "object",
                 "properties": {
-                    "dataset_id": {"type": "string"},
                     "metric_names": {
                         "type": "array",
                         "items": {"type": "string"},
@@ -203,7 +188,7 @@ def build_analyst_tools(workspace_root: Path) -> List[Tool]:
                         "maximum": 1000,
                     },
                 },
-                "required": ["dataset_id", "metric_names"],
+                "required": ["metric_names"],
             },
             _executor=_async_tool_executor(compile_metric_configs_to_sql, context),
         )

@@ -30,31 +30,22 @@ def build_experimentation_tools(workspace_root: Path) -> List[Tool]:
     return [
         FunctionTool(
             name="list_experiment_configs",
-            description="List experimentation config files under .mash/experimentation.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "dataset_id": {
-                        "type": "string",
-                        "description": "Optional dataset id filter.",
-                    }
-                },
-            },
+            description="List experimentation config files under the selected workspace.",
+            parameters={"type": "object", "properties": {}},
             _executor=_async_tool_executor(list_experiment_configs_tool, context),
         ),
         FunctionTool(
             name="read_experiment_config",
-            description="Read one deterministic experiment config by dataset_id and name.",
+            description="Read one deterministic experiment config by name from the selected workspace.",
             parameters={
                 "type": "object",
                 "properties": {
-                    "dataset_id": {"type": "string"},
                     "name": {
                         "type": "string",
                         "description": "Config name without path; .yml optional.",
                     },
                 },
-                "required": ["dataset_id", "name"],
+                "required": ["name"],
             },
             _executor=_async_tool_executor(read_experiment_config_tool, context),
         ),
@@ -67,10 +58,9 @@ def build_experimentation_tools(workspace_root: Path) -> List[Tool]:
             parameters={
                 "type": "object",
                 "properties": {
-                    "dataset_id": {"type": "string"},
                     "name": {"type": "string"},
                 },
-                "required": ["dataset_id", "name"],
+                "required": ["name"],
             },
             _executor=_async_tool_executor(compile_experiment_analysis_sql, context),
         ),

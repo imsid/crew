@@ -1,12 +1,21 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from crew.cli.main import main
 
 
+def _workspace_root(root: Path) -> Path:
+    return root / "marketing_db"
+
+
+def _normalize_output(text: str) -> str:
+    return re.sub(r"\s+", " ", text).strip()
+
+
 def _write_metric_fixture(root: Path) -> None:
-    metrics_root = root / ".mash" / "metrics_layer" / "configs" / "marketing_db"
+    metrics_root = _workspace_root(root) / "metrics_layer" / "configs"
     (metrics_root / "sources").mkdir(parents=True, exist_ok=True)
     (metrics_root / "metrics").mkdir(parents=True, exist_ok=True)
     (metrics_root / "sources" / "ad_performance.yml").write_text(
@@ -52,14 +61,14 @@ format: "$#,##0.00"
     )
 
 
-def _write_experiment_fixture(root: Path) -> None:
+def _write_experiment_fixture(root: Path, *, dataset: str = "marketing_db") -> None:
     _write_metric_fixture(root)
-    metrics_root = root / ".mash" / "metrics_layer" / "configs" / "marketing_db"
+    metrics_root = _workspace_root(root) / "metrics_layer" / "configs"
     (metrics_root / "sources" / "conversion_events.yml").write_text(
-        """kind: source
+        f"""kind: source
 version: 1
 id: conversion_events
-dataset: marketing_db
+dataset: {dataset}
 table: conversion_events
 subject:
   - customer_id
@@ -101,15 +110,15 @@ format: "#,##0"
         encoding="utf-8",
     )
     experimentation_root = (
-        root / ".mash" / "experimentation" / "configs" / "marketing_db" / "experiments"
+        _workspace_root(root) / "experimentation" / "configs" / "experiments"
     )
     experimentation_root.mkdir(parents=True, exist_ok=True)
     (experimentation_root / "signup_checkout_test.yml").write_text(
-        """kind: experiment
+        f"""kind: experiment
 version: 1
 id: signup_checkout_test
 label: Signup Checkout Test
-dataset: marketing_db
+dataset: {dataset}
 experiment_version: v1
 control_variant: control
 subject_type: customer
@@ -127,7 +136,7 @@ metrics:
 
 
 def _write_artifact_fixture(root: Path) -> None:
-    artifacts_root = root / ".mash" / "artifacts"
+    artifacts_root = _workspace_root(root) / "artifacts"
     artifacts_root.mkdir(parents=True, exist_ok=True)
     (artifacts_root / "launch_readout_q2.md").write_text(
         """---
@@ -154,7 +163,7 @@ Launch readiness was green across paid and lifecycle channels.
 
 def test_artifact_cli_list_show_and_search(monkeypatch, tmp_path: Path, capsys) -> None:
     _write_artifact_fixture(tmp_path)
-    monkeypatch.setattr("crew.cli.main.PROJECT_ROOT", tmp_path)
+    monkeypatch.setenv("CREW_WORKSPACE_ROOT", str(tmp_path))
 
     assert main(["artifact", "list"]) == 0
     list_output = capsys.readouterr().out
@@ -169,12 +178,16 @@ def test_artifact_cli_list_show_and_search(monkeypatch, tmp_path: Path, capsys) 
     search_output = capsys.readouterr().out
     assert "launch_readout_q2" in search_output
 
+    assert main(["--workspace", "marketing_db", "artifact", "list"]) == 0
+    explicit_output = capsys.readouterr().out
+    assert "launch_readout_q2" in explicit_output
+
 
 def test_metrics_cli_list_show_and_compile(monkeypatch, tmp_path: Path, capsys) -> None:
     _write_metric_fixture(tmp_path)
-    monkeypatch.setattr("crew.cli.main.PROJECT_ROOT", tmp_path)
+    monkeypatch.setenv("CREW_WORKSPACE_ROOT", str(tmp_path))
 
-    assert main(["metrics", "list", "--dataset", "marketing_db"]) == 0
+    assert main(["metrics", "list"]) == 0
     list_output = capsys.readouterr().out
     assert "spend_total" in list_output
 
@@ -183,8 +196,6 @@ def test_metrics_cli_list_show_and_compile(monkeypatch, tmp_path: Path, capsys) 
             [
                 "metrics",
                 "show",
-                "--dataset",
-                "marketing_db",
                 "--kind",
                 "metric",
                 "--name",
@@ -201,8 +212,6 @@ def test_metrics_cli_list_show_and_compile(monkeypatch, tmp_path: Path, capsys) 
             [
                 "metrics",
                 "compile",
-                "--dataset",
-                "marketing_db",
                 "--metric",
                 "spend_total",
                 "--dimension",
@@ -218,9 +227,9 @@ def test_metrics_cli_list_show_and_compile(monkeypatch, tmp_path: Path, capsys) 
 
 def test_experiment_cli_list_show_and_plan(monkeypatch, tmp_path: Path, capsys) -> None:
     _write_experiment_fixture(tmp_path)
-    monkeypatch.setattr("crew.cli.main.PROJECT_ROOT", tmp_path)
+    monkeypatch.setenv("CREW_WORKSPACE_ROOT", str(tmp_path))
 
-    assert main(["experiment", "list", "--dataset", "marketing_db"]) == 0
+    assert main(["experiment", "list"]) == 0
     list_output = capsys.readouterr().out
     assert "signup_checkout_test" in list_output
 
@@ -229,8 +238,6 @@ def test_experiment_cli_list_show_and_plan(monkeypatch, tmp_path: Path, capsys) 
             [
                 "experiment",
                 "show",
-                "--dataset",
-                "marketing_db",
                 "--name",
                 "signup_checkout_test",
             ]
@@ -245,8 +252,6 @@ def test_experiment_cli_list_show_and_plan(monkeypatch, tmp_path: Path, capsys) 
             [
                 "experiment",
                 "plan",
-                "--dataset",
-                "marketing_db",
                 "--name",
                 "signup_checkout_test",
             ]
@@ -257,6 +262,67 @@ def test_experiment_cli_list_show_and_plan(monkeypatch, tmp_path: Path, capsys) 
     assert "experiment_exposures" in plan_output
     assert "assignment_unit_id" in plan_output
     assert "created_at" in plan_output
+
+
+def test_experiment_cli_rejects_workspace_dataset_mismatch(
+    monkeypatch, tmp_path: Path, capsys
+) -> None:
+    _write_experiment_fixture(tmp_path, dataset="marketing")
+    monkeypatch.setenv("CREW_WORKSPACE_ROOT", str(tmp_path))
+
+    assert main(["experiment", "show", "--name", "signup_checkout_test"]) == 1
+    output = _normalize_output(capsys.readouterr().out)
+    assert "experiment.dataset 'marketing' must match selected workspace 'marketing_db'" in output
+
+
+def test_version_reports_selected_workspace(monkeypatch, tmp_path: Path, capsys) -> None:
+    _write_artifact_fixture(tmp_path)
+    state_root = tmp_path / "state"
+    state_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("CREW_WORKSPACE_ROOT", str(tmp_path))
+    monkeypatch.setattr("crew.cli.main.crew_root_dir", lambda: state_root)
+
+    assert main(["version"]) == 0
+    default_output = _normalize_output(capsys.readouterr().out)
+    assert "Workspace Root:" in default_output
+    assert str(tmp_path.parent) in default_output
+    assert tmp_path.name in default_output
+    assert "Workspace: marketing_db" in default_output
+    assert "Workspace Path:" in default_output
+    assert "marketing_db" in default_output
+    assert "State:" in default_output
+    assert state_root.name in default_output
+
+    assert main(["--workspace", "marketing_db", "version"]) == 0
+    explicit_output = _normalize_output(capsys.readouterr().out)
+    assert "Workspace: marketing_db" in explicit_output
+
+
+def test_missing_workspace_fails_clearly(monkeypatch, tmp_path: Path, capsys) -> None:
+    monkeypatch.setenv("CREW_WORKSPACE_ROOT", str(tmp_path))
+
+    assert main(["--workspace", "missing", "artifact", "list"]) == 1
+    error_output = _normalize_output(capsys.readouterr().out)
+    assert "workspace 'missing' does not exist under" in error_output
+    assert str(tmp_path.parent) in error_output
+    assert tmp_path.name in error_output
+
+
+def test_version_cli_reports_workspace_and_state(monkeypatch, tmp_path: Path, capsys) -> None:
+    monkeypatch.setattr("crew.cli.main.workspace_root_dir", lambda: tmp_path / "workspace")
+    monkeypatch.setattr("crew.cli.main.crew_root_dir", lambda: tmp_path / "state")
+    monkeypatch.setattr(
+        "crew.cli.main.selected_workspace_name", lambda *_args, **_kwargs: "marketing_db"
+    )
+    monkeypatch.setattr(
+        "crew.cli.main.workspace_dir", lambda *_args, **_kwargs: tmp_path / "workspace" / "marketing_db"
+    )
+
+    assert main(["version"]) == 0
+    output = capsys.readouterr().out
+    assert "Version:" in output
+    assert "workspace" in output
+    assert "state" in output
 
 
 def test_agent_repl_delegates_to_mash_remote_shell(monkeypatch) -> None:

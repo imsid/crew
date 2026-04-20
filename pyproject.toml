@@ -7,7 +7,7 @@ requires-python = ">=3.10"
 license = { text = "Proprietary" }
 authors = [{ name = "imsid" }]
 dependencies = [
-  "mashpy>=0.2.2",
+  "mashpy>=0.2.5",
   "python-dotenv>=1.0",
   "google-auth>=2",
   "PyYAML>=6.0",
@@ -32,6 +32,21 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["crew*"]
+
+[tool.setuptools.package-data]
+crew = [
+  "skills/*/SKILL.md",
+  "agents/*/skills/*/SKILL.md",
+  "agents/*/skills/*/references/*.md",
+  "artifacts/schema/*.md",
+  "metrics_layer/schema/*.yml",
+  "experimentation/schema/*.yml",
+  "code_index/*.sh",
+  "workspace/*/artifacts/*.md",
+  "workspace/*/metrics_layer/configs/sources/*.yml",
+  "workspace/*/metrics_layer/configs/metrics/*.yml",
+  "workspace/*/experimentation/configs/experiments/*.yml",
+]
 
 [tool.pylint."messages control"]
 disable = [

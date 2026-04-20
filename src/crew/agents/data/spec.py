@@ -10,8 +10,8 @@ import google.auth
 from google.auth.transport.requests import Request
 from mash.core.config import AgentConfig
 from mash.core.llm import AnthropicProvider, LLMProvider
-from mash.mcp import MCPServerConfig
 from mash.memory.store import SQLiteStore
+from mash.mcp import MCPServerConfig
 from mash.runtime import AgentSpec, SubAgentMetadata
 from mash.skills.registry import SkillRegistry
 from mash.tools.registry import ToolRegistry
@@ -19,7 +19,7 @@ from mash.tools.registry import ToolRegistry
 from ...artifacts.tools import build_artifact_tools
 from ...experimentation.tools import build_experimentation_tools
 from ...metrics_layer.service.constants import METRICS_LAYER_SCHEMA_ROOT
-from ...shared.runtime_paths import PROJECT_ROOT
+from ...shared.runtime_paths import workspace_dir
 from ...shared.skills import CREW_SKILLS_DIR, register_custom_skills
 from .config import (
     ANTHROPIC_API_KEY,
@@ -60,7 +60,7 @@ class DataAgentSpec(AgentSpec):
 
     def build_tools(self) -> ToolRegistry:
         tools = ToolRegistry()
-        workspace_root = PROJECT_ROOT
+        workspace_root = workspace_dir(require_exists=True)
         for tool in build_artifact_tools(workspace_root=workspace_root):
             tools.register(tool)
         for tool in build_experimentation_tools(workspace_root=workspace_root):

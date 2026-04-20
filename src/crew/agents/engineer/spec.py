@@ -15,15 +15,13 @@ from mash.tools.registry import ToolRegistry
 
 from ...artifacts.tools import build_artifact_tools
 from ...code_index import create_cached_files
-from ...shared.runtime_paths import PROJECT_ROOT
+from ...shared.runtime_paths import workspace_dir
 from ...shared.skills import CREW_SKILLS_DIR, register_custom_skills
 from .config import (
     ANTHROPIC_API_KEY,
     ANTHROPIC_MODEL,
     GITHUB_MCP_PAT,
     GITHUB_MCP_URL,
-    GITHUB_REPO_PATH,
-    GITHUB_REPO_URL,
 )
 from .prompt import build_base_prompt, build_repo_context, build_skills_context
 
@@ -33,14 +31,14 @@ GITHUB_CONNECTION_NAME = "github"
 
 class EngineerAgentSpec(AgentSpec):
     def __init__(self) -> None:
-        repo_path = os.getenv("GITHUB_REPOS") or GITHUB_REPO_PATH
+        repo_path = os.getenv("GITHUB_REPOS")
         if not repo_path:
             raise ValueError(
                 "GITHUB_REPO_PATH must be set in src/crew/agents/engineer/.env"
             )
         raw_repo_path = repo_path.strip()
         self.repo_path = Path(raw_repo_path).resolve()
-        github_url = os.getenv("GITHUB_URL") or GITHUB_REPO_URL
+        github_url = os.getenv("GITHUB_URL")
         self.github_url = (github_url or "").strip() or None
         self._store: SQLiteStore | None = None
         self._skills: SkillRegistry | None = None
@@ -60,7 +58,7 @@ class EngineerAgentSpec(AgentSpec):
 
     def build_tools(self) -> ToolRegistry:
         tools = ToolRegistry()
-        for tool in build_artifact_tools(PROJECT_ROOT):
+        for tool in build_artifact_tools(workspace_dir(require_exists=True)):
             tools.register(tool)
         tools.register(BashTool(working_dir=str(self.repo_path)))
         return tools

@@ -1,0 +1,11 @@
+kind: metric
+version: 1
+id: conversions_total
+label: Total Conversions
+type: simple
+base_source: conversion_events
+expr: conversion_count
+dimensions:
+  - customer_id
+  - campaign_id
+format: "#,##0"

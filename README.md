@@ -12,9 +12,12 @@ It currently runs a data-first host where:
 
 - `data` is the primary agent for analytics, metrics, and evidence gathering
 - `pm` is a supporting subagent for product framing, prioritization, and trade-off analysis
-- `masher` is enabled for runtime diagnostics and evals.
 
 For a higher-level product overview, see [docs/product.md](docs/product.md).
+
+The packaged default workspace is `marketing_db`. Workspace content lives under
+`src/crew/workspace/<name>/...`, while runtime state lives under `<repo>/.mash`
+when running from a checkout.
 
 ## What Crew Includes
 
@@ -24,7 +27,7 @@ For a higher-level product overview, see [docs/product.md](docs/product.md).
 - `crew` CLI: the main interface for conversational work, metrics commands, and artifact commands
 - Mash host runtime: the execution engine that powers the local agent host
 
-## Local Setup
+## Local Development Setup
 
 ### Prerequisites
 
@@ -94,8 +97,8 @@ Field notes:
 mash host serve --host-app crew.app:build_host
 ```
 
-By default, runtime state is stored under `.mash/`.
-If `MASH_DATA_DIR` is not set, `build_host()` defaults it to `.mash`.
+By default, runtime state is stored under `<repo>/.mash` when running from a checkout.
+Set `MASH_DATA_DIR` explicitly if you want to override that location.
 
 ### 5. Connect once
 
@@ -120,21 +123,56 @@ crew agent invoke --agent data "What changed in activation over the last 4 weeks
 
 ### Command mode
 
-Use command mode for direct deterministic operations against metrics and artifacts:
+Use command mode for direct deterministic operations against the selected workspace.
+If you do not pass `--workspace`, `crew` defaults to `marketing_db`:
 
 ```bash
-crew metrics list --dataset marketing_db
-crew metrics show --dataset marketing_db --kind metric --name spend_total
-crew metrics compile --dataset marketing_db --metric spend_total --dimension campaign_id
+crew metrics list
+crew metrics show --kind metric --name spend_total
+crew metrics compile --metric spend_total --dimension campaign_id
 
-crew experiment list --dataset marketing_db
-crew experiment show --dataset marketing_db --name signup_checkout_test
-crew experiment plan --dataset marketing_db --name signup_checkout_test
+crew experiment list
+crew experiment show --name signup_checkout_test
+crew experiment plan --name signup_checkout_test
 
 crew artifact list
 crew artifact show launch_readout_q2
 crew artifact search "launch readiness"
 ```
+
+### Switching workspaces
+
+Use the global `--workspace` flag to run a command against a different workspace:
+
+```bash
+crew --workspace marketing_db version
+crew --workspace marketing_db artifact list
+crew --workspace marketing_db metrics list
+crew --workspace marketing_db experiment list
+```
+
+In a local checkout, `crew` resolves workspaces under:
+
+```bash
+src/crew/workspace/
+```
+
+For example, if you add a workspace at `src/crew/workspace/my_new_workspace`, you can
+target it directly with:
+
+```bash
+crew --workspace my_new_workspace metrics list
+```
+
+To make a workspace the default for your current shell session, set `CREW_WORKSPACE`:
+
+```bash
+export CREW_WORKSPACE=my_new_workspace
+crew version
+crew metrics list
+```
+
+Unset or change `CREW_WORKSPACE` to switch back.
 
 ## Artifact Workflow
 
@@ -152,7 +190,7 @@ Then ask the agent to:
 - `turn this analysis into an artifact`
 - `find the artifact about activation experiments`
 
-Artifact files live under `.mash/artifacts/`.
+Artifact files live under `workspace/<name>/artifacts/`.
 They are reusable Markdown outputs that teams can search, read, and reference later.
 
 ## Internal Modules

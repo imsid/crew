@@ -1,0 +1,20 @@
+kind: experiment
+version: 1
+id: retention_offer
+label: Retention Offer
+dataset: marketing
+experiment_version: v1
+control_variant: control
+subject_type: customer
+variants:
+  - id: control
+    allocation_weight: 0.5
+  - id: treatment
+    allocation_weight: 0.5
+metrics:
+  - metric_id: purchase_customers
+    attribution_window_days: 30
+  - metric_id: repeat_purchase_customers
+    attribution_window_days: 60
+  - metric_id: conversion_value_total
+    attribution_window_days: 60

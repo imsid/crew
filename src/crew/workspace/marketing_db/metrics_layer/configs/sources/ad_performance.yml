@@ -1,0 +1,30 @@
+kind: source
+version: 1
+id: ad_performance
+dataset: marketing_db
+table: campaign_ads
+subject:
+  - campaign_ad_id
+ts: start_date
+dimensions:
+  - name: campaign_ad_id
+    expr: campaign_ad_id
+    data_type: INT64
+  - name: campaign_id
+    expr: campaign_id
+    data_type: INT64
+  - name: channel
+    expr: channel
+    data_type: STRING
+  - name: start_date
+    expr: start_date
+    data_type: DATE
+measures:
+  - name: spend_total
+    expr: spend
+    agg: SUM
+    data_type: NUMERIC
+  - name: clicks_total
+    expr: clicks
+    agg: SUM
+    data_type: INT64

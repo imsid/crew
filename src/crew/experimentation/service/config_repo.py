@@ -11,7 +11,10 @@ from ...metrics_layer.service.config_repo import (
     load_metric_entries_by_dataset,
     load_source_config,
 )
-from ...metrics_layer.service.pathing import normalize_identifier
+from ...metrics_layer.service.pathing import (
+    normalize_identifier,
+    resolve_workspace_dataset_id,
+)
 from .context import ToolContext
 from .pathing import resolve_experiment_config_path
 
@@ -21,16 +24,15 @@ def list_experiment_configs(
 ) -> Dict[str, Any]:
     experimentation_root = context["experimentation_root"]
     root = context["root"]
+    dataset_id = resolve_workspace_dataset_id(context, dataset_filter)
 
     configs: List[Dict[str, Any]] = []
     for candidate in experimentation_root.rglob("*.yml"):
         relative = candidate.relative_to(experimentation_root).as_posix()
         parts = relative.split("/")
-        if len(parts) != 3:
+        if len(parts) != 2:
             continue
-        dataset_id, subdir, filename = parts
-        if dataset_filter and dataset_id != dataset_filter:
-            continue
+        subdir, filename = parts
         if subdir != "experiments":
             continue
         configs.append(
@@ -44,26 +46,37 @@ def list_experiment_configs(
 
     return {
         "root": experimentation_root.relative_to(root).as_posix(),
-        "dataset_id": dataset_filter,
+        "dataset_id": dataset_id,
         "count": len(configs),
         "configs": sorted(configs, key=lambda item: item["path"]),
     }
 
 
 def read_experiment_config(
-    context: ToolContext, dataset_id: Any, name: Any
+    context: ToolContext, name: Any, dataset_id: Any = None
 ) -> Dict[str, Any]:
     root = context["root"]
     path, normalized_dataset_id, normalized_name = resolve_experiment_config_path(
         context=context,
-        dataset_id=dataset_id,
         name=name,
+        dataset_id=dataset_id,
     )
     if not path.exists():
-        raise ValueError(f"config file not found: {path.relative_to(root).as_posix()}")
+        raise ValueError(
+            "config file not found: "
+            f"{path.relative_to(root).as_posix()} "
+            f"in workspace '{normalized_dataset_id}'."
+        )
     if not path.is_file():
         raise ValueError(f"config path is not a file: {path.relative_to(root).as_posix()}")
     content = path.read_text(encoding="utf-8")
+    # Keep `show` behavior consistent with compile/plan by validating that the
+    # config's semantic dataset matches the selected workspace.
+    load_experiment_config(
+        context=context,
+        name=normalized_name,
+        dataset_id=normalized_dataset_id,
+    )
     return {
         "kind": "experiment",
         "dataset_id": normalized_dataset_id,
@@ -75,15 +88,19 @@ def read_experiment_config(
 
 
 def load_experiment_config(
-    context: ToolContext, dataset_id: Any, name: Any
+    context: ToolContext, name: Any, dataset_id: Any = None
 ) -> Dict[str, Any]:
-    path, _, _ = resolve_experiment_config_path(
+    path, normalized_dataset_id, _ = resolve_experiment_config_path(
         context=context,
-        dataset_id=dataset_id,
         name=name,
+        dataset_id=dataset_id,
     )
     if not path.exists() or not path.is_file():
-        raise ValueError(f"experiment config file not found: {path.as_posix()}")
+        raise ValueError(
+            "experiment config file not found: "
+            f"{path.as_posix()} "
+            f"in workspace '{normalized_dataset_id}'."
+        )
     try:
         parsed = yaml.safe_load(path.read_text(encoding="utf-8"))
     except Exception as exc:
@@ -95,12 +112,18 @@ def load_experiment_config(
         raise ValueError(
             f"expected kind 'experiment' but found '{kind}' in {path.as_posix()}"
         )
+    dataset_name = normalize_identifier(parsed.get("dataset"), "experiment.dataset")
+    if dataset_name != normalized_dataset_id:
+        raise ValueError(
+            f"experiment.dataset '{dataset_name}' must match selected workspace '{normalized_dataset_id}'"
+        )
     return parsed
 
 
 def validate_experiment_semantics(
-    context: ToolContext, dataset_id: str, experiment_cfg: Dict[str, Any]
+    context: ToolContext, dataset_id: Any, experiment_cfg: Dict[str, Any]
 ) -> Dict[str, Any]:
+    normalized_dataset_id = resolve_workspace_dataset_id(context, dataset_id)
     experiment_id = normalize_identifier(experiment_cfg.get("id"), "experiment.id")
     control_variant = normalize_identifier(
         experiment_cfg.get("control_variant"), "experiment.control_variant"
@@ -146,7 +169,9 @@ def validate_experiment_semantics(
             f"experiment.control_variant '{control_variant}' must be listed in variants"
         )
 
-    metric_entries = load_metric_entries_by_dataset(context=context, dataset_id=dataset_id)
+    metric_entries = load_metric_entries_by_dataset(
+        context=context, dataset_id=normalized_dataset_id
+    )
     source_cache: Dict[str, Dict[str, Any]] = {}
     metrics_raw = experiment_cfg.get("metrics")
     if not isinstance(metrics_raw, list) or not metrics_raw:
@@ -175,9 +200,9 @@ def validate_experiment_semantics(
         source_id = normalize_identifier(metric_cfg.get("base_source"), "metric.base_source")
         source_cfg = load_source_config(
             context=context,
-            dataset_id=dataset_id,
             source_id=source_id,
             source_cache=source_cache,
+            dataset_id=normalized_dataset_id,
         )
         subject_raw = source_cfg.get("subject")
         if not isinstance(subject_raw, list) or not subject_raw:
@@ -219,4 +244,3 @@ def validate_experiment_semantics(
         "metric_entries": metric_entries,
         "source_cache": source_cache,
     }
-

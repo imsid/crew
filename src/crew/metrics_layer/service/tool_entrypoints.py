@@ -17,7 +17,12 @@ from .config_repo import (
     validate_config_semantics,
 )
 from .context import ToolContext
-from .pathing import ensure_kind, normalize_identifier, normalize_identifier_list, resolve_config_path
+from .pathing import (
+    ensure_kind,
+    normalize_identifier_list,
+    resolve_config_path,
+    resolve_workspace_dataset_id,
+)
 from .query_args import (
     normalize_date_range,
     normalize_filters,
@@ -39,13 +44,8 @@ def _to_json(payload: Dict[str, Any]) -> ToolResult:
 def list_metrics_layer_configs(
     args: Dict[str, Any], context: ToolContext
 ) -> ToolResult:
-    dataset_arg = args.get("dataset_id")
-
     try:
-        dataset_filter = None
-        if dataset_arg is not None:
-            dataset_filter = normalize_identifier(dataset_arg, "dataset_id")
-        payload = list_configs(context=context, dataset_filter=dataset_filter)
+        payload = list_configs(context=context, dataset_filter=args.get("dataset_id"))
         return _to_json(payload)
     except Exception as exc:
         return ToolResult.error(f"list_metrics_layer_configs failed: {exc}")
@@ -57,8 +57,8 @@ def read_metrics_layer_config(args: Dict[str, Any], context: ToolContext) -> Too
         payload = read_config(
             context=context,
             kind=kind,
-            dataset_id=args.get("dataset_id"),
             name=args.get("name"),
+            dataset_id=args.get("dataset_id"),
         )
         return _to_json(payload)
     except Exception as exc:
@@ -79,12 +79,13 @@ def validate_and_write_metrics_layer_config(
     name: Optional[str] = None
     path = None
     try:
+        dataset_id = resolve_workspace_dataset_id(context, args.get("dataset_id"))
         kind = ensure_kind(args.get("kind"))
         path, dataset_id, name = resolve_config_path(
             context=context,
             kind=kind,
-            dataset_id=args.get("dataset_id"),
             name=args.get("name"),
+            dataset_id=dataset_id,
         )
         schema_path, schema_text = load_metrics_layer_schema_text(
             context=context, schema_kind=kind
@@ -143,7 +144,11 @@ def validate_and_write_metrics_layer_config(
                 )
             )
         try:
-            validate_config_semantics(parsed, expected_kind=kind)
+            validate_config_semantics(
+                parsed,
+                expected_kind=kind,
+                expected_dataset_id=dataset_id,
+            )
         except Exception as exc:
             return ToolResult.error(
                 json.dumps(
@@ -255,7 +260,7 @@ def compile_metric_configs_to_sql(
 ) -> ToolResult:
     dataset_id: Optional[str] = None
     try:
-        dataset_id = normalize_identifier(args.get("dataset_id"), "dataset_id")
+        dataset_id = resolve_workspace_dataset_id(context, args.get("dataset_id"))
         metric_names = normalize_identifier_list(
             args.get("metric_names"), field_name="metric_names", required=True
         )
@@ -265,9 +270,7 @@ def compile_metric_configs_to_sql(
         order_by = normalize_order_by(args.get("order_by"))
         limit = normalize_limit(args.get("limit"))
 
-        metric_entries = load_metric_entries_by_dataset(
-            context=context, dataset_id=dataset_id
-        )
+        metric_entries = load_metric_entries_by_dataset(context=context, dataset_id=dataset_id)
         source_cache: Dict[str, Dict[str, Any]] = {}
         plans: List[Dict[str, Any]] = []
         errors: List[Dict[str, Optional[str]]] = []

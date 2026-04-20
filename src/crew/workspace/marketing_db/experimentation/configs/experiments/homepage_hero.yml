@@ -1,0 +1,22 @@
+kind: experiment
+version: 1
+id: homepage_hero
+label: Homepage Hero
+dataset: marketing
+experiment_version: v2
+control_variant: control
+subject_type: customer
+variants:
+  - id: control
+    allocation_weight: 0.34
+  - id: variant_a
+    allocation_weight: 0.33
+  - id: variant_b
+    allocation_weight: 0.33
+metrics:
+  - metric_id: engagement_score
+    attribution_window_days: 7
+  - metric_id: conversions_total
+    attribution_window_days: 14
+  - metric_id: conversion_value_total
+    attribution_window_days: 14

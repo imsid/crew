@@ -6,7 +6,6 @@ from typing import Optional
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
-from mash.agents import MasherAgentSpec
 from mash.api import MashHostConfig, create_app
 from mash.core.context import Context, Response, ToolCall
 from mash.core.llm import LLMProvider
@@ -130,8 +129,6 @@ def test_health_lists_data_primary_and_support_agents(tmp_path: Path) -> None:
         DataAgentSpec, "build_llm", return_value=_EchoLLM()
     ), patch.object(
         DataAgentSpec, "build_mcp_servers", return_value=[]
-    ), patch.object(
-        MasherAgentSpec, "build_llm", return_value=_EchoLLM()
     ):
         with _build_test_client(tmp_path) as client:
             health = client.get("/api/v1/health")
@@ -141,7 +138,6 @@ def test_health_lists_data_primary_and_support_agents(tmp_path: Path) -> None:
             assert {agent["agent_id"] for agent in payload["deployment"]["agents"]} == {
                 "pm",
                 "data",
-                "masher",
             }
 
 
@@ -150,8 +146,6 @@ def test_agents_can_be_invoked_directly(tmp_path: Path) -> None:
         DataAgentSpec, "build_llm", return_value=_EchoLLM()
     ), patch.object(
         DataAgentSpec, "build_mcp_servers", return_value=[]
-    ), patch.object(
-        MasherAgentSpec, "build_llm", return_value=_EchoLLM()
     ):
         with _build_test_client(tmp_path) as client:
             pm_invoke = client.post(
@@ -168,21 +162,12 @@ def test_agents_can_be_invoked_directly(tmp_path: Path) -> None:
             assert data_invoke.status_code == 200
             assert data_invoke.json()["data"]["response"]["text"] == "echo:hello data"
 
-            masher_invoke = client.post(
-                "/api/v1/agent/masher/invoke",
-                json={"message": "hello masher", "session_id": "masher-session"},
-            )
-            assert masher_invoke.status_code == 200
-            assert masher_invoke.json()["data"]["response"]["text"] == "echo:hello masher"
-
 
 def test_pm_can_delegate_to_data_subagent(tmp_path: Path) -> None:
     with patch.object(PMAgentSpec, "build_llm", return_value=_DelegatingLLM()), patch.object(
         DataAgentSpec, "build_llm", return_value=_EchoLLM()
     ), patch.object(
         DataAgentSpec, "build_mcp_servers", return_value=[]
-    ), patch.object(
-        MasherAgentSpec, "build_llm", return_value=_EchoLLM()
     ):
         with _build_test_client(tmp_path) as client:
             response = client.post(
@@ -198,8 +183,6 @@ def test_telemetry_events_are_read_from_agent_store(tmp_path: Path) -> None:
         DataAgentSpec, "build_llm", return_value=_EchoLLM()
     ), patch.object(
         DataAgentSpec, "build_mcp_servers", return_value=[]
-    ), patch.object(
-        MasherAgentSpec, "build_llm", return_value=_EchoLLM()
     ):
         with _build_test_client(tmp_path) as client:
             invoke = client.post(
@@ -223,8 +206,6 @@ def test_pm_invoke_persists_unused_tool_signals(tmp_path: Path) -> None:
         DataAgentSpec, "build_llm", return_value=_EchoLLM()
     ), patch.object(
         DataAgentSpec, "build_mcp_servers", return_value=[]
-    ), patch.object(
-        MasherAgentSpec, "build_llm", return_value=_EchoLLM()
     ):
         with _build_test_client(tmp_path) as client:
             response = client.post(

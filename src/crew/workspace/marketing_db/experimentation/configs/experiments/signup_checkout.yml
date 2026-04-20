@@ -1,0 +1,16 @@
+kind: experiment
+version: 1
+id: signup_checkout
+label: Signup Checkout
+dataset: marketing_db
+experiment_version: v1
+control_variant: control
+subject_type: customer
+variants:
+  - id: control
+    allocation_weight: 0.5
+  - id: treatment
+    allocation_weight: 0.5
+metrics:
+  - metric_id: conversions_total
+    attribution_window_days: 14

@@ -5,9 +5,9 @@ from typing import Iterable
 
 from mash.skills.registry import SkillRegistry
 
-from .config import project_root
+from .runtime_paths import package_root
 
-CREW_SKILLS_DIR = project_root() / "src" / "crew" / "skills"
+CREW_SKILLS_DIR = package_root() / "skills"
 
 
 def register_custom_skills(registry: SkillRegistry, *skill_dirs: Path) -> SkillRegistry:

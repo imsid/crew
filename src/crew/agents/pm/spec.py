@@ -11,7 +11,7 @@ from mash.skills.registry import SkillRegistry
 from mash.tools.registry import ToolRegistry
 
 from ...artifacts.tools import build_artifact_tools
-from ...shared.runtime_paths import PROJECT_ROOT
+from ...shared.runtime_paths import workspace_dir
 from ...shared.skills import CREW_SKILLS_DIR, register_custom_skills
 from .config import ANTHROPIC_API_KEY, ANTHROPIC_MODEL
 from .prompt import build_base_prompt, build_roles_context
@@ -42,7 +42,7 @@ class PMAgentSpec(AgentSpec):
 
     def build_tools(self) -> ToolRegistry:
         tools = ToolRegistry()
-        for tool in build_artifact_tools(PROJECT_ROOT):
+        for tool in build_artifact_tools(workspace_dir(require_exists=True)):
             tools.register(tool)
         return tools
 
