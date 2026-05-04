@@ -11,8 +11,8 @@ The Data agent is hosted through `crew.app:build_host` and is addressed with `--
 
 ## Runtime state
 
-- `.mash/data/logs/`
 - `.mash/data/memory/`
+- hosted request durability and observability events live in the runtime Postgres store configured by `MASH_RUNTIME_DATABASE_URL`
 
 ## Packaged skills
 

@@ -82,6 +82,41 @@ def _parse_order_by(values: list[str] | None) -> list[dict[str, str]]:
     return order_by
 
 
+def _extract_response_text(payload: object) -> str:
+    if isinstance(payload, dict):
+        response_payload = payload.get("response")
+        if isinstance(response_payload, dict):
+            return str(response_payload.get("text") or "")
+        return str(payload.get("text") or "")
+    return ""
+
+
+def _await_request_completion(
+    client: MashHostClient,
+    *,
+    agent_id: str,
+    message: str,
+    session_id: str,
+) -> dict[str, object]:
+    request_id = client.submit_request(
+        agent_id,
+        message=message,
+        session_id=session_id,
+    )
+    for event in client.stream_request(agent_id, request_id):
+        event_name = str(event.get("event") or "")
+        payload = event.get("data")
+        if event_name == "request.completed":
+            if not isinstance(payload, dict):
+                raise RuntimeError("request completed without a response payload")
+            return payload
+        if event_name == "request.error":
+            if isinstance(payload, dict):
+                raise RuntimeError(str(payload.get("error") or "remote request failed"))
+            raise RuntimeError("remote request failed")
+    raise RuntimeError("request stream ended without a terminal event")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="crew",
@@ -137,7 +172,7 @@ def build_parser() -> argparse.ArgumentParser:
     metrics = subparsers.add_parser("metrics", help="Inspect local metrics layer state")
     metrics_subparsers = metrics.add_subparsers(dest="metrics_command")
 
-    metrics_list = metrics_subparsers.add_parser("list", help="List metric configs")
+    metrics_subparsers.add_parser("list", help="List metric configs")
 
     metrics_show = metrics_subparsers.add_parser("show", help="Show one config")
     metrics_show.add_argument("--kind", required=True, choices=["source", "metric"])
@@ -169,9 +204,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     experiment_subparsers = experiment.add_subparsers(dest="experiment_command")
 
-    experiment_list = experiment_subparsers.add_parser(
-        "list", help="List experiment configs"
-    )
+    experiment_subparsers.add_parser("list", help="List experiment configs")
 
     experiment_show = experiment_subparsers.add_parser(
         "show", help="Show one experiment config"
@@ -225,13 +258,13 @@ def _run_agent_command(args: argparse.Namespace, renderer: RichRenderer) -> int:
         if args.agent_command == "invoke":
             session_id = args.session_id or MashRemoteShell.new_session_id()
             with renderer.status("Invoking remote agent..."):
-                result = client.invoke(agent_id, message=args.message, session_id=session_id)
-            response_payload = result.get("response")
-            text = (
-                str(response_payload.get("text") or "")
-                if isinstance(response_payload, dict)
-                else str(result.get("text") or "")
-            )
+                result = _await_request_completion(
+                    client,
+                    agent_id=agent_id,
+                    message=args.message,
+                    session_id=session_id,
+                )
+            text = _extract_response_text(result)
             renderer.info(f"Agent: {agent_id}")
             renderer.info(f"Session: {result.get('session_id') or session_id}")
             if text:

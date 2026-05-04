@@ -368,3 +368,78 @@ def test_agent_repl_delegates_to_mash_remote_shell(monkeypatch) -> None:
     assert captured["ran"] is True
     assert captured["target"].agent_id == "pm"
     assert captured["target"].session_id == "session-123"
+
+
+def test_agent_invoke_uses_request_stream(monkeypatch, capsys) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeClient:
+        def __init__(self, base_url: str, *, api_key: str | None = None) -> None:
+            self.base_url = base_url
+            self.api_key = api_key
+            self.closed = False
+
+        def submit_request(self, agent_id: str, *, message: str, session_id: str) -> str:
+            captured["submit"] = {
+                "agent_id": agent_id,
+                "message": message,
+                "session_id": session_id,
+            }
+            return "req-123"
+
+        def stream_request(self, agent_id: str, request_id: str):
+            captured["stream"] = {"agent_id": agent_id, "request_id": request_id}
+            yield {
+                "event": "request.accepted",
+                "data": {
+                    "request_id": request_id,
+                    "agent_id": agent_id,
+                    "session_id": "session-123",
+                    "status": "accepted",
+                },
+            }
+            yield {
+                "event": "request.completed",
+                "data": {
+                    "request_id": request_id,
+                    "session_id": "session-123",
+                    "response": {"text": "final response"},
+                },
+            }
+
+        def close(self) -> None:
+            self.closed = True
+
+    class FakeShell:
+        @staticmethod
+        def new_session_id() -> str:
+            return "session-123"
+
+    monkeypatch.setattr("crew.cli.main.MashHostClient", FakeClient)
+    monkeypatch.setattr("crew.cli.main.MashRemoteShell", FakeShell)
+
+    assert (
+        main(
+            [
+                "agent",
+                "invoke",
+                "--api-base-url",
+                "http://127.0.0.1:8000",
+                "--agent",
+                "data",
+                "what changed?",
+            ]
+        )
+        == 0
+    )
+
+    output = _normalize_output(capsys.readouterr().out)
+    assert captured["submit"] == {
+        "agent_id": "data",
+        "message": "what changed?",
+        "session_id": "session-123",
+    }
+    assert captured["stream"] == {"agent_id": "data", "request_id": "req-123"}
+    assert "Agent: data" in output
+    assert "Session: session-123" in output
+    assert "final response" in output

@@ -12,12 +12,15 @@ It currently runs a data-first host where:
 
 - `data` is the primary agent for analytics, metrics, and evidence gathering
 - `pm` is a supporting subagent for product framing, prioritization, and trade-off analysis
+- `masher` is a built-in diagnosis subagent for trace and runtime event analysis
 
 For a higher-level product overview, see [docs/product.md](docs/product.md).
 
 The packaged default workspace is `marketing_db`. Workspace content lives under
-`src/crew/workspace/<name>/...`, while runtime state lives under `<repo>/.mash`
-when running from a checkout.
+`src/crew/workspace/<name>/...`, while local agent state lives under `<repo>/.mash`
+when running from a checkout. Hosted runtime durability, SSE replay, observability,
+and Masher trace inspection are backed by the runtime Postgres store configured with
+`MASH_RUNTIME_DATABASE_URL`.
 
 ## What Crew Includes
 
@@ -52,10 +55,25 @@ source .venv/bin/activate
 
 Activating `.venv` puts the local `crew` and `mash` entrypoints on your `PATH` for the current shell.
 
-### 3. Configure agent environment
+### 3. Configure hosted runtime environment
 
 `crew.app:build_host` currently loads the `data` and `pm` agent environments.
 Shell environment variables take precedence over agent `.env` files.
+
+Create a project-level `.env` with the hosted runtime settings:
+
+```bash
+MASH_RUNTIME_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/mash_runtime
+DBOS_CONDUCTOR_KEY=your_dbos_conductor_key
+```
+
+Field notes:
+
+- `MASH_RUNTIME_DATABASE_URL`: required for hosted runtime durability, SSE replay, observability, and Masher trace reads
+- `DBOS_CONDUCTOR_KEY`: required whenever the hosted Mash runtime starts
+- keep these at the project or shell level, not in per-agent `.env` files
+
+### 4. Configure agent-specific environment
 
 Create `src/crew/agents/data/.env` with:
 
@@ -89,7 +107,7 @@ Field notes:
 - `ANTHROPIC_API_KEY`: required
 - `ANTHROPIC_MODEL`: optional, defaults to `claude-haiku-4-5-20251001`
 
-### 4. Start the local host
+### 5. Start the local host
 
 `crew` uses Mash as its host runtime. Start the host with:
 
@@ -97,10 +115,10 @@ Field notes:
 mash host serve --host-app crew.app:build_host
 ```
 
-By default, runtime state is stored under `<repo>/.mash` when running from a checkout.
+By default, local agent state is stored under `<repo>/.mash` when running from a checkout.
 Set `MASH_DATA_DIR` explicitly if you want to override that location.
 
-### 5. Connect once
+### 6. Connect once
 
 Save the local host URL and default agent:
 
@@ -120,6 +138,8 @@ Use agent mode for free-form questions and conversational workflows:
 crew agent repl --agent data
 crew agent invoke --agent data "What changed in activation over the last 4 weeks?"
 ```
+
+`crew agent invoke` submits an async hosted runtime request and waits for the terminal SSE event before printing the final response.
 
 ### Command mode
 

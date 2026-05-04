@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from mash.core.llm import AnthropicProvider
 from mash.core.llm.types import LLMToolDefinition
-from mash.runtime.runtime import build_subagent_prompt_block
+from mash.runtime.host.subagents import build_subagent_prompt_block
 
 from crew.agents.data.spec import DataAgentSpec
 from crew.agents.pm.spec import PMAgentSpec

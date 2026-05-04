@@ -10,8 +10,8 @@ The Engineer agent is hosted through `crew.app:build_host` and is directly invok
 
 ## Runtime state
 
-- `.mash/engineer/logs/`
 - `.mash/engineer/memory/`
+- hosted request durability and observability events live in the runtime Postgres store configured by `MASH_RUNTIME_DATABASE_URL`
 
 ## Tools
 

@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from dotenv import load_dotenv
 
 from .runtime_paths import source_root
+
+_HOST_RUNTIME_ENV_VARS = (
+    "MASH_RUNTIME_DATABASE_URL",
+    "DBOS_CONDUCTOR_KEY",
+)
 
 
 def project_root() -> Path:
@@ -36,3 +42,17 @@ def load_agent_env(agent_id: str) -> Path:
         load_dotenv(env_path, override=False)
     load_project_env()
     return env_path
+
+
+def require_host_runtime_env() -> None:
+    missing = [
+        name
+        for name in _HOST_RUNTIME_ENV_VARS
+        if not str(os.environ.get(name, "")).strip()
+    ]
+    if missing:
+        joined = ", ".join(missing)
+        raise RuntimeError(
+            f"Missing required host runtime environment: {joined}. "
+            "Set these in the shell or the project .env before starting the hosted runtime."
+        )
