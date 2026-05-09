@@ -1,0 +1,11 @@
+kind: metric
+version: 1
+id: repeat_purchase_customers
+label: Repeat Purchasing Customers
+type: simple
+base_source: conversion_events
+expr: IF(COUNT(DISTINCT conversion_id) > 1, 1, 0)
+dimensions:
+  - customer_id
+  - campaign_id
+format: "#,##0"

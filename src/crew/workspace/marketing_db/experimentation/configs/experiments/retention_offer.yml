@@ -2,7 +2,7 @@ kind: experiment
 version: 1
 id: retention_offer
 label: Retention Offer
-dataset: marketing
+dataset: marketing_db
 experiment_version: v1
 control_variant: control
 subject_type: customer

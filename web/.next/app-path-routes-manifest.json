@@ -1,0 +1,12 @@
+{
+  "/_not-found/page": "/_not-found",
+  "/page": "/",
+  "/login/page": "/login",
+  "/app/chat/[sessionId]/page": "/app/chat/[sessionId]",
+  "/app/artifacts/[artifactId]/page": "/app/artifacts/[artifactId]",
+  "/app/chat/page": "/app/chat",
+  "/app/artifacts/page": "/app/artifacts",
+  "/app/metrics/page": "/app/metrics",
+  "/app/experiments/page": "/app/experiments",
+  "/app/page": "/app"
+}

@@ -51,6 +51,7 @@ session_id: <current session id>
 updated_at: <ISO-8601 UTC timestamp>
 ---
 ```
+- `updated_at` is required, but the write tool will stamp the saved artifact with the current UTC time. Do not try to infer or preserve a conversational timestamp.
 - Include these required sections:
   - `## Summary`
   - `## Next Steps`

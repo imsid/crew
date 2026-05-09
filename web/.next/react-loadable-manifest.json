@@ -1,0 +1,24 @@
+{
+  "components/chat/message-composer.tsx -> @/components/chat/slash-command-palette": {
+    "id": 8787,
+    "files": [
+      "static/chunks/787.8f2296d3d344e02c.js"
+    ]
+  },
+  "components/chat/message-list.tsx -> @/components/chat/command-result-card": {
+    "id": 7483,
+    "files": [
+      "static/chunks/619-ba102abea3e3d0e4.js",
+      "static/chunks/84-e6f4cff91c6e58c3.js",
+      "static/chunks/105.d71e148443fc5f51.js",
+      "static/chunks/483.d429d9a94c1509d6.js"
+    ]
+  },
+  "components/chat/message-list.tsx -> @/components/chat/markdown-renderer": {
+    "id": 6439,
+    "files": [
+      "static/chunks/84-e6f4cff91c6e58c3.js",
+      "static/chunks/439.2f56cd01dc473a1e.js"
+    ]
+  }
+}

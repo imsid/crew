@@ -1,0 +1,11 @@
+kind: metric
+version: 1
+id: purchase_customers
+label: Purchasing Customers
+type: simple
+base_source: conversion_events
+expr: COUNT(DISTINCT customer_id)
+dimensions:
+  - customer_id
+  - campaign_id
+format: "#,##0"

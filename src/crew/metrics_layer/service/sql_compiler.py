@@ -320,6 +320,12 @@ def _render_aggregate_expr(expr: str, agg: str) -> str:
 def _looks_aggregated_expression(expr: str) -> bool:
     if AGGREGATED_EXPR_RE.match(expr):
         return True
+    if re.search(
+        r"\b(SUM|AVG|COUNT|COUNTIF|MIN|MAX|ANY_VALUE|APPROX_COUNT_DISTINCT)\s*\(",
+        expr,
+        re.IGNORECASE,
+    ):
+        return True
     return bool(re.match(r"^\s*COUNT\s*\(\s*DISTINCT\b", expr, re.IGNORECASE))
 
 

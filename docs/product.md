@@ -27,13 +27,13 @@ Instead of asking a free-form question, the user calls a specific CLI command.
 Examples:
 
 ```bash
-crew metrics list --dataset marketing_db
-crew metrics show --dataset marketing_db --kind metric --name spend_total
-crew metrics compile --dataset marketing_db --metric spend_total --dimension campaign_id
+crew metrics list
+crew metrics show --kind metric --name spend_total
+crew metrics compile --metric spend_total --dimension campaign_id
 
-crew experiment list --dataset marketing_db
-crew experiment show --dataset marketing_db --name signup_checkout_test
-crew experiment plan --dataset marketing_db --name signup_checkout_test
+crew experiment list
+crew experiment show --name signup_checkout
+crew experiment plan --name signup_checkout
 
 crew artifact list
 crew artifact show launch_readout_q2

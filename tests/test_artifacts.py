@@ -66,14 +66,18 @@ def test_artifact_service_lists_reads_searches_and_writes(tmp_path: Path) -> Non
 
     assert write_payload["status"] == "written"
     assert write_payload["artifact_id"] == "launch_readout_q2"
+    assert write_payload["updated_at"].endswith("Z")
+    assert write_payload["updated_at"] != "2026-04-05T12:00:00Z"
 
     listed = list_artifacts(context)
     assert listed["count"] == 1
     assert listed["artifacts"][0]["title"] == "Q2 Launch Readout"
+    assert listed["artifacts"][0]["updated_at"] == write_payload["updated_at"]
 
     read_payload = read_artifact(context, "launch_readout_q2")
     assert read_payload["frontmatter"]["source_agent"] == "pm"
     assert "## Summary" in read_payload["content"]
+    assert read_payload["frontmatter"]["updated_at"] == write_payload["updated_at"]
 
     searched = search_artifacts(context, query="launch performance", limit=5)
     assert searched["count"] == 1

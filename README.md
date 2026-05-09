@@ -36,6 +36,7 @@ and Masher trace inspection are backed by the runtime Postgres store configured 
 
 - Python 3.10+
 - [`uv`](https://docs.astral.sh/uv/)
+- Node.js 20+ and `npm` for the beta web app
 - an Anthropic API key
 - BigQuery access for the data agent
 
@@ -127,6 +128,88 @@ mash connect --api-base-url http://127.0.0.1:8000 --agent data
 ```
 
 After this, `crew agent ...` commands can reuse the saved connection.
+
+## Beta Web App
+
+The beta web app uses a FastAPI BFF under `crew.beta`.
+Unlike the CLI flow above, the beta BFF starts the Crew host internally, so you do **not**
+need to run `mash host serve` separately for the web app.
+
+### Beta-specific environment
+
+Set the beta access controls in your shell or project `.env`:
+
+```bash
+CREW_BETA_ALLOWED_USERS=alice,bob
+CREW_BETA_AUTH_SECRET=replace_me_for_local_beta
+```
+
+Optional beta settings:
+
+```bash
+CREW_BETA_DB_PATH=/absolute/path/to/beta.db
+CREW_BETA_TOKEN_TTL_SECONDS=604800
+CREW_BETA_CORS_ALLOWED_ORIGINS=http://127.0.0.1:3000,http://localhost:3000
+```
+
+Field notes:
+
+- `CREW_BETA_ALLOWED_USERS`: required comma-separated list or JSON array of allowed handles
+- `CREW_BETA_AUTH_SECRET`: recommended dedicated secret for beta auth signing
+- `CREW_BETA_DB_PATH`: optional SQLite path for beta users and session ownership; defaults to `<repo>/beta/beta.db`
+- `CREW_BETA_TOKEN_TTL_SECONDS`: optional auth token TTL; defaults to 7 days
+- `CREW_BETA_CORS_ALLOWED_ORIGINS`: optional comma-separated list or JSON array of allowed web origins; defaults to `http://127.0.0.1:3000,http://localhost:3000`
+
+The existing hosted runtime and agent env vars from the setup steps above are still required because
+the beta BFF builds the same `data` and `pm` runtime under the hood.
+
+### Start the FastAPI beta BFF
+
+From the repo root:
+
+```bash
+uv run uvicorn crew.beta:build_beta_app --factory --reload --port 8000
+```
+
+This starts the beta FastAPI backend at `http://127.0.0.1:8000`.
+
+### Start the beta web app
+
+The beta web app now uses `Next.js` App Router with Tailwind, shadcn-style UI
+primitives, `assistant-ui` for chat, and `react-markdown` for artifact rendering.
+
+Install the frontend dependencies once:
+
+```bash
+cd web
+npm install
+```
+
+Create `web/.env.local` with the required backend URL:
+
+```bash
+NEXT_PUBLIC_CREW_API_BASE_URL=http://127.0.0.1:8000
+```
+
+This should be the origin of the Crew Beta FastAPI BFF.
+For local development, use `http://127.0.0.1:8000`.
+For a deployed environment, use that deployed backend origin instead.
+
+Then start the Next.js dev server:
+
+```bash
+npm run dev
+```
+
+By default the web app runs at `http://127.0.0.1:3000`.
+
+### Beta app flow
+
+1. Start the FastAPI beta BFF.
+2. Start the Next.js web app from `web/`.
+3. Open `http://127.0.0.1:3000`.
+4. Log in with one of the handles from `CREW_BETA_ALLOWED_USERS`.
+5. Open Chat, Metrics, Experiments, or Artifacts from the left sidebar.
 
 ## Using The Crew CLI
 

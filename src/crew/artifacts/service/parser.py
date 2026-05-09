@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date, datetime
 from typing import Any, Dict, List
 
 import yaml
@@ -63,7 +64,7 @@ def validate_parsed_artifact(parsed: ParsedArtifact) -> Dict[str, Any]:
         value = frontmatter.get(field)
         if value is None:
             raise ValueError(f"frontmatter field '{field}' is required")
-        normalized_value = str(value).strip()
+        normalized_value = _normalize_frontmatter_value(field, value)
         if not normalized_value:
             raise ValueError(f"frontmatter field '{field}' is required")
         frontmatter[field] = normalized_value
@@ -105,3 +106,19 @@ def _parse_sections(body_lines: List[str]) -> Dict[str, str]:
         heading: "\n".join(lines).strip()
         for heading, lines in sections.items()
     }
+
+
+def _normalize_frontmatter_value(field: str, value: Any) -> str:
+    if field == "updated_at":
+        return _normalize_updated_at(value)
+    return str(value).strip()
+
+
+def _normalize_updated_at(value: Any) -> str:
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            return value.isoformat(timespec="seconds")
+        return value.isoformat(timespec="seconds").replace("+00:00", "Z")
+    if isinstance(value, date):
+        return value.isoformat()
+    return str(value).strip()

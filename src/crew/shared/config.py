@@ -11,6 +11,7 @@ _HOST_RUNTIME_ENV_VARS = (
     "MASH_RUNTIME_DATABASE_URL",
     "DBOS_CONDUCTOR_KEY",
 )
+_LOADED_ENV_PATHS: set[Path] = set()
 
 
 def project_root() -> Path:
@@ -23,8 +24,10 @@ def project_root() -> Path:
 def load_project_env() -> Path:
     root = source_root()
     env_path = (root / ".env") if root else Path(".env")
-    if env_path.exists():
+    resolved_env_path = env_path.resolve()
+    if resolved_env_path.exists() and resolved_env_path not in _LOADED_ENV_PATHS:
         load_dotenv(env_path, override=False)
+        _LOADED_ENV_PATHS.add(resolved_env_path)
     return env_path
 
 

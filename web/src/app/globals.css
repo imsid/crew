@@ -1,0 +1,83 @@
+@import "@fontsource/manrope/400.css";
+@import "@fontsource/manrope/500.css";
+@import "@fontsource/manrope/600.css";
+@import "@fontsource/manrope/700.css";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 32 38% 97%;
+    --foreground: 30 27% 15%;
+    --card: 0 0% 100%;
+    --card-foreground: 30 27% 15%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 30 27% 15%;
+    --primary: 28 36% 24%;
+    --primary-foreground: 36 50% 97%;
+    --secondary: 30 24% 93%;
+    --secondary-foreground: 28 24% 24%;
+    --muted: 30 24% 93%;
+    --muted-foreground: 27 12% 41%;
+    --accent: 36 42% 92%;
+    --accent-foreground: 28 24% 24%;
+    --destructive: 5 78% 57%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 30 20% 86%;
+    --input: 30 20% 86%;
+    --ring: 30 26% 36%;
+    --radius: 1rem;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html,
+  body {
+    @apply min-h-full bg-background text-foreground antialiased;
+  }
+
+  body {
+    background-image:
+      radial-gradient(circle at top left, rgba(181, 151, 115, 0.15), transparent 26%),
+      radial-gradient(circle at bottom right, rgba(214, 196, 170, 0.16), transparent 22%),
+      linear-gradient(180deg, rgba(255, 252, 247, 1) 0%, rgba(246, 241, 233, 1) 100%);
+  }
+
+  button,
+  input,
+  textarea {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background;
+  }
+
+  pre,
+  code {
+    @apply font-mono;
+  }
+}
+
+@layer components {
+  .surface-panel {
+    @apply rounded-[1.5rem] border border-border/70 bg-card/80 shadow-shell backdrop-blur-sm;
+  }
+
+  .surface-subtle {
+    @apply rounded-2xl border border-border/70 bg-white/80 backdrop-blur-sm;
+  }
+
+  .artifact-prose {
+    @apply prose prose-stone max-w-none prose-headings:font-semibold prose-headings:text-foreground prose-p:text-foreground/90 prose-li:text-foreground/85 prose-strong:text-foreground prose-code:rounded prose-code:bg-secondary prose-code:px-1 prose-code:py-0.5 prose-code:text-[0.92em] prose-code:before:content-[''] prose-code:after:content-[''] prose-pre:overflow-x-auto prose-pre:rounded-2xl prose-pre:border prose-pre:border-border/70 prose-pre:bg-stone-950 prose-pre:text-stone-50 prose-table:block prose-table:w-full prose-table:overflow-x-auto prose-td:border-border prose-th:border-border;
+    @apply [&>*:first-child]:mt-0;
+  }
+
+  .thread-prose {
+    @apply artifact-prose;
+    @apply text-[15px] leading-7 sm:text-[16px];
+    @apply prose-headings:tracking-tight prose-p:my-4 prose-ul:my-4 prose-ol:my-4 prose-pre:my-5;
+  }
+}

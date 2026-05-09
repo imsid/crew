@@ -2,7 +2,7 @@ kind: experiment
 version: 1
 id: homepage_hero
 label: Homepage Hero
-dataset: marketing
+dataset: marketing_db
 experiment_version: v2
 control_variant: control
 subject_type: customer

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import hashlib
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from .constants import ARTIFACT_REQUIRED_FRONTMATTER_FIELDS
 from .context import ToolContext
 from .parser import parse_and_validate_artifact
 from .pathing import resolve_artifact_path
@@ -141,7 +143,7 @@ def search_artifacts(
 
 def write_new_artifact_file(context: ToolContext, artifact_markdown: str) -> Dict[str, Any]:
     root = context["root"]
-    payload = parse_and_validate_artifact(artifact_markdown)
+    artifact_markdown, payload = _normalize_artifact_markdown(artifact_markdown)
     frontmatter = payload["frontmatter"]
     path, artifact_id = resolve_artifact_path(context, frontmatter["artifact_id"])
     if path.exists():
@@ -153,6 +155,7 @@ def write_new_artifact_file(context: ToolContext, artifact_markdown: str) -> Dic
         "artifact_id": artifact_id,
         "title": frontmatter["title"],
         "path": path.relative_to(root).as_posix(),
+        "updated_at": frontmatter["updated_at"],
         "bytes_written": len(artifact_markdown.encode("utf-8")),
         "sha256": hashlib.sha256(artifact_markdown.encode("utf-8")).hexdigest(),
     }
@@ -170,3 +173,26 @@ def _build_preview(payload: Dict[str, Any]) -> str:
     if "Summary" in sections and sections["Summary"].strip():
         return sections["Summary"].strip()[:200]
     return str(payload["frontmatter"]["description"])[:200]
+
+
+def _normalize_artifact_markdown(artifact_markdown: str) -> tuple[str, Dict[str, Any]]:
+    payload = parse_and_validate_artifact(artifact_markdown)
+    frontmatter = dict(payload["frontmatter"])
+    frontmatter["updated_at"] = _current_utc_timestamp()
+    payload["frontmatter"] = frontmatter
+    return _render_artifact_markdown(frontmatter, str(payload["body"])), payload
+
+
+def _current_utc_timestamp() -> str:
+    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _render_artifact_markdown(frontmatter: Dict[str, Any], body: str) -> str:
+    lines = ["---"]
+    for field in ARTIFACT_REQUIRED_FRONTMATTER_FIELDS:
+        lines.append(f"{field}: {frontmatter[field]}")
+    for key in sorted(frontmatter):
+        if key not in ARTIFACT_REQUIRED_FRONTMATTER_FIELDS:
+            lines.append(f"{key}: {frontmatter[key]}")
+    lines.extend(["---", "", body.strip()])
+    return "\n".join(lines).rstrip() + "\n"
