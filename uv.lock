@@ -804,6 +804,7 @@ source = { editable = "." }
 dependencies = [
     { name = "google-auth" },
     { name = "mashpy" },
+    { name = "psycopg", extra = ["binary"] },
     { name = "python-dotenv" },
     { name = "pyyaml" },
     { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -823,6 +824,7 @@ requires-dist = [
     { name = "build", marker = "extra == 'dev'", specifier = ">=1.2.2" },
     { name = "google-auth", specifier = ">=2" },
     { name = "mashpy", specifier = ">=0.2.8" },
+    { name = "psycopg", extras = ["binary"], specifier = ">=3.2.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3.0" },
     { name = "python-dotenv", specifier = ">=1.0" },
     { name = "pyyaml", specifier = ">=6.0" },

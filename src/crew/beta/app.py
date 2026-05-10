@@ -7,7 +7,6 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, AsyncIterator, Literal, cast
 
 from fastapi import Depends, FastAPI, Header, Query, Request
@@ -39,7 +38,7 @@ from ..metrics_layer.service.tool_entrypoints import (
     read_metrics_layer_config,
 )
 from ..skill_library.repo import list_skills, read_skill, search_skills
-from ..shared.runtime_paths import crew_root_dir, workspace_dir
+from ..shared.runtime_paths import workspace_dir
 from .auth import TokenError, issue_token, verify_token
 from .store import BetaStore
 
@@ -70,7 +69,7 @@ class BetaConfig:
     allowed_users: set[str]
     auth_secret: str
     token_ttl_seconds: int
-    db_path: Path
+    database_url: str
     cors_allowed_origins: tuple[str, ...]
     workspace_name: str = "marketing_db"
 
@@ -83,7 +82,7 @@ class BetaConfig:
                 60,
                 int(os.getenv("CREW_BETA_TOKEN_TTL_SECONDS", "604800")),
             ),
-            db_path=_resolve_db_path(),
+            database_url=_resolve_database_url(),
             cors_allowed_origins=_resolve_cors_allowed_origins(),
         )
 
@@ -121,10 +120,12 @@ def create_beta_app(
 
     @asynccontextmanager
     async def _lifespan(application: FastAPI):
+        store = BetaStore(resolved_config.database_url)
+        await store.open()
         await resolved_host.start()
         application.state.beta = BetaAppState(
             host=resolved_host,
-            store=BetaStore(resolved_config.db_path),
+            store=store,
             config=resolved_config,
         )
         try:
@@ -132,7 +133,7 @@ def create_beta_app(
         finally:
             state = getattr(application.state, "beta", None)
             if state is not None:
-                state.store.close()
+                await state.store.close()
             await resolved_host.close()
             application.state.beta = None
 
@@ -185,7 +186,7 @@ def create_beta_app(
                 message="user is not allowed for beta access",
             )
 
-        user = state.store.ensure_user(username)
+        user = await state.store.ensure_user(username)
         token = issue_token(
             secret=state.config.auth_secret,
             user_id=str(user["id"]),
@@ -209,7 +210,7 @@ def create_beta_app(
         current_user: dict[str, Any] = Depends(_require_user),
     ) -> dict[str, Any]:
         state = _beta_state(request)
-        sessions = state.store.list_sessions_for_user(str(current_user["id"]))
+        sessions = await state.store.list_sessions_for_user(str(current_user["id"]))
         agent = _data_agent(request)
         enriched_sessions = [
             await _enrich_session_record(agent, session)
@@ -225,7 +226,7 @@ def create_beta_app(
     ) -> dict[str, Any]:
         state = _beta_state(request)
         session_id = f"{DATA_AGENT_ID}_{uuid.uuid4().hex}"
-        session = state.store.create_session(
+        session = await state.store.create_session(
             session_id=session_id,
             user_id=str(current_user["id"]),
             agent_id=DATA_AGENT_ID,
@@ -252,7 +253,9 @@ def create_beta_app(
                 code="INVALID_REQUEST",
                 message="q is required",
             )
-        owned_session_ids = state.store.list_session_ids_for_user(str(current_user["id"]))
+        owned_session_ids = await state.store.list_session_ids_for_user(
+            str(current_user["id"])
+        )
         agent = _data_agent(request)
         search_service = _build_memory_search_service(agent)
         internal_limit = min(max(limit * 10, 100), 500)
@@ -318,9 +321,9 @@ def create_beta_app(
         request: Request,
         current_user: dict[str, Any] = Depends(_require_user),
     ) -> dict[str, Any]:
-        session = _owned_session(request, current_user, session_id)
+        session = await _owned_session(request, current_user, session_id)
         runtime = await _data_agent(request).get_session_info(session_id)
-        _beta_state(request).store.touch_session(session_id)
+        await _beta_state(request).store.touch_session(session_id)
         return {"data": {"session": session, "runtime": runtime}}
 
     @app.get("/sessions/{session_id}/history")
@@ -330,9 +333,9 @@ def create_beta_app(
         limit: int | None = Query(default=None, ge=1),
         current_user: dict[str, Any] = Depends(_require_user),
     ) -> dict[str, Any]:
-        _owned_session(request, current_user, session_id)
+        await _owned_session(request, current_user, session_id)
         turns = await _data_agent(request).get_history_turns(session_id, limit=limit)
-        _beta_state(request).store.touch_session(session_id)
+        await _beta_state(request).store.touch_session(session_id)
         return {
             "data": {
                 "session_id": session_id,
@@ -347,7 +350,7 @@ def create_beta_app(
         request: Request,
         current_user: dict[str, Any] = Depends(_require_user),
     ) -> dict[str, Any]:
-        _owned_session(request, current_user, session_id)
+        await _owned_session(request, current_user, session_id)
         message = str(payload.message or "").strip()
         if not message:
             raise AppError(
@@ -368,7 +371,7 @@ def create_beta_app(
                 code="MASH_PROXY_ERROR",
                 message=f"failed to submit message: {exc}",
             ) from exc
-        _beta_state(request).store.touch_session(session_id)
+        await _beta_state(request).store.touch_session(session_id)
         LOGGER.info(
             "beta message submitted",
             extra={
@@ -386,7 +389,7 @@ def create_beta_app(
         request: Request,
         current_user: dict[str, Any] = Depends(_require_user),
     ) -> StreamingResponse:
-        _owned_session(request, current_user, session_id)
+        await _owned_session(request, current_user, session_id)
         client = _data_client(request)
 
         async def _generate():
@@ -432,7 +435,7 @@ def create_beta_app(
                     ),
                 )
 
-        _beta_state(request).store.touch_session(session_id)
+        await _beta_state(request).store.touch_session(session_id)
         return StreamingResponse(
             _generate(),
             media_type="text/event-stream",
@@ -533,11 +536,11 @@ def _resolve_auth_secret() -> str:
     return "crew-beta-local-dev-secret-change-me"
 
 
-def _resolve_db_path() -> Path:
-    configured = str(os.getenv("CREW_BETA_DB_PATH") or "").strip()
+def _resolve_database_url() -> str:
+    configured = str(os.getenv("CREW_DATABASE_URL") or "").strip()
     if configured:
-        return Path(configured).expanduser().resolve()
-    return (crew_root_dir() / "beta" / "beta.db").resolve()
+        return configured
+    raise RuntimeError("CREW_DATABASE_URL must be set for the beta backend")
 
 
 def _resolve_cors_allowed_origins() -> tuple[str, ...]:
@@ -578,7 +581,7 @@ async def _require_user(
             message=str(exc),
         ) from exc
 
-    user = state.store.get_user_by_id(payload.user_id)
+    user = await state.store.get_user_by_id(payload.user_id)
     if user is None or str(user["status"]) != "active":
         raise AppError(
             status_code=401,
@@ -606,7 +609,7 @@ def _extract_bearer_token(authorization: str | None) -> str:
     return token
 
 
-def _owned_session(
+async def _owned_session(
     request: Request,
     current_user: dict[str, Any],
     session_id: str,
@@ -618,7 +621,7 @@ def _owned_session(
             code="INVALID_REQUEST",
             message="session_id is required",
         )
-    session = _beta_state(request).store.get_session(normalized)
+    session = await _beta_state(request).store.get_session(normalized)
     if session is None:
         raise AppError(
             status_code=404,

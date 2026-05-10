@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
@@ -10,10 +11,11 @@ from fastapi.testclient import TestClient
 from mash.core.context import ToolCall
 from mash.core.llm import LLMProvider
 from mash.core.llm.types import LLMContentBlock, LLMRequest, LLMResponse, LLMTokenUsage
+import pytest
 
 from crew.agents.data.spec import DataAgentSpec
 from crew.agents.pm.spec import PMAgentSpec
-from crew.beta.app import _normalize_stream_payload, build_beta_app
+from crew.beta.app import _normalize_stream_payload, build_beta_app, create_beta_app
 
 
 class _EchoLLM(LLMProvider):
@@ -92,15 +94,124 @@ class _DelegatingLLM(LLMProvider):
         del trace_id
 
 
-def _build_test_client(tmp_path: Path) -> TestClient:
+class _FakeBetaStore:
+    last_created: "_FakeBetaStore | None" = None
+
+    def __init__(self, database_url: str) -> None:
+        self.database_url = database_url
+        self._users: dict[str, dict[str, Any]] = {}
+        self._users_by_username: dict[str, str] = {}
+        self._sessions: dict[str, dict[str, Any]] = {}
+        self.open_called = False
+        self.close_called = False
+        _FakeBetaStore.last_created = self
+
+    async def open(self) -> None:
+        self.open_called = True
+
+    async def close(self) -> None:
+        self.close_called = True
+
+    async def get_user_by_id(self, user_id: str) -> dict[str, Any] | None:
+        user = self._users.get(user_id)
+        return dict(user) if user is not None else None
+
+    async def get_user_by_username(self, username: str) -> dict[str, Any] | None:
+        user_id = self._users_by_username.get(username)
+        if user_id is None:
+            return None
+        return await self.get_user_by_id(user_id)
+
+    async def ensure_user(self, username: str) -> dict[str, Any]:
+        normalized = username.strip().lower()
+        existing = await self.get_user_by_username(normalized)
+        if existing is not None:
+            return existing
+        payload = {
+            "id": f"user-{len(self._users) + 1}",
+            "username": normalized,
+            "display_name": None,
+            "status": "active",
+            "created_at": float(len(self._users) + 1),
+        }
+        self._users[payload["id"]] = payload
+        self._users_by_username[normalized] = payload["id"]
+        return dict(payload)
+
+    async def create_session(
+        self,
+        *,
+        session_id: str,
+        user_id: str,
+        agent_id: str,
+        label: str | None = None,
+    ) -> dict[str, Any]:
+        now = float(len(self._sessions) + 1)
+        payload = {
+            "session_id": session_id,
+            "user_id": user_id,
+            "agent_id": agent_id,
+            "label": label,
+            "created_at": now,
+            "last_opened_at": now,
+        }
+        self._sessions[session_id] = payload
+        return dict(payload)
+
+    async def get_session(self, session_id: str) -> dict[str, Any] | None:
+        session = self._sessions.get(session_id)
+        return dict(session) if session is not None else None
+
+    async def touch_session(self, session_id: str) -> None:
+        session = self._sessions.get(session_id)
+        if session is None:
+            return
+        session["last_opened_at"] = float(session["last_opened_at"]) + 1000.0
+
+    async def list_sessions_for_user(self, user_id: str) -> list[dict[str, Any]]:
+        rows = [
+            dict(session)
+            for session in self._sessions.values()
+            if str(session["user_id"]) == str(user_id)
+        ]
+        rows.sort(
+            key=lambda item: (-float(item["last_opened_at"]), -float(item["created_at"]))
+        )
+        return rows
+
+    async def list_session_ids_for_user(self, user_id: str) -> set[str]:
+        return {
+            str(session["session_id"])
+            for session in self._sessions.values()
+            if str(session["user_id"]) == str(user_id)
+        }
+
+
+class _HostStub:
+    def __init__(self) -> None:
+        self.started = False
+        self.closed = False
+
+    async def start(self) -> None:
+        self.started = True
+
+    async def close(self) -> None:
+        self.closed = True
+
+
+@contextmanager
+def _build_test_client(tmp_path: Path):
     os.environ["GITHUB_REPOS"] = str(tmp_path)
     os.environ["GITHUB_URL"] = "https://github.com/org/repo"
     os.environ["MASH_DATA_DIR"] = str(tmp_path / ".mash")
-    os.environ["CREW_BETA_DB_PATH"] = str(tmp_path / "beta.db")
+    os.environ["CREW_DATABASE_URL"] = "postgresql://beta:test@127.0.0.1:5432/crew_beta"
     os.environ["CREW_BETA_AUTH_SECRET"] = "beta-secret"
     os.environ["CREW_BETA_ALLOWED_USERS"] = "alice,bob"
-    app = build_beta_app()
-    return TestClient(app)
+    _FakeBetaStore.last_created = None
+    with patch("crew.beta.app.BetaStore", _FakeBetaStore):
+        app = build_beta_app()
+        with TestClient(app) as client:
+            yield client
 
 
 def _collect_sse_events(client: TestClient, path: str, *, token: str) -> list[dict[str, Any]]:
@@ -148,6 +259,36 @@ def _login(client: TestClient, username: str) -> tuple[str, dict[str, Any]]:
 
 def _auth_headers(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
+
+
+def test_build_beta_app_requires_database_url(monkeypatch) -> None:
+    monkeypatch.delenv("CREW_DATABASE_URL", raising=False)
+
+    with pytest.raises(RuntimeError, match="CREW_DATABASE_URL"):
+        create_beta_app(host=_HostStub())
+
+
+def test_beta_app_opens_and_closes_store(monkeypatch) -> None:
+    monkeypatch.setenv("CREW_DATABASE_URL", "postgresql://beta:test@127.0.0.1:5432/crew_beta")
+    monkeypatch.setenv("CREW_BETA_ALLOWED_USERS", "alice")
+    monkeypatch.setenv("CREW_BETA_AUTH_SECRET", "beta-secret")
+
+    _FakeBetaStore.last_created = None
+    host = _HostStub()
+    with patch("crew.beta.app.BetaStore", _FakeBetaStore):
+        app = create_beta_app(host=host)
+        with TestClient(app) as client:
+            assert client.get("/health").status_code == 200
+            created = _FakeBetaStore.last_created
+            assert created is not None
+            assert created.open_called is True
+            assert created.close_called is False
+            assert host.started is True
+
+        created = _FakeBetaStore.last_created
+        assert created is not None
+        assert created.close_called is True
+        assert host.closed is True
 
 
 def test_login_and_me_enforce_allowed_handles(tmp_path: Path) -> None:

@@ -147,6 +147,7 @@ need to run `mash host serve` separately for the web app.
 Set the beta access controls in your shell or project `.env`:
 
 ```bash
+CREW_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/crew_beta
 CREW_BETA_ALLOWED_USERS=alice,bob
 CREW_BETA_AUTH_SECRET=replace_me_for_local_beta
 ```
@@ -154,18 +155,18 @@ CREW_BETA_AUTH_SECRET=replace_me_for_local_beta
 Optional beta settings:
 
 ```bash
-CREW_BETA_DB_PATH=/absolute/path/to/beta.db
 CREW_BETA_TOKEN_TTL_SECONDS=604800
 CREW_BETA_CORS_ALLOWED_ORIGINS=http://127.0.0.1:3000,http://localhost:3000
 ```
 
 Field notes:
 
+- `CREW_DATABASE_URL`: required Postgres connection string for beta users and session ownership
 - `CREW_BETA_ALLOWED_USERS`: required comma-separated list or JSON array of allowed handles
 - `CREW_BETA_AUTH_SECRET`: recommended dedicated secret for beta auth signing
-- `CREW_BETA_DB_PATH`: optional SQLite path for beta users and session ownership; defaults to `<repo>/beta/beta.db`
 - `CREW_BETA_TOKEN_TTL_SECONDS`: optional auth token TTL; defaults to 7 days
 - `CREW_BETA_CORS_ALLOWED_ORIGINS`: optional comma-separated list or JSON array of allowed web origins; defaults to `http://127.0.0.1:3000,http://localhost:3000`
+- Postgres must be reachable before starting the beta BFF
 
 The existing hosted runtime and agent env vars from the setup steps above are still required because
 the beta BFF builds the same `data` and `pm` runtime under the hood.
