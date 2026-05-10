@@ -5,7 +5,6 @@ from typing import Any
 
 from mash.core.config import AgentConfig
 from mash.core.llm import AnthropicProvider, LLMProvider
-from mash.memory.store import SQLiteStore
 from mash.runtime import AgentSpec, SubAgentMetadata
 from mash.skills.registry import SkillRegistry
 from mash.tools.registry import ToolRegistry
@@ -23,15 +22,9 @@ SKILLS_DIR = Path(__file__).resolve().parent / "skills"
 class PMAgentSpec(AgentSpec):
     def __init__(self) -> None:
         self._skills: SkillRegistry | None = None
-        self._store: SQLiteStore | None = None
 
     def get_agent_id(self) -> str:
         return APP_ID
-
-    def build_store(self) -> SQLiteStore:
-        if self._store is None:
-            self._store = SQLiteStore(self.get_agent_data_dir() / "state.db")
-        return self._store
 
     def build_llm(self) -> LLMProvider:
         return AnthropicProvider(

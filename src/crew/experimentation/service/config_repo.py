@@ -70,6 +70,13 @@ def read_experiment_config(
     if not path.is_file():
         raise ValueError(f"config path is not a file: {path.relative_to(root).as_posix()}")
     content = path.read_text(encoding="utf-8")
+    # Keep `show` aligned with `plan` by rejecting configs that target a
+    # different dataset than the currently selected workspace.
+    load_experiment_config(
+        context=context,
+        name=normalized_name,
+        dataset_id=normalized_dataset_id,
+    )
     return {
         "kind": "experiment",
         "dataset_id": normalized_dataset_id,

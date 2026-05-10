@@ -6,7 +6,6 @@ from typing import Any
 
 from mash.core.config import AgentConfig
 from mash.core.llm import AnthropicProvider, LLMProvider
-from mash.memory.store import SQLiteStore
 from mash.mcp import MCPServerConfig
 from mash.runtime import AgentSpec
 from mash.skills.registry import SkillRegistry
@@ -40,16 +39,10 @@ class EngineerAgentSpec(AgentSpec):
         self.repo_path = Path(raw_repo_path).resolve()
         github_url = os.getenv("GITHUB_URL")
         self.github_url = (github_url or "").strip() or None
-        self._store: SQLiteStore | None = None
         self._skills: SkillRegistry | None = None
 
     def get_agent_id(self) -> str:
         return APP_ID
-
-    def build_store(self) -> SQLiteStore:
-        if self._store is None:
-            self._store = SQLiteStore(self.get_agent_data_dir() / "state.db")
-        return self._store
 
     def build_llm(self) -> LLMProvider:
         api_key = os.getenv("ANTHROPIC_API_KEY") or ANTHROPIC_API_KEY

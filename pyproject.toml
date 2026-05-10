@@ -7,7 +7,7 @@ requires-python = ">=3.10"
 license = { text = "Proprietary" }
 authors = [{ name = "imsid" }]
 dependencies = [
-  "mashpy>=0.2.7",
+  "mashpy>=0.2.8",
   "python-dotenv>=1.0",
   "google-auth>=2",
   "PyYAML>=6.0",

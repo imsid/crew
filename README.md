@@ -20,7 +20,8 @@ The packaged default workspace is `marketing_db`. Workspace content lives under
 `src/crew/workspace/<name>/...`, while local agent state lives under `<repo>/.mash`
 when running from a checkout. Hosted runtime durability, SSE replay, observability,
 and Masher trace inspection are backed by the runtime Postgres store configured with
-`MASH_RUNTIME_DATABASE_URL`.
+`MASH_RUNTIME_DATABASE_URL`. Agent memory uses Postgres when
+`MASH_MEMORY_DATABASE_URL` is set.
 
 ## What Crew Includes
 
@@ -37,6 +38,7 @@ and Masher trace inspection are backed by the runtime Postgres store configured 
 - Python 3.10+
 - [`uv`](https://docs.astral.sh/uv/)
 - Node.js 20+ and `npm` for the beta web app
+- Postgres for the hosted runtime and agent memory store
 - an Anthropic API key
 - BigQuery access for the data agent
 
@@ -65,13 +67,16 @@ Create a project-level `.env` with the hosted runtime settings:
 
 ```bash
 MASH_RUNTIME_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/mash_runtime
+MASH_MEMORY_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/mash_memory
 DBOS_CONDUCTOR_KEY=your_dbos_conductor_key
 ```
 
 Field notes:
 
 - `MASH_RUNTIME_DATABASE_URL`: required for hosted runtime durability, SSE replay, observability, and Masher trace reads
+- `MASH_MEMORY_DATABASE_URL`: required if you want Crew agent memory to use `PostgresMemoryStore`; when unset, Mash falls back to local SQLite files under `MASH_DATA_DIR`
 - `DBOS_CONDUCTOR_KEY`: required whenever the hosted Mash runtime starts
+- Postgres must be reachable from the host process before starting `mash host serve` or the beta BFF
 - keep these at the project or shell level, not in per-agent `.env` files
 
 ### 4. Configure agent-specific environment
@@ -117,7 +122,9 @@ mash host serve --host-app crew.app:build_host
 ```
 
 By default, local agent state is stored under `<repo>/.mash` when running from a checkout.
-Set `MASH_DATA_DIR` explicitly if you want to override that location.
+If `MASH_MEMORY_DATABASE_URL` is set, agent memory is stored in Postgres instead of those
+local SQLite files. Set `MASH_DATA_DIR` explicitly if you want to override the local fallback
+location.
 
 ### 6. Connect once
 

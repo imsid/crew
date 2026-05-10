@@ -259,6 +259,7 @@ async def _execute_request_inline(
                     )
                 workflow_state = await commit_request_step(
                     runtime.app_id,
+                    request_id,
                     session_id=session_id,
                     trace_id=trace_id,
                     workflow_state=workflow_state,
@@ -363,6 +364,7 @@ def _patch_hosted_runtime_for_tests():
     from _pytest.monkeypatch import MonkeyPatch
 
     patcher = MonkeyPatch()
+    patcher.setenv("MASH_MEMORY_DATABASE_URL", "")
     patcher.setenv("MASH_RUNTIME_DATABASE_URL", "postgresql://test/runtime")
     patcher.setenv("DBOS_CONDUCTOR_KEY", "test-conductor-key")
     patcher.setattr("mash.runtime.service.PostgresRuntimeStore", _TestRuntimeStore)
