@@ -24,6 +24,7 @@ export function DataVisualizationCard({
   onChange,
   hideLineage = false,
   configContent,
+  detailsSection,
 }: Readonly<{
   visualization: VisualizationPayload;
   onChange?: (next: {
@@ -35,6 +36,14 @@ export function DataVisualizationCard({
   }) => void;
   hideLineage?: boolean;
   configContent?: string | null;
+  detailsSection?: {
+    title: string;
+    description: string;
+    configLabel?: string;
+    configContent?: string | null;
+    badges?: ReactNode;
+    queries?: Array<{ label?: string; sql: string }>;
+  } | null;
 }>) {
   const rows = visualization.table.rows;
   const columns = visualization.table.columns;
@@ -253,7 +262,41 @@ export function DataVisualizationCard({
           </div>
         </DisclosureSection>
 
-        {!hideLineage || configContent ? (
+        {detailsSection ? (
+          <DisclosureSection
+            title={detailsSection.title}
+            description={detailsSection.description}
+            icon={<DatabaseIcon className="size-4 text-muted-foreground" />}
+            open={detailsOpen}
+            onOpenChange={setDetailsOpen}
+            className="rounded-[1.1rem] border border-border/45 bg-secondary/10"
+          >
+            <div className="space-y-3 border-t border-border/45 px-4 py-4">
+              {detailsSection.badges ? <div className="flex flex-wrap gap-2">{detailsSection.badges}</div> : null}
+              {detailsSection.configContent ? (
+                <div className="space-y-2">
+                  {detailsSection.configLabel ? (
+                    <p className="text-sm font-medium">{detailsSection.configLabel}</p>
+                  ) : null}
+                  <pre className="overflow-x-auto rounded-2xl bg-stone-950 p-4 text-xs text-stone-50">
+                    <code>{detailsSection.configContent}</code>
+                  </pre>
+                </div>
+              ) : null}
+              {(detailsSection.queries ?? []).map((query, index) => (
+                <div
+                  key={`${query.label ?? "query"}-${index}`}
+                  className="space-y-2"
+                >
+                  {query.label ? <p className="text-sm font-medium">{query.label}</p> : null}
+                  <pre className="overflow-x-auto rounded-2xl bg-stone-950 p-4 text-xs text-stone-50">
+                    <code>{query.sql}</code>
+                  </pre>
+                </div>
+              ))}
+            </div>
+          </DisclosureSection>
+        ) : !hideLineage || configContent ? (
           <DisclosureSection
             title={configContent ? "Metric config and compiled SQL" : "Compiled SQL"}
             description={

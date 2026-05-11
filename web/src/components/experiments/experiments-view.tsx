@@ -1,14 +1,13 @@
 "use client";
 
-import { type ReactNode, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronDownIcon, FileCode2Icon, SearchIcon } from "lucide-react";
+import { SearchIcon } from "lucide-react";
 import { analyzeExperiment, getExperiment, getExperimentPlan, listExperiments } from "@/lib/api";
 import { useAuth } from "@/providers/auth-provider";
 import { DataVisualizationCard } from "@/components/visualizations/data-visualization-card";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -17,8 +16,6 @@ export function ExperimentsView() {
   const [query, setQuery] = useState("");
   const [selectedExperiment, setSelectedExperiment] = useState<string | null>(null);
   const [selectedMetricId, setSelectedMetricId] = useState<string | null>(null);
-  const [configOpen, setConfigOpen] = useState(false);
-  const [planOpen, setPlanOpen] = useState(false);
   const deferredQuery = useDeferredValue(query.trim().toLowerCase());
 
   const experimentsQuery = useQuery({
@@ -49,8 +46,6 @@ export function ExperimentsView() {
 
   useEffect(() => {
     setSelectedMetricId(null);
-    setConfigOpen(false);
-    setPlanOpen(false);
   }, [selectedExperiment]);
 
   const detailQuery = useQuery({
@@ -146,120 +141,50 @@ export function ExperimentsView() {
         {analysisQuery.data ? (
           <DataVisualizationCard
             visualization={analysisQuery.data}
+            hideLineage
+            detailsSection={
+              detailQuery.data
+                ? {
+                    title: "Experiment config and analysis plan SQL",
+                    description: "Inspect the contract, allocation, and generated analysis queries",
+                    configLabel: "Experiment config",
+                    configContent: detailQuery.data.content,
+                    badges: (
+                      <>
+                        {detailQuery.data.document?.subject_type ? (
+                          <Badge>{detailQuery.data.document.subject_type}</Badge>
+                        ) : null}
+                        {detailQuery.data.document?.control_variant ? (
+                          <Badge variant="outline">
+                            control: {detailQuery.data.document.control_variant}
+                          </Badge>
+                        ) : null}
+                        {(detailQuery.data.document?.variants ?? []).map((variant) => (
+                          <Badge key={variant.id} variant="secondary">
+                            {variant.id} {Math.round(variant.allocation_weight * 100)}%
+                          </Badge>
+                        ))}
+                      </>
+                    ),
+                    queries: planQuery.data
+                      ? [
+                          {
+                            label: "Exposure plan SQL",
+                            sql: planQuery.data.plans.exposure_summary.sql,
+                          },
+                          ...planQuery.data.plans.metric_summaries.map((summary) => ({
+                            label: summary.metric_id,
+                            sql: summary.sql,
+                          })),
+                        ]
+                      : [],
+                  }
+                : null
+            }
             onChange={(next) => setSelectedMetricId(next.metric_id ?? null)}
           />
         ) : null}
-
-        {detailQuery.data ? (
-          <ExperimentDisclosure
-            title="Experiment config"
-            description="Inspect the contract and allocation settings"
-            icon={<FileCode2Icon className="size-4 text-muted-foreground" />}
-            open={configOpen}
-            onOpenChange={setConfigOpen}
-          >
-            <div className="space-y-3 border-t border-border/70 bg-secondary/20 p-4">
-              <div className="flex flex-wrap gap-2">
-                {detailQuery.data.document?.subject_type ? (
-                  <Badge>{detailQuery.data.document.subject_type}</Badge>
-                ) : null}
-                {detailQuery.data.document?.control_variant ? (
-                  <Badge variant="outline">
-                    control: {detailQuery.data.document.control_variant}
-                  </Badge>
-                ) : null}
-                {(detailQuery.data.document?.variants ?? []).map((variant) => (
-                  <Badge key={variant.id} variant="secondary">
-                    {variant.id} {Math.round(variant.allocation_weight * 100)}%
-                  </Badge>
-                ))}
-              </div>
-              <pre className="overflow-x-auto rounded-2xl bg-stone-950 p-4 text-xs text-stone-50">
-                <code>{detailQuery.data.content}</code>
-              </pre>
-            </div>
-          </ExperimentDisclosure>
-        ) : null}
-
-        {planQuery.data ? (
-          <ExperimentDisclosure
-            title="Analysis plan SQL"
-            description="Review the generated exposure and metric queries"
-            icon={<FileCode2Icon className="size-4 text-muted-foreground" />}
-            open={planOpen}
-            onOpenChange={setPlanOpen}
-          >
-            <div className="space-y-3 border-t border-border/70 bg-secondary/20 p-4">
-              <p className="text-sm font-medium">Exposure plan SQL</p>
-              <pre className="overflow-x-auto rounded-2xl bg-stone-950 p-4 text-xs text-stone-50">
-                <code>{planQuery.data.plans.exposure_summary.sql}</code>
-              </pre>
-              {planQuery.data.plans.metric_summaries.map((summary) => (
-                <div key={summary.metric_id} className="space-y-2">
-                  <p className="text-sm font-medium">{summary.metric_id}</p>
-                  <pre className="overflow-x-auto rounded-2xl bg-stone-950 p-4 text-xs text-stone-50">
-                    <code>{summary.sql}</code>
-                  </pre>
-                </div>
-              ))}
-            </div>
-          </ExperimentDisclosure>
-        ) : null}
       </div>
-    </div>
-  );
-}
-
-function ExperimentDisclosure({
-  title,
-  description,
-  icon,
-  open,
-  onOpenChange,
-  children,
-}: Readonly<{
-  title: string;
-  description: string;
-  icon: ReactNode;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  children: ReactNode;
-}>) {
-  const ref = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const node = ref.current;
-    if (!node) return;
-    const timer = window.setTimeout(() => {
-      node.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 40);
-    return () => window.clearTimeout(timer);
-  }, [open]);
-
-  return (
-    <div ref={ref}>
-      <Collapsible
-        open={open}
-        onOpenChange={onOpenChange}
-        className="overflow-hidden rounded-[1.2rem] border border-border/80 bg-white/90"
-      >
-        <CollapsibleTrigger className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left">
-          <div className="flex items-center gap-2">
-            {icon}
-            <div>
-              <p className="text-sm font-medium">{title}</p>
-              <p className="text-xs text-muted-foreground">{description}</p>
-            </div>
-          </div>
-          <ChevronDownIcon
-            className={`size-4 text-muted-foreground transition-transform duration-200 ${
-              open ? "rotate-180" : "rotate-0"
-            }`}
-          />
-        </CollapsibleTrigger>
-        <CollapsibleContent className="space-y-3 pt-0">{children}</CollapsibleContent>
-      </Collapsible>
     </div>
   );
 }
