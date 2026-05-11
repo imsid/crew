@@ -27,7 +27,7 @@ and Masher trace inspection are backed by the runtime Postgres store configured 
 
 - `metrics_layer`: semantic metric and source definitions plus SQL compilation
 - `experimentation`: deterministic experiment contracts and SQL planning
-- `artifacts`: reusable Markdown outputs created from agent conversations
+- `artifacts`: reusable Markdown or HTML outputs created from agent conversations
 - `crew` CLI: the main interface for conversational work, metrics commands, and artifact commands
 - Mash host runtime: the execution engine that powers the local agent host
 
@@ -184,7 +184,8 @@ This starts the beta FastAPI backend at `http://127.0.0.1:8000`.
 ### Start the beta web app
 
 The beta web app now uses `Next.js` App Router with Tailwind, shadcn-style UI
-primitives, `assistant-ui` for chat, and `react-markdown` for artifact rendering.
+primitives, `assistant-ui` for chat, `react-markdown` for Markdown artifact rendering,
+and sandboxed iframes for HTML artifacts.
 
 Install the frontend dependencies once:
 
@@ -302,7 +303,7 @@ Then ask the agent to:
 - `find the artifact about activation experiments`
 
 Artifact files live under `workspace/<name>/artifacts/`.
-They are reusable Markdown outputs that teams can search, read, and reference later.
+They are reusable Markdown or HTML outputs that teams can search, read, and reference later.
 
 ## Internal Modules
 

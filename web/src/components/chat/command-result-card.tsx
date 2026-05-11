@@ -256,6 +256,7 @@ export function CommandResultCard({
                 <div className="flex flex-wrap items-center gap-2">
                   <p className="font-semibold">{artifact.title}</p>
                   <Badge variant="outline">{artifact.kind}</Badge>
+                  <Badge variant="secondary">{artifact.format}</Badge>
                 </div>
                 <p className="mt-2 text-sm text-muted-foreground">
                   {getArtifactPreviewText(artifact)}

@@ -53,7 +53,7 @@ export default function LoginPage() {
                 </h1>
                 <p className="max-w-md text-sm leading-6 text-stone-200/80 sm:text-base">
                   Ask grounded business questions, inspect metrics and experiments directly,
-                  and keep the useful outputs as shared Markdown artifacts.
+                  and keep the useful outputs as shared artifact documents.
                 </p>
               </div>
             </div>
@@ -62,7 +62,7 @@ export default function LoginPage() {
               {[
                 "Agent Mode for conversational analysis",
                 "Command Mode for read-only exploration",
-                "Shared Markdown artifacts for the team",
+                "Shared Markdown and HTML artifacts for the team",
                 "Mobile-ready workspace with inline commands",
               ].map((item) => (
                 <div

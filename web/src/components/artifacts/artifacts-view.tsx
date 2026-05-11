@@ -57,7 +57,7 @@ export function ArtifactsView() {
             <div className="min-w-0">
               <CardTitle className="text-xl sm:text-2xl">Artifact library</CardTitle>
               <CardDescription className="mt-1 text-sm sm:text-base">
-                Search shared Markdown outputs created from prior analyses.
+                Search shared Markdown and HTML outputs created from prior analyses.
               </CardDescription>
             </div>
           </div>
@@ -84,11 +84,12 @@ export function ArtifactsView() {
         {!artifactQuery.isLoading &&
           results.map((artifact) => (
             <Link key={artifact.artifact_id} href={`/app/artifacts/${artifact.artifact_id}`}>
-              <Card className="h-full transition-transform hover:-translate-y-0.5 hover:bg-white">
+                <Card className="h-full transition-transform hover:-translate-y-0.5 hover:bg-white">
                 <CardHeader>
                   <div className="flex flex-wrap items-center gap-2">
                     <CardTitle>{artifact.title}</CardTitle>
                     <Badge variant="outline">{artifact.kind}</Badge>
+                    <Badge variant="secondary">{artifact.format}</Badge>
                   </div>
                   <CardDescription>{getArtifactSnippet(artifact)}</CardDescription>
                 </CardHeader>

@@ -44,6 +44,7 @@ crew = [
   "experimentation/schema/*.yml",
   "code_index/*.sh",
   "workspace/*/artifacts/*.md",
+  "workspace/*/artifacts/*.html",
   "workspace/*/metrics_layer/configs/sources/*.yml",
   "workspace/*/metrics_layer/configs/metrics/*.yml",
   "workspace/*/experimentation/configs/experiments/*.yml",

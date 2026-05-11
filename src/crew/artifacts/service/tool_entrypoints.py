@@ -51,7 +51,10 @@ def write_new_artifact_file_tool(args: Dict[str, Any], context: ToolContext) -> 
     try:
         payload = write_new_artifact_file(
             context=context,
+            artifact_content=args.get("artifact_content"),
+            artifact_document=args.get("artifact_document"),
             artifact_markdown=args.get("artifact_markdown"),
+            format=args.get("format"),
         )
         return _to_json(payload)
     except Exception as exc:

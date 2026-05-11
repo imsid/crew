@@ -8,7 +8,7 @@ import {
   ThreadPrimitive,
   useAuiState,
 } from "@assistant-ui/react";
-import { AlertTriangleIcon, CopyIcon, RefreshCwIcon } from "lucide-react";
+import { AlertTriangleIcon, CopyIcon } from "lucide-react";
 import { ExecutionTrace } from "@/components/chat/execution-trace";
 import { Button } from "@/components/ui/button";
 import type { ExecutionTraceState, InlineCommandResult } from "@/lib/types";
@@ -27,16 +27,12 @@ const CommandResultCard = dynamic(
   },
 );
 
-export function MessageList({
-  onRetry,
-}: Readonly<{
-  onRetry: () => void;
-}>) {
+export function MessageList() {
   return (
     <ThreadPrimitive.Messages
       components={{
         UserMessage,
-        AssistantMessage: () => <AssistantMessage onRetry={onRetry} />,
+        AssistantMessage,
         SystemMessage,
       }}
     />
@@ -58,7 +54,7 @@ function UserMessage() {
   );
 }
 
-function AssistantMessage({ onRetry }: Readonly<{ onRetry: () => void }>) {
+function AssistantMessage() {
   const isThreadRunning = useAuiState((state) => state.thread.isRunning);
 
   return (
@@ -116,9 +112,6 @@ function AssistantMessage({ onRetry }: Readonly<{ onRetry: () => void }>) {
                 <AlertTriangleIcon className="mt-0.5 size-4 text-destructive" />
                 <div className="space-y-3">
                   <ErrorPrimitive.Message />
-                  <Button variant="outline" size="sm" onClick={onRetry}>
-                    Retry last turn
-                  </Button>
                 </div>
               </div>
             </ErrorPrimitive.Root>
@@ -133,12 +126,6 @@ function AssistantMessage({ onRetry }: Readonly<{ onRetry: () => void }>) {
                 Copy
               </Button>
             </ActionBarPrimitive.Copy>
-            <ActionBarPrimitive.Reload asChild>
-              <Button variant="ghost" size="sm" className="min-h-9 rounded-full px-3 text-xs">
-                <RefreshCwIcon className="size-3.5" />
-                Retry
-              </Button>
-            </ActionBarPrimitive.Reload>
           </ActionBarPrimitive.Root>
         </div>
       </div>

@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
 import { MarkdownRenderer } from "@/components/chat/markdown-renderer";
 import { formatDateTime } from "@/lib/utils";
 
@@ -50,15 +51,11 @@ export function ArtifactReader({
     );
   }
 
-  const content = compact
-    ? toBodyOnlyMarkdown(resolvedArtifact)
-    : stripArtifactFrontmatter(resolvedArtifact.content);
-
   if (compact) {
     return (
       <Card className="border-0 bg-transparent shadow-none">
         <CardContent className="px-0 pb-0">
-          <MarkdownRenderer markdown={content} className="[&>*:first-child]:mt-0" />
+          <ArtifactDocumentRenderer artifact={resolvedArtifact} compact />
         </CardContent>
       </Card>
     );
@@ -95,17 +92,46 @@ export function ArtifactReader({
           </div>
           <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
             <Badge>{resolvedArtifact.frontmatter.kind}</Badge>
+            <Badge variant="secondary">{resolvedArtifact.frontmatter.format}</Badge>
             <Badge variant="outline">{resolvedArtifact.frontmatter.source_agent}</Badge>
             <span>{formatDateTime(resolvedArtifact.frontmatter.updated_at)}</span>
           </div>
         </CardHeader>
         <CardContent className="min-h-0 flex-1 overflow-y-auto px-5 pb-6 pt-0 sm:px-7 sm:pb-7">
           <div className="mb-6 h-px bg-border/70" />
-          <MarkdownRenderer markdown={content} className="[&>*:first-child]:mt-0" />
+          <ArtifactDocumentRenderer artifact={resolvedArtifact} />
         </CardContent>
       </Card>
     </div>
   );
+}
+
+function ArtifactDocumentRenderer({
+  artifact,
+  compact = false,
+}: Readonly<{
+  artifact: ArtifactDetailResponse;
+  compact?: boolean;
+}>) {
+  if (artifact.format === "html") {
+    return (
+      <iframe
+        title={artifact.frontmatter.title}
+        sandbox="allow-scripts"
+        referrerPolicy="no-referrer"
+        srcDoc={buildHtmlArtifactSrcDoc(stripArtifactFrontmatter(artifact.content))}
+        className={cn(
+          "w-full rounded-[1.5rem] border border-border/70 bg-white",
+          compact ? "h-[420px]" : "h-[760px]",
+        )}
+      />
+    );
+  }
+
+  const markdown = compact
+    ? toBodyOnlyMarkdown(artifact)
+    : stripArtifactFrontmatter(artifact.content);
+  return <MarkdownRenderer markdown={markdown} className="[&>*:first-child]:mt-0" />;
 }
 
 function toBodyOnlyMarkdown(artifact: ArtifactDetailResponse) {
@@ -120,4 +146,35 @@ function stripArtifactFrontmatter(content: string) {
   const match = content.match(/^---\s*\n[\s\S]*?\n---\s*\n?/);
   if (!match) return content;
   return content.slice(match[0].length);
+}
+
+function buildHtmlArtifactSrcDoc(content: string) {
+  const csp = [
+    "default-src 'none'",
+    "img-src data:",
+    "media-src data:",
+    "font-src data:",
+    "style-src 'unsafe-inline'",
+    "script-src 'unsafe-inline'",
+    "connect-src 'none'",
+    "frame-src 'none'",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "form-action 'none'",
+    "frame-ancestors 'none'",
+    "navigate-to 'none'",
+  ].join("; ");
+  const headBlock = [
+    '<meta charset="utf-8">',
+    `<meta http-equiv="Content-Security-Policy" content="${csp}">`,
+    '<meta name="viewport" content="width=device-width, initial-scale=1">',
+  ].join("");
+
+  if (/<head\b/i.test(content)) {
+    return content.replace(/<head\b[^>]*>/i, (match) => `${match}${headBlock}`);
+  }
+  if (/<html\b/i.test(content)) {
+    return content.replace(/<html\b[^>]*>/i, (match) => `${match}<head>${headBlock}</head>`);
+  }
+  return `<!doctype html><html><head>${headBlock}</head><body>${content}</body></html>`;
 }

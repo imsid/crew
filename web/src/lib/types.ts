@@ -276,6 +276,7 @@ export type ExperimentPlanResponse = {
 
 export type ArtifactListItem = {
   artifact_id: string;
+  format: "markdown" | "html";
   title: string;
   description: string;
   kind: string;
@@ -305,10 +306,12 @@ export type ArtifactSearchResponse = {
 
 export type ArtifactDetailResponse = {
   artifact_id: string;
+  format: "markdown" | "html";
   path: string;
   size: number;
   frontmatter: {
     artifact_id: string;
+    format: "markdown" | "html";
     source_agent: string;
     title: string;
     description: string;

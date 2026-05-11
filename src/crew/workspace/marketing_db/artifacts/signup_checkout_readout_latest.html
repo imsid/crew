@@ -1,0 +1,233 @@
+---
+artifact_id: signup_checkout_readout_latest
+format: html
+source_agent: data-agent
+title: Signup Checkout — Latest Experiment Readout
+description: Early-stage readout for signup_checkout_test (v1) showing +34% lift in conversions with low power.
+kind: readout
+session_id: current
+updated_at: 2024-01-17T00:00:00Z
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Signup Checkout — Latest Experiment Readout</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #111827;
+        --muted: #4b5563;
+        --paper: #ffffff;
+        --line: #dbe2ea;
+        --green: #166534;
+        --green-soft: #dcfce7;
+        --blue: #1d4ed8;
+        --blue-soft: #dbeafe;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        padding: 24px;
+        font-family: Arial, sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at top right, rgba(29, 78, 216, 0.12), transparent 24%),
+          #eef3f8;
+      }
+      main {
+        max-width: 1080px;
+        margin: 0 auto;
+        background: var(--paper);
+        border: 1px solid var(--line);
+        border-radius: 26px;
+        overflow: hidden;
+        box-shadow: 0 24px 72px rgba(17, 24, 39, 0.08);
+      }
+      header {
+        padding: 30px 34px 24px;
+        border-bottom: 1px solid var(--line);
+      }
+      h1, h2, h3, p { margin: 0; }
+      h1 { font-size: 2rem; line-height: 1.1; }
+      .dek {
+        margin-top: 10px;
+        color: var(--muted);
+        line-height: 1.6;
+        max-width: 760px;
+      }
+      .badges {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 18px;
+      }
+      .badge {
+        padding: 8px 12px;
+        border-radius: 999px;
+        font-size: 0.85rem;
+        font-weight: 700;
+      }
+      .badge.green { background: var(--green-soft); color: var(--green); }
+      .badge.blue { background: var(--blue-soft); color: var(--blue); }
+      .content {
+        display: grid;
+        grid-template-columns: 1.15fr 0.85fr;
+        gap: 20px;
+        padding: 24px 34px 34px;
+      }
+      .stack { display: grid; gap: 18px; }
+      .card {
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        padding: 18px;
+        background: #fff;
+      }
+      .card h2 {
+        font-size: 1.05rem;
+        margin-bottom: 12px;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.95rem;
+      }
+      th, td {
+        padding: 10px 12px;
+        border-top: 1px solid var(--line);
+        text-align: left;
+        vertical-align: top;
+      }
+      th {
+        background: #f7f9fc;
+        border-top: none;
+      }
+      ul, ol {
+        margin: 0;
+        padding-left: 20px;
+        line-height: 1.7;
+      }
+      .small {
+        color: var(--muted);
+        line-height: 1.7;
+      }
+      .metric {
+        display: grid;
+        gap: 10px;
+      }
+      .metric strong { font-size: 1.5rem; }
+      @media (max-width: 900px) {
+        .content { grid-template-columns: 1fr; padding: 18px; }
+        header { padding: 22px 18px 18px; }
+        body { padding: 12px; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>Signup Checkout — Latest Experiment Readout</h1>
+        <p class="dek">
+          Early-stage readout for signup_checkout_test (v1) showing +34% lift in conversions with low power.
+        </p>
+        <div class="badges">
+          <span class="badge blue">Experiment: signup_checkout_test (v1)</span>
+          <span class="badge green">Status: Early-stage analysis</span>
+        </div>
+      </header>
+      <section class="content">
+        <div class="stack">
+          <article class="card">
+            <h2>Summary</h2>
+            <p class="small">
+              The signup checkout experiment shows a promising <strong>+34% lift</strong> in conversions
+              per subject for the treatment variant, but the sample is too small to confirm statistical
+              significance. No sample ratio mismatch detected. Recommend continued data collection before
+              drawing a final conclusion.
+            </p>
+          </article>
+          <article class="card">
+            <h2>Exposure Summary</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>Variant</th>
+                  <th>Canonical Subjects</th>
+                  <th>Contaminated</th>
+                  <th>Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Control</strong></td>
+                  <td>105</td>
+                  <td>2</td>
+                  <td>1.9% contamination</td>
+                </tr>
+                <tr>
+                  <td><strong>Treatment</strong></td>
+                  <td>115</td>
+                  <td>0</td>
+                  <td>Clean</td>
+                </tr>
+              </tbody>
+            </table>
+          </article>
+          <article class="card">
+            <h2>Key Metrics</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>Metric</th>
+                  <th>Control</th>
+                  <th>Treatment</th>
+                  <th>Lift</th>
+                  <th>95% CI</th>
+                  <th>p-value</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Conversions per Subject</strong></td>
+                  <td>0.0194</td>
+                  <td>0.0261</td>
+                  <td><strong>+34.3%</strong></td>
+                  <td>[-3.3%, +4.7%]</td>
+                  <td>0.74</td>
+                </tr>
+              </tbody>
+            </table>
+          </article>
+        </div>
+        <div class="stack">
+          <article class="card">
+            <h2>Interpretation</h2>
+            <div class="metric">
+              <div><strong>Positive direction</strong><br><span class="small">Treatment outperforms control on the key conversion metric.</span></div>
+              <div><strong>High uncertainty</strong><br><span class="small">The confidence interval spans zero and the p-value is not significant.</span></div>
+              <div><strong>Clean SRM check</strong><br><span class="small">Allocation is balanced and contamination is minimal.</span></div>
+            </div>
+          </article>
+          <article class="card">
+            <h2>Next Steps</h2>
+            <ol>
+              <li>Collect more data and aim for 500–1000 subjects per variant.</li>
+              <li>Monitor secondary funnel and engagement metrics.</li>
+              <li>Check for early-stage confounds as cohorts accumulate.</li>
+            </ol>
+          </article>
+          <article class="card">
+            <h2>Metadata</h2>
+            <ul>
+              <li><strong>Experiment ID:</strong> signup_checkout_test</li>
+              <li><strong>Version:</strong> 1</li>
+              <li><strong>Analysis Date:</strong> 2024-01-17</li>
+              <li><strong>Statistical Test:</strong> Two-proportion z-test with Welford variance</li>
+              <li><strong>Confidence Level:</strong> 95%</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

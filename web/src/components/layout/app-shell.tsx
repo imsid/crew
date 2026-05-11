@@ -24,7 +24,7 @@ const sectionMeta = {
   },
   artifacts: {
     title: "Artifact library",
-    description: "Search and read team-authored Markdown outputs.",
+    description: "Search and read team-authored Markdown and HTML outputs.",
   },
   skills: {
     title: "Skills library",

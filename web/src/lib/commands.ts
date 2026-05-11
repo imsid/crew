@@ -76,7 +76,7 @@ export const SLASH_COMMANDS: SlashCommandDefinition[] = [
     surface: "artifacts",
     operation: "show",
     label: "Artifacts show",
-    hint: "Open a Markdown artifact",
+    hint: "Open an artifact document",
     template: "/artifacts show ",
   },
 ];

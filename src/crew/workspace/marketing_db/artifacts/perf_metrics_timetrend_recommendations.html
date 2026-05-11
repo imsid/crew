@@ -1,0 +1,274 @@
+---
+artifact_id: perf_metrics_timetrend_recommendations
+format: html
+source_agent: data-agent
+title: Time-Based Performance Analysis & Product Recommendations
+description: Analysis of ad spend efficiency trends and actionable product recommendations for improving ROI.
+kind: analysis
+session_id: current
+updated_at: 2024-12-19T00:00:00Z
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Time-Based Performance Analysis &amp; Product Recommendations</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #172033;
+        --muted: #5f6b7c;
+        --line: #d6dde8;
+        --paper: #fbfdff;
+        --panel: #ffffff;
+        --accent: #0f766e;
+        --accent-soft: #dff6f2;
+        --warn: #b45309;
+        --warn-soft: #ffedd5;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        padding: 24px;
+        font-family: Arial, sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at top left, rgba(15, 118, 110, 0.10), transparent 24%),
+          radial-gradient(circle at top right, rgba(180, 83, 9, 0.10), transparent 22%),
+          #eef4f8;
+      }
+      main {
+        max-width: 1120px;
+        margin: 0 auto;
+        background: var(--paper);
+        border: 1px solid var(--line);
+        border-radius: 28px;
+        overflow: hidden;
+        box-shadow: 0 24px 80px rgba(23, 32, 51, 0.08);
+      }
+      header {
+        padding: 32px 36px 24px;
+        border-bottom: 1px solid var(--line);
+        background: linear-gradient(135deg, rgba(15, 118, 110, 0.07), rgba(255, 255, 255, 0));
+      }
+      h1, h2, h3, p { margin: 0; }
+      h1 { font-size: 2.1rem; line-height: 1.1; max-width: 860px; }
+      .dek {
+        max-width: 880px;
+        margin-top: 12px;
+        color: var(--muted);
+        line-height: 1.6;
+      }
+      .hero-stats {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 14px;
+        margin-top: 20px;
+      }
+      .hero-stat {
+        padding: 14px 16px;
+        border-radius: 18px;
+        background: var(--panel);
+        border: 1px solid var(--line);
+      }
+      .hero-stat strong {
+        display: block;
+        font-size: 1.4rem;
+        margin-top: 4px;
+      }
+      .content {
+        display: grid;
+        grid-template-columns: 1.2fr 0.8fr;
+        gap: 22px;
+        padding: 28px 36px 36px;
+      }
+      .stack {
+        display: grid;
+        gap: 18px;
+      }
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        padding: 20px;
+      }
+      .card h2 {
+        font-size: 1.1rem;
+        margin-bottom: 12px;
+      }
+      .callout {
+        padding: 14px 16px;
+        border-radius: 16px;
+        line-height: 1.6;
+      }
+      .callout.warn {
+        background: var(--warn-soft);
+        color: #7c2d12;
+      }
+      .callout.good {
+        background: var(--accent-soft);
+        color: #115e59;
+      }
+      ul, ol {
+        margin: 0;
+        padding-left: 20px;
+        line-height: 1.7;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 10px;
+        font-size: 0.95rem;
+      }
+      th, td {
+        border-top: 1px solid var(--line);
+        padding: 10px 12px;
+        text-align: left;
+        vertical-align: top;
+      }
+      th {
+        background: #f2f7fb;
+        border-top: none;
+      }
+      .eyebrow {
+        display: inline-block;
+        margin-bottom: 10px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: var(--accent-soft);
+        color: var(--accent);
+        font-size: 0.78rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+      .two-up {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+      }
+      .small {
+        color: var(--muted);
+        font-size: 0.92rem;
+        line-height: 1.6;
+      }
+      @media (max-width: 900px) {
+        .content, .hero-stats, .two-up { grid-template-columns: 1fr; }
+        body { padding: 12px; }
+        header, .content { padding-left: 18px; padding-right: 18px; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <span class="eyebrow">Performance Analysis</span>
+        <h1>Time-Based Performance Analysis &amp; Product Recommendations</h1>
+        <p class="dek">
+          Analysis of ad spend efficiency trends and actionable product recommendations for improving ROI.
+        </p>
+        <section class="hero-stats" aria-label="Key headline metrics">
+          <div class="hero-stat"><span>Total Spend</span><strong>$2M</strong></div>
+          <div class="hero-stat"><span>Total Revenue</span><strong>$40K</strong></div>
+          <div class="hero-stat"><span>ROI</span><strong>2%</strong></div>
+          <div class="hero-stat"><span>Avg CPC</span><strong>$2.50</strong></div>
+        </section>
+      </header>
+      <section class="content">
+        <div class="stack">
+          <article class="card">
+            <h2>Summary</h2>
+            <p class="small">
+              Analysis of 2024 performance metrics reveals a <strong>2% ROI on $2M ad spend</strong>
+              driven by three critical issues: extreme volatility in cost-per-click
+              ($0.25–$16.13), weak attribution between ad spend timing and conversion events,
+              and flat conversion volume despite significant spend increases. This brief outlines
+              two immediate product recommendations to improve efficiency and establish the data foundation
+              for future optimization.
+            </p>
+          </article>
+          <article class="card">
+            <h2>Key Findings</h2>
+            <div class="two-up">
+              <div class="callout warn">
+                <strong>1. Ad Spend Efficiency is Highly Volatile</strong><br>
+                Cost-per-click ranges from $0.25 to $16.13, a 64x spread with no clear seasonal pattern.
+              </div>
+              <div class="callout warn">
+                <strong>2. Conversion Volume is Disconnected from Spend</strong><br>
+                High-volume, efficient spend days do not produce proportional conversions.
+              </div>
+            </div>
+            <div class="callout good" style="margin-top:14px;">
+              <strong>3. Conversion Pattern is Flat</strong><br>
+              Conversions remain 1–4 per day year-round, suggesting consistent demand but poor spend leverage.
+            </div>
+          </article>
+          <article class="card">
+            <h2>Product Recommendations</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>Recommendation</th>
+                  <th>Why</th>
+                  <th>Effort</th>
+                  <th>Expected Outcome</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Establish spend-to-conversion attribution</strong></td>
+                  <td>Add conversion-source tagging and 14–30 day attribution windows.</td>
+                  <td>Medium</td>
+                  <td>Reveal which channels truly drive conversions and unlock $300K–$500K in reallocation opportunities.</td>
+                </tr>
+                <tr>
+                  <td><strong>Optimize channel mix to high-efficiency periods</strong></td>
+                  <td>Concentrate budget on proven efficient windows and reduce exposure to CPC outliers.</td>
+                  <td>Low</td>
+                  <td>Immediate 20–25% cost reduction while holding click volume flat.</td>
+                </tr>
+              </tbody>
+            </table>
+          </article>
+        </div>
+        <div class="stack">
+          <article class="card">
+            <h2>Data Summary</h2>
+            <table>
+              <thead>
+                <tr><th>Metric</th><th>Value</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>Total Clicks</td><td>468K+</td></tr>
+                <tr><td>Total Spend</td><td>$2M</td></tr>
+                <tr><td>Total Conversions</td><td>~120</td></tr>
+                <tr><td>Total Revenue</td><td>~$40K</td></tr>
+                <tr><td>Best CPC</td><td>$0.25 (Sept 22)</td></tr>
+                <tr><td>Worst CPC</td><td>$16.13 (June 21)</td></tr>
+              </tbody>
+            </table>
+          </article>
+          <article class="card">
+            <h2>Next Steps</h2>
+            <ol>
+              <li>Deep dive into high-CPC outliers such as June 21 and March 8.</li>
+              <li>Run correlation analysis between conversion spikes and campaign or creative changes.</li>
+              <li>Scope attribution implementation for conversion-source tagging.</li>
+              <li>Run a two-week test that doubles down on the highest-efficiency periods.</li>
+            </ol>
+          </article>
+          <article class="card">
+            <h2>Methodology</h2>
+            <p class="small">
+              Analysis is based on 2024 ad performance and conversion event data grouped by campaign,
+              channel, and date. Metrics include clicks and spend from <code>ad_performance</code>,
+              conversions and revenue from <code>conversion_events</code>, and volatility measured as
+              variance in daily cost-per-click.
+            </p>
+          </article>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

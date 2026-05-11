@@ -159,6 +159,33 @@ Launch readiness was green across paid and lifecycle channels.
 """,
         encoding="utf-8",
     )
+    (artifacts_root / "launch_dashboard_q2.html").write_text(
+        """---
+artifact_id: launch_dashboard_q2
+format: html
+source_agent: pm
+title: Q2 Launch Dashboard
+description: Interactive launch dashboard.
+kind: readout
+session_id: pm-session-1
+updated_at: 2026-04-05T12:00:00Z
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Q2 Launch Dashboard</title>
+  </head>
+  <body>
+    <main>
+      <h1>Q2 Launch Dashboard</h1>
+      <p>Activation improved 12% week over week.</p>
+    </main>
+  </body>
+</html>
+""",
+        encoding="utf-8",
+    )
 
 
 def test_artifact_cli_list_show_and_search(monkeypatch, tmp_path: Path, capsys) -> None:
@@ -173,6 +200,12 @@ def test_artifact_cli_list_show_and_search(monkeypatch, tmp_path: Path, capsys) 
     show_output = capsys.readouterr().out
     assert "Q2 Launch Readout" in show_output
     assert "Review week-two retention" in show_output
+
+    assert main(["artifact", "show", "launch_dashboard_q2"]) == 0
+    html_output = capsys.readouterr().out
+    assert "Format: html" in _normalize_output(html_output)
+    assert "<!doctype html>" in html_output
+    assert "Q2 Launch Dashboard" in html_output
 
     assert main(["artifact", "search", "launch readiness"]) == 0
     search_output = capsys.readouterr().out

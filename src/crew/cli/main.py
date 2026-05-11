@@ -319,7 +319,11 @@ def _run_artifact_command(args: argparse.Namespace, renderer: RichRenderer) -> i
         payload = read_artifact(context=context, artifact_id=args.artifact_id)
         renderer.info(f"Artifact: {payload['artifact_id']}")
         renderer.info(f"Path: {payload['path']}")
-        renderer.markdown(payload["content"])
+        renderer.info(f"Format: {payload['format']}")
+        if payload["format"] == "markdown":
+            renderer.markdown(payload["content"])
+        else:
+            renderer.print(payload["content"])
         return 0
 
     if args.artifact_command == "search":

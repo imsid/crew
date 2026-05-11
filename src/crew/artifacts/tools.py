@@ -30,7 +30,7 @@ def build_artifact_tools(workspace_root: Path) -> List[Tool]:
     return [
         FunctionTool(
             name="list_artifacts",
-            description="List artifact markdown files stored under the selected workspace artifacts directory.",
+            description="List artifact documents stored under the selected workspace artifacts directory.",
             parameters={
                 "type": "object",
                 "properties": {
@@ -42,7 +42,7 @@ def build_artifact_tools(workspace_root: Path) -> List[Tool]:
         ),
         FunctionTool(
             name="read_artifact",
-            description="Read one artifact markdown file by artifact_id.",
+            description="Read one artifact document by artifact_id.",
             parameters={
                 "type": "object",
                 "properties": {
@@ -54,7 +54,7 @@ def build_artifact_tools(workspace_root: Path) -> List[Tool]:
         ),
         FunctionTool(
             name="search_artifacts",
-            description="Search workspace artifact markdown files by keyword across metadata and content.",
+            description="Search workspace artifact documents by keyword across metadata and content.",
             parameters={
                 "type": "object",
                 "properties": {
@@ -68,15 +68,18 @@ def build_artifact_tools(workspace_root: Path) -> List[Tool]:
         FunctionTool(
             name="write_new_artifact_file",
             description=(
-                "Validate and write one new artifact markdown file. "
-                "Use only when explicitly creating an artifact."
+                "Validate and write one new artifact document. "
+                "Use markdown for prose-first artifacts and html for richer layout, SVG, or self-contained interactivity. "
+                "HTML artifacts must be self-contained with inline CSS/JS/SVG only."
             ),
             parameters={
                 "type": "object",
                 "properties": {
+                    "artifact_content": {"type": "string"},
+                    "artifact_document": {"type": "string"},
                     "artifact_markdown": {"type": "string"},
+                    "format": {"type": "string", "enum": ["markdown", "html"]},
                 },
-                "required": ["artifact_markdown"],
             },
             _executor=_async_tool_executor(write_new_artifact_file_tool, context),
         ),

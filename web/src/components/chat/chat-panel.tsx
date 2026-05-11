@@ -242,13 +242,6 @@ export function ChatPanel({
     ],
   );
 
-  const retryLastTurn = useCallback(async () => {
-    const lastSubmitted = useChatStore.getState().threads[threadKey]?.lastSubmitted;
-    if (!lastSubmitted || !auth) return;
-    if (lastSubmitted.kind !== "agent") return;
-    await handleNewMessage(createAppendMessage(lastSubmitted.text));
-  }, [auth, handleNewMessage, threadKey]);
-
   const runtime = useExternalStoreRuntime({
     messages,
     isRunning,
@@ -338,7 +331,7 @@ export function ChatPanel({
           >
             {messages.length === 0 ? <ThreadWelcome onPrompt={handleNewMessage} /> : null}
             <div className="flex flex-col gap-y-8 pb-8 empty:hidden">
-              <MessageList onRetry={retryLastTurn} />
+              <MessageList />
             </div>
           </ThreadPrimitive.Viewport>
           <div className="relative z-20 overflow-visible border-t border-border/60 bg-background/92 px-2 pb-2 pt-2 backdrop-blur-sm sm:px-4">

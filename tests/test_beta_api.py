@@ -250,6 +250,59 @@ def _collect_sse_events(client: TestClient, path: str, *, token: str) -> list[di
     return events
 
 
+def _write_artifact_workspace(root: Path) -> None:
+    artifacts_root = root / "marketing_db" / "artifacts"
+    artifacts_root.mkdir(parents=True, exist_ok=True)
+    (artifacts_root / "launch_readout_q2.md").write_text(
+        """---
+artifact_id: launch_readout_q2
+source_agent: pm
+title: Q2 Launch Readout
+description: Launch readiness and early performance summary.
+kind: readout
+session_id: pm-session-1
+updated_at: 2026-04-05T12:00:00Z
+---
+
+## Summary
+
+Launch readiness was green across paid and lifecycle channels.
+
+## Next Steps
+
+- Review week-two retention.
+""",
+        encoding="utf-8",
+    )
+    (artifacts_root / "launch_dashboard_q2.html").write_text(
+        """---
+artifact_id: launch_dashboard_q2
+format: html
+source_agent: pm
+title: Q2 Launch Dashboard
+description: Interactive launch dashboard with inline layout.
+kind: readout
+session_id: pm-session-2
+updated_at: 2026-04-06T12:00:00Z
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Q2 Launch Dashboard</title>
+  </head>
+  <body>
+    <main>
+      <h1>Q2 Launch Dashboard</h1>
+      <p>Activation improved 12% week over week.</p>
+    </main>
+  </body>
+</html>
+""",
+        encoding="utf-8",
+    )
+
+
 def _login(client: TestClient, username: str) -> tuple[str, dict[str, Any]]:
     response = client.post("/login/handle", json={"username": username})
     assert response.status_code == 200
@@ -525,6 +578,7 @@ def test_command_endpoint_dispatches_surfaces(tmp_path: Path) -> None:
             )
             assert artifact_search.status_code == 200
             assert artifact_search.json()["data"]["results"][0]["artifact_id"] == "launch_readout_q2"
+            assert artifact_search.json()["data"]["results"][0]["format"] == "markdown"
 
             skills_list = client.post(
                 "/command",
@@ -567,6 +621,57 @@ def test_command_endpoint_dispatches_surfaces(tmp_path: Path) -> None:
                 headers=headers,
             )
             assert invalid.status_code == 400
+
+
+def test_command_endpoint_returns_mixed_artifact_formats(tmp_path: Path) -> None:
+    workspace_root = tmp_path / "workspace"
+    _write_artifact_workspace(workspace_root)
+
+    with patch.dict("os.environ", {"CREW_WORKSPACE_ROOT": str(workspace_root)}, clear=False):
+        with patch.object(PMAgentSpec, "build_llm", return_value=_DelegatingLLM()), patch.object(
+            DataAgentSpec, "build_llm", return_value=_EchoLLM()
+        ), patch.object(DataAgentSpec, "build_mcp_servers", return_value=[]):
+            with _build_test_client(tmp_path) as client:
+                token, _ = _login(client, "alice")
+                headers = _auth_headers(token)
+
+                artifact_list = client.post(
+                    "/command",
+                    json={"surface": "artifacts", "operation": "list", "args": {}},
+                    headers=headers,
+                )
+                assert artifact_list.status_code == 200
+                list_payload = artifact_list.json()["data"]["artifacts"]
+                assert {item["format"] for item in list_payload} == {"markdown", "html"}
+
+                artifact_show = client.post(
+                    "/command",
+                    json={
+                        "surface": "artifacts",
+                        "operation": "show",
+                        "args": {"artifact_id": "launch_dashboard_q2"},
+                    },
+                    headers=headers,
+                )
+                assert artifact_show.status_code == 200
+                show_payload = artifact_show.json()["data"]
+                assert show_payload["format"] == "html"
+                assert show_payload["frontmatter"]["format"] == "html"
+                assert show_payload["ordered_sections"] == []
+
+                artifact_search = client.post(
+                    "/command",
+                    json={
+                        "surface": "artifacts",
+                        "operation": "search",
+                        "args": {"query": "interactive dashboard", "limit": 5},
+                    },
+                    headers=headers,
+                )
+                assert artifact_search.status_code == 200
+                search_payload = artifact_search.json()["data"]["results"]
+                assert search_payload[0]["artifact_id"] == "launch_dashboard_q2"
+                assert search_payload[0]["format"] == "html"
 
 
 def test_normalize_stream_payload_adds_structured_trace_step() -> None:

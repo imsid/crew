@@ -1,6 +1,6 @@
 ---
 name: create-artifact
-description: Turn the current Mash session into a reusable Markdown artifact, or retrieve existing artifacts as context for the current task.
+description: Turn the current Mash session into a reusable artifact document, or retrieve existing artifacts as context for the current task.
 ---
 
 # Create Artifact
@@ -11,7 +11,7 @@ Use this skill when the user explicitly asks to create an artifact from the curr
 
 - Artifact creation is explicit and conversational.
 - Create artifacts only inside the active Mash agent session.
-- Store artifact files under `workspace/<name>/artifacts/<artifact_id>.md`.
+- Store artifact files under `workspace/<name>/artifacts/<artifact_id>.<md|html>`.
 - Reuse existing artifacts through `search_artifacts` and `read_artifact`.
 
 ## Tools for this skill
@@ -34,15 +34,19 @@ Use this skill when the user explicitly asks to create an artifact from the curr
 - Use `get_full_turn_message` to expand the most relevant turns before drafting.
 
 3. Determine artifact metadata
-- Infer `kind`, `title`, and `description` from the conversation.
+- Infer `kind`, `title`, `description`, and `format` from the conversation.
+- If the user explicitly asks for Markdown or HTML, follow that preference unless it would make the artifact invalid.
 - If the target is ambiguous, ask a brief clarifying question before writing.
 - Choose a stable `artifact_id` that matches the title and is safe as a filename.
+- Default to `format: markdown` for prose-first artifacts.
+- Use `format: html` when the artifact needs richer layout, dense tables, CSS styling, SVG, or self-contained interaction.
 
-4. Draft the artifact markdown
+4. Draft the artifact document
 - Use this frontmatter exactly:
 ```yaml
 ---
 artifact_id: <artifact_id>
+format: <markdown|html>
 source_agent: <current agent id>
 title: <clear title>
 description: <one-sentence description>
@@ -52,13 +56,18 @@ updated_at: <ISO-8601 UTC timestamp>
 ---
 ```
 - `updated_at` is required, but the write tool will stamp the saved artifact with the current UTC time. Do not try to infer or preserve a conversational timestamp.
-- Include these required sections:
-  - `## Summary`
-  - `## Next Steps`
-- Add any additional sections that help the artifact stand on its own.
+- For Markdown artifacts:
+  - Include these required sections:
+    - `## Summary`
+    - `## Next Steps`
+  - Add any additional sections that help the artifact stand on its own.
+- For HTML artifacts:
+  - Produce a complete self-contained HTML document with `<html>`, `<head>`, and `<body>`.
+  - Keep CSS, JavaScript, and SVG inline. Do not depend on external app scripts, remote assets, or external stylesheets.
+  - Use semantic sections and accessible structure so the artifact still stands on its own when rendered in an iframe.
 
 5. Persist the artifact
-- Write the final markdown using `write_new_artifact_file`.
+- Write the final document using `write_new_artifact_file` with `artifact_content` and `format`.
 - If the artifact id already exists, revise the id and retry.
 
 6. Return a concise result
