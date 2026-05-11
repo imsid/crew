@@ -7,14 +7,17 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from types import SimpleNamespace
 from typing import Any, AsyncIterator, Literal, cast
 
+import httpx
 from fastapi import Depends, FastAPI, Header, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 import yaml
 
+from mash.api import MashHostConfig, create_app as create_mash_api_app
 from mash.logging import EventLogger
 from mash.memory.search.service import MemorySearchService
 from mash.memory.search.types import FusionWeights, RetrievalConfig
@@ -92,6 +95,7 @@ class BetaAppState:
     host: AgentHost
     store: BetaStore
     config: BetaConfig
+    mash_api_app: FastAPI
 
 
 class AppError(RuntimeError):
@@ -123,10 +127,20 @@ def create_beta_app(
         store = BetaStore(resolved_config.database_url)
         await store.open()
         await resolved_host.start()
+        mash_api_config = MashHostConfig()
+        mash_api_app = create_mash_api_app(resolved_host, config=mash_api_config)
+        mash_api_app.state.runtime_state = SimpleNamespace(
+            host=resolved_host,
+            api_key=None,
+            observability_enabled=mash_api_config.enable_observability,
+            default_events_limit=max(1, int(mash_api_config.default_events_limit)),
+            default_search_limit=max(1, int(mash_api_config.default_search_limit)),
+        )
         application.state.beta = BetaAppState(
             host=resolved_host,
             store=store,
             config=resolved_config,
+            mash_api_app=mash_api_app,
         )
         try:
             yield
@@ -340,6 +354,87 @@ def create_beta_app(
             "data": {
                 "session_id": session_id,
                 "turns": [_normalize_history_turn(turn) for turn in turns],
+            }
+        }
+
+    @app.get("/sessions/{session_id}/signals")
+    async def get_session_signals(
+        session_id: str,
+        request: Request,
+        limit: int | None = Query(default=None, ge=1),
+        current_user: dict[str, Any] = Depends(_require_user),
+    ) -> dict[str, Any]:
+        await _owned_session(request, current_user, session_id)
+        agent = _data_agent(request)
+        await _beta_state(request).store.touch_session(session_id)
+        return {
+            "data": {
+                "agent_id": agent.app_id,
+                "session_id": session_id,
+                "definitions": agent.get_signal_definitions(),
+                "turns": await agent.get_session_signals(session_id, limit=limit),
+            }
+        }
+
+    @app.get("/sessions/{session_id}/turns/{turn_id}/trace")
+    async def get_turn_trace(
+        session_id: str,
+        turn_id: str,
+        request: Request,
+        current_user: dict[str, Any] = Depends(_require_user),
+    ) -> dict[str, Any]:
+        await _owned_session(request, current_user, session_id)
+        normalized_turn_id = str(turn_id or "").strip()
+        if not normalized_turn_id:
+            raise AppError(
+                status_code=400,
+                code="INVALID_REQUEST",
+                message="turn_id is required",
+            )
+
+        app = _beta_state(request).mash_api_app
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://mash-internal",
+        ) as client:
+            response = await client.get(
+                "/api/v1/telemetry/reasoning-trace",
+                params={
+                    "agent_id": DATA_AGENT_ID,
+                    "session_id": session_id,
+                    "trace_id": normalized_turn_id,
+                },
+            )
+        payload = response.json()
+        if not response.is_success:
+            error = payload.get("error") if isinstance(payload, dict) else None
+            raise AppError(
+                status_code=response.status_code,
+                code=str((error or {}).get("code") or "MASH_PROXY_ERROR"),
+                message=str((error or {}).get("message") or "Mash API request failed"),
+                details=dict((error or {}).get("details") or {}),
+            )
+
+        trace_payload = payload.get("data") if isinstance(payload, dict) else None
+        if not isinstance(trace_payload, dict):
+            raise AppError(
+                status_code=502,
+                code="MASH_PROXY_ERROR",
+                message="Mash API response missing data payload",
+            )
+        trace = _normalize_reasoning_trace(
+            trace_payload,
+            trace_id=normalized_turn_id,
+        )
+        await _beta_state(request).store.touch_session(session_id)
+        return {
+            "data": {
+                "source": "runtime_event_log",
+                "agent_id": DATA_AGENT_ID,
+                "session_id": session_id,
+                "turn_id": normalized_turn_id,
+                "trace_id": normalized_turn_id,
+                "trace": trace,
             }
         }
 
@@ -945,6 +1040,107 @@ def _normalize_history_turn(turn: dict[str, Any]) -> dict[str, Any]:
         usage = _coerce_usage_map(metadata.get("token_usage"))
     normalized["usage"] = usage
     return normalized
+
+
+def _normalize_reasoning_trace(
+    payload: dict[str, Any],
+    *,
+    trace_id: str,
+) -> dict[str, Any]:
+    steps_payload = payload.get("steps")
+    normalized_steps: list[dict[str, Any]] = []
+    if isinstance(steps_payload, list):
+        for index, item in enumerate(steps_payload, start=1):
+            if not isinstance(item, dict):
+                continue
+            normalized_steps.append(
+                {
+                    "step_index": _coerce_reasoning_step_index(
+                        item.get("step"),
+                        item.get("step_index"),
+                        fallback=index,
+                    ),
+                    "step_key": None,
+                    "action_type": str(item.get("action_type") or "").strip() or "unknown",
+                    "title": str(item.get("title") or "").strip() or "Execution step",
+                    "assistant_text": _normalize_optional_text(
+                        str(item.get("assistant_text") or "")
+                    ),
+                    "tool_calls": _normalize_reasoning_tool_calls(item.get("tool_calls")),
+                    "token_usage": _coerce_usage_map(item.get("token_usage")),
+                    "duration_ms": _coerce_reasoning_duration(item),
+                    "results": [],
+                }
+            )
+
+    error_payload = payload.get("error")
+    error_message = None
+    if isinstance(error_payload, dict):
+        error_message = _normalize_optional_text(str(error_payload.get("message") or ""))
+
+    status = str(payload.get("status") or "").strip().lower()
+    if status == "completed":
+        normalized_status = "completed"
+    elif status == "error":
+        normalized_status = "error"
+    else:
+        normalized_status = "started"
+
+    return {
+        "status": normalized_status,
+        "title": _reasoning_trace_title(normalized_status, normalized_steps),
+        "trace_id": trace_id,
+        "error": error_message,
+        "steps": normalized_steps,
+        "summary": dict(payload.get("summary") or {}),
+    }
+
+
+def _coerce_reasoning_step_index(*values: Any, fallback: int) -> int:
+    for value in values:
+        coerced = _coerce_int(value)
+        if coerced is not None and coerced > 0:
+            return coerced
+    return fallback
+
+
+def _coerce_reasoning_duration(step: dict[str, Any]) -> int | None:
+    for key in ("total_duration_ms", "think_duration_ms", "act_duration_ms"):
+        coerced = _coerce_int(step.get(key))
+        if coerced is not None:
+            return coerced
+    return None
+
+
+def _normalize_reasoning_tool_calls(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+
+    normalized: list[dict[str, Any]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        normalized.append(
+            {
+                "id": _normalize_optional_text(str(item.get("id") or "")),
+                "name": _normalize_optional_text(str(item.get("name") or "")),
+                "arguments": dict(item.get("arguments") or {}),
+            }
+        )
+    return normalized
+
+
+def _reasoning_trace_title(
+    status: str,
+    steps: list[dict[str, Any]],
+) -> str:
+    if status == "error":
+        return "Execution failed"
+    if status == "completed":
+        return "Execution complete"
+    if steps:
+        return "Execution summary"
+    return "Agent execution started"
 
 
 async def _enrich_session_record(agent: Any, session: dict[str, Any]) -> dict[str, Any]:

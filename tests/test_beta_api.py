@@ -500,6 +500,99 @@ def test_session_search_filters_results_to_owned_sessions(tmp_path: Path) -> Non
             assert filtered.json()["data"]["results"] == []
 
 
+def test_session_history_turn_trace_can_be_loaded_from_runtime_store(tmp_path: Path) -> None:
+    with patch.object(PMAgentSpec, "build_llm", return_value=_EchoLLM()), patch.object(
+        DataAgentSpec, "build_llm", return_value=_EchoLLM()
+    ), patch.object(DataAgentSpec, "build_mcp_servers", return_value=[]):
+        with _build_test_client(tmp_path) as client:
+            token, _ = _login(client, "alice")
+
+            created = client.post(
+                "/sessions",
+                json={"label": "Trace hydration"},
+                headers=_auth_headers(token),
+            )
+            assert created.status_code == 200
+            session_id = created.json()["data"]["session_id"]
+
+            sent = client.post(
+                f"/sessions/{session_id}/messages",
+                json={"message": "trace me"},
+                headers=_auth_headers(token),
+            )
+            assert sent.status_code == 200
+            request_id = sent.json()["data"]["request_id"]
+            _collect_sse_events(
+                client,
+                f"/sessions/{session_id}/requests/{request_id}/events",
+                token=token,
+            )
+
+            history = client.get(
+                f"/sessions/{session_id}/history",
+                headers=_auth_headers(token),
+            )
+            assert history.status_code == 200
+            turn_id = history.json()["data"]["turns"][0]["turn_id"]
+
+            trace = client.get(
+                f"/sessions/{session_id}/turns/{turn_id}/trace",
+                headers=_auth_headers(token),
+            )
+            assert trace.status_code == 200
+            payload = trace.json()["data"]
+            assert payload["source"] == "runtime_event_log"
+            assert payload["session_id"] == session_id
+            assert payload["turn_id"] == turn_id
+            assert payload["trace"]["trace_id"] == turn_id
+            assert payload["trace"]["status"] == "completed"
+            assert payload["trace"]["steps"]
+            assert payload["trace"]["steps"][0]["title"]
+
+
+def test_session_signals_proxy_returns_definitions_and_turn_values(tmp_path: Path) -> None:
+    with patch.object(PMAgentSpec, "build_llm", return_value=_EchoLLM()), patch.object(
+        DataAgentSpec, "build_llm", return_value=_EchoLLM()
+    ), patch.object(DataAgentSpec, "build_mcp_servers", return_value=[]):
+        with _build_test_client(tmp_path) as client:
+            token, _ = _login(client, "alice")
+
+            created = client.post(
+                "/sessions",
+                json={"label": "Signals"},
+                headers=_auth_headers(token),
+            )
+            assert created.status_code == 200
+            session_id = created.json()["data"]["session_id"]
+
+            sent = client.post(
+                f"/sessions/{session_id}/messages",
+                json={"message": "capture signals"},
+                headers=_auth_headers(token),
+            )
+            assert sent.status_code == 200
+            request_id = sent.json()["data"]["request_id"]
+            _collect_sse_events(
+                client,
+                f"/sessions/{session_id}/requests/{request_id}/events",
+                token=token,
+            )
+
+            response = client.get(
+                f"/sessions/{session_id}/signals",
+                headers=_auth_headers(token),
+            )
+            assert response.status_code == 200
+            payload = response.json()["data"]
+            assert payload["agent_id"] == "data"
+            assert payload["session_id"] == session_id
+            assert "unused_tools" in payload["definitions"]
+            assert "unused_tool_tokens" in payload["definitions"]
+            assert len(payload["turns"]) == 1
+            assert isinstance(payload["turns"][0]["signals"]["unused_tools"], list)
+            assert int(payload["turns"][0]["signals"]["unused_tool_tokens"]) > 0
+
+
 def test_command_endpoint_dispatches_surfaces(tmp_path: Path) -> None:
     with patch.object(PMAgentSpec, "build_llm", return_value=_DelegatingLLM()), patch.object(
         DataAgentSpec, "build_llm", return_value=_EchoLLM()

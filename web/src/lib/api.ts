@@ -15,7 +15,9 @@ import type {
   SessionHistoryTurn,
   SessionRecord,
   SessionRuntime,
+  SessionSignalsResponse,
   SessionSearchResult,
+  SessionTurnTraceResponse,
   SkillDetailResponse,
   SkillListResponse,
   SkillSearchResponse,
@@ -139,6 +141,21 @@ export async function getSessionHistory(
   sessionId: string,
 ): Promise<{ session_id: string; turns: SessionHistoryTurn[] }> {
   return apiRequest(`/sessions/${sessionId}/history`, { token });
+}
+
+export async function getSessionSignals(
+  token: string,
+  sessionId: string,
+): Promise<SessionSignalsResponse> {
+  return apiRequest(`/sessions/${sessionId}/signals`, { token });
+}
+
+export async function getTurnTrace(
+  token: string,
+  sessionId: string,
+  turnId: string,
+): Promise<SessionTurnTraceResponse> {
+  return apiRequest(`/sessions/${sessionId}/turns/${turnId}/trace`, { token });
 }
 
 export async function sendMessage(

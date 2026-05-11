@@ -1,20 +1,31 @@
 "use client";
 
+import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import {
   CheckIcon,
   ChevronDownIcon,
   LoaderCircleIcon,
+  RefreshCcwIcon,
   TriangleAlertIcon,
 } from "lucide-react";
+import { getSessionSignals, getTurnTrace } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { cn, titleizeIdentifier, truncate } from "@/lib/utils";
-import type { ExecutionTraceState, TraceToolCall, Usage } from "@/lib/types";
+import type {
+  ExecutionTraceState,
+  SessionSignalsResponse,
+  SessionTurnTraceResponse,
+  TraceToolCall,
+  Usage,
+} from "@/lib/types";
+import { useAuth } from "@/providers/auth-provider";
 
 export function ExecutionTrace({
   trace,
@@ -28,6 +39,7 @@ export function ExecutionTrace({
   const [open, setOpen] = useState(isRunning);
   const [hasInteracted, setHasInteracted] = useState(false);
   const wasRunning = useRef(isRunning);
+  const { auth } = useAuth();
 
   useEffect(() => {
     if (isRunning && !wasRunning.current && !hasInteracted) {
@@ -39,7 +51,40 @@ export function ExecutionTrace({
     wasRunning.current = isRunning;
   }, [hasInteracted, isRunning]);
 
-  const stepCount = trace.steps.length;
+  const shouldHydratePersistedTrace = Boolean(
+    auth &&
+      open &&
+      !isRunning &&
+      trace.session_id &&
+      trace.turn_id &&
+      trace.steps.length === 0,
+  );
+  const traceQuery = useQuery({
+    queryKey: ["session-trace", trace.session_id, trace.turn_id],
+    queryFn: () =>
+      auth && trace.session_id && trace.turn_id
+        ? getTurnTrace(auth.token, trace.session_id, trace.turn_id)
+        : null,
+    enabled: shouldHydratePersistedTrace,
+    staleTime: 300_000,
+  });
+  const signalsQuery = useQuery({
+    queryKey: ["session-signals", trace.session_id],
+    queryFn: () =>
+      auth && trace.session_id ? getSessionSignals(auth.token, trace.session_id) : null,
+    enabled: Boolean(auth && open && trace.session_id),
+    staleTime: 300_000,
+  });
+
+  const resolvedTrace = resolveTraceForDisplay(
+    trace,
+    traceQuery.data,
+    signalsQuery.data,
+  );
+  const stepCount = resolvedTrace.steps.length;
+  const isHydrating = traceQuery.isFetching;
+  const hydrationError =
+    traceQuery.error instanceof Error ? traceQuery.error.message : null;
 
   return (
     <Collapsible
@@ -58,14 +103,14 @@ export function ExecutionTrace({
           <div
             className={cn(
               "flex size-8 shrink-0 items-center justify-center rounded-full border",
-              trace.status === "error"
+              resolvedTrace.status === "error"
                 ? "border-destructive/30 bg-destructive/10 text-destructive"
                 : "border-primary/15 bg-white/80 text-primary",
             )}
           >
-            {isRunning ? (
+            {isRunning || isHydrating ? (
               <LoaderCircleIcon className="size-4 animate-spin" />
-            ) : trace.status === "error" ? (
+            ) : resolvedTrace.status === "error" ? (
               <TriangleAlertIcon className="size-4" />
             ) : (
               <CheckIcon className="size-4" />
@@ -73,7 +118,7 @@ export function ExecutionTrace({
           </div>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <p className="text-sm font-semibold">{trace.title}</p>
+              <p className="text-sm font-semibold">{resolvedTrace.title}</p>
               <Badge variant="outline">
                 {stepCount} {stepCount === 1 ? "step" : "steps"}
               </Badge>
@@ -81,9 +126,15 @@ export function ExecutionTrace({
             <p className="mt-0.5 text-xs text-muted-foreground">
               {isRunning
                 ? "Live execution trace"
-                : trace.status === "error"
+                : isHydrating
+                  ? "Loading persisted trace"
+                  : hydrationError
+                    ? "Trace could not be loaded"
+                    : resolvedTrace.status === "error"
                   ? "Run ended with an error"
-                  : "Execution details"}
+                  : trace.steps.length === 0 && resolvedTrace.steps.length > 0
+                    ? "Loaded from persisted runtime trace"
+                    : "Execution details"}
             </p>
           </div>
         </div>
@@ -94,7 +145,34 @@ export function ExecutionTrace({
 
       <CollapsibleContent className="border-t border-border/70 px-4 py-4">
         <div className="space-y-4">
-          {trace.steps.map((step) => (
+          {resolvedTrace.steps.length === 0 && isHydrating ? (
+            <p className="text-sm text-muted-foreground">Loading execution trace…</p>
+          ) : null}
+
+          {resolvedTrace.steps.length === 0 && hydrationError ? (
+            <div className="rounded-xl border border-destructive/20 bg-destructive/5 px-3 py-3 text-sm text-destructive">
+              <div className="flex items-start justify-between gap-3">
+                <span>{hydrationError}</span>
+                {trace.session_id && trace.turn_id ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-auto px-2 py-1 text-xs"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      void traceQuery.refetch();
+                    }}
+                  >
+                    <RefreshCcwIcon className="size-3.5" />
+                    Retry
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+
+          {resolvedTrace.steps.map((step) => (
             <div key={step.step_key || step.step_index} className="space-y-2">
               <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm leading-6">
                 <span className="font-medium text-primary">→ Step {step.step_index}:</span>
@@ -127,9 +205,9 @@ export function ExecutionTrace({
                 </p>
               ) : null}
 
-              {step.tool_calls.map((toolCall) => (
+              {step.tool_calls.map((toolCall, index) => (
                 <p
-                  key={`${step.step_key || step.step_index}:${toolCall.id || toolCall.name}`}
+                  key={`${step.step_key || step.step_index}:tool:${toolCall.id || toolCall.name || "tool"}:${index}`}
                   className="pl-6 font-mono text-[13px] leading-6 text-fuchsia-500"
                 >
                   {formatToolCall(toolCall)}
@@ -158,9 +236,30 @@ export function ExecutionTrace({
             </div>
           ))}
 
-          {trace.error ? (
+          {resolvedTrace.signals && Object.keys(resolvedTrace.signals).length > 0 ? (
+            <div className="rounded-xl border border-border/70 bg-white/70 px-3 py-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                Signals
+              </p>
+              <div className="mt-3 space-y-2">
+                {Object.entries(resolvedTrace.signals).map(([name, value]) => (
+                  <div key={name} className="text-sm leading-6">
+                    <span className="font-medium text-foreground">
+                      {resolvedTrace.signal_definitions?.[name]?.description ||
+                        titleizeIdentifier(name)}
+                    </span>
+                    <span className="ml-2 text-muted-foreground">
+                      {formatSignalValue(value)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {resolvedTrace.error ? (
             <div className="rounded-xl border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-              {trace.error}
+              {resolvedTrace.error}
             </div>
           ) : null}
         </div>
@@ -218,4 +317,55 @@ function formatResultMetadata(metadata: Record<string, unknown>) {
     .filter((value): value is string => Boolean(value));
 
   return extras.length > 0 ? ` (${extras.join(", ")})` : "";
+}
+
+function resolveTraceForDisplay(
+  trace: ExecutionTraceState,
+  persistedTracePayload?: SessionTurnTraceResponse | null,
+  signalPayload?: SessionSignalsResponse | null,
+): ExecutionTraceState {
+  const hydratedTrace = persistedTracePayload?.trace;
+  const signalDefinitions = signalPayload?.definitions ?? trace.signal_definitions ?? null;
+  const signalValues =
+    trace.signals ??
+    signalPayload?.turns.find((turn) => turn.turn_id === (trace.turn_id ?? trace.trace_id))
+      ?.signals ??
+    null;
+
+  if (!hydratedTrace) {
+    return {
+      ...trace,
+      signal_definitions: signalDefinitions,
+      signals: signalValues,
+    };
+  }
+
+  return {
+    ...hydratedTrace,
+    session_id:
+      hydratedTrace.session_id ?? trace.session_id ?? persistedTracePayload?.session_id ?? null,
+    turn_id: hydratedTrace.turn_id ?? trace.turn_id ?? persistedTracePayload?.turn_id ?? null,
+    trace_id: hydratedTrace.trace_id ?? trace.trace_id ?? persistedTracePayload?.trace_id ?? null,
+    signals: signalValues,
+    signal_definitions: signalDefinitions,
+    summary: hydratedTrace.summary ?? trace.summary ?? null,
+  };
+}
+
+function formatSignalValue(value: unknown): string {
+  if (Array.isArray(value)) {
+    return value.length > 0
+      ? value.map((item) => formatSignalValue(item)).join(", ")
+      : "none";
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (typeof value === "string") {
+    return value.trim() ? value : "none";
+  }
+  if (value && typeof value === "object") {
+    return "{…}";
+  }
+  return "none";
 }

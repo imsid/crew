@@ -58,6 +58,7 @@ export type StreamEvent = {
     response?: {
       text: string;
       delta?: string;
+      signals?: Record<string, unknown>;
       metadata?: {
         token_usage?: Record<string, number>;
       };
@@ -134,12 +135,25 @@ export type ExecutionTraceStep = {
   results: ExecutionTraceResult[];
 };
 
+export type SignalDefinition = {
+  name: string;
+  value_type: string;
+  description: string;
+  computed_at: string;
+  persisted: boolean;
+};
+
 export type ExecutionTraceState = {
   status: "idle" | "started" | "completed" | "error";
   title: string;
   trace_id?: string | null;
+  turn_id?: string | null;
+  session_id?: string | null;
   error?: string | null;
   steps: ExecutionTraceStep[];
+  signals?: Record<string, unknown> | null;
+  signal_definitions?: Record<string, SignalDefinition> | null;
+  summary?: Record<string, unknown> | null;
 };
 
 export type SessionRuntime = {
@@ -162,6 +176,28 @@ export type SessionHistoryTurn = {
   signals?: Record<string, unknown>;
   created_at?: string;
   usage?: Usage | null;
+};
+
+export type SessionTurnTraceResponse = {
+  source: string;
+  agent_id: string;
+  session_id: string;
+  turn_id: string;
+  trace_id: string;
+  trace: ExecutionTraceState;
+};
+
+export type SessionSignalsTurn = {
+  turn_id: string;
+  created_at: number;
+  signals: Record<string, unknown>;
+};
+
+export type SessionSignalsResponse = {
+  agent_id: string;
+  session_id: string;
+  definitions: Record<string, SignalDefinition>;
+  turns: SessionSignalsTurn[];
 };
 
 export type CommandSurface = "metrics" | "experiments" | "artifacts" | "skills";

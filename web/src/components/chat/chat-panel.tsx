@@ -84,8 +84,14 @@ export function ChatPanel({
 
   useEffect(() => {
     if (!historyQuery.data?.turns) return;
-    hydrateThread(threadKey, buildHistoryMessages(historyQuery.data.turns));
-  }, [historyQuery.data?.turns, hydrateThread, threadKey]);
+    hydrateThread(
+      threadKey,
+      buildHistoryMessages({
+        sessionId,
+        turns: historyQuery.data.turns,
+      }),
+    );
+  }, [historyQuery.data?.turns, hydrateThread, sessionId, threadKey]);
 
   const messages = thread?.messages ?? [];
   const isRunning = thread?.isRunning ?? false;
@@ -153,7 +159,10 @@ export function ChatPanel({
       const userId = createUiId("user");
       const assistantId = createUiId("assistant");
       appendMessage(activeThreadKey, createUserMessage(userId, text));
-      appendMessage(activeThreadKey, createStreamingAssistantMessage(assistantId));
+      appendMessage(
+        activeThreadKey,
+        createStreamingAssistantMessage(assistantId, activeSessionId),
+      );
       setRunning(activeThreadKey, true);
       setStatusLabel(activeThreadKey, "Checking metrics");
       setLastSubmitted(activeThreadKey, { kind: "agent", text });
@@ -407,12 +416,15 @@ function createUserMessage(id: string, text: string): ThreadMessageLike {
   } as ThreadMessageLike;
 }
 
-function createStreamingAssistantMessage(id: string): ThreadMessageLike {
+function createStreamingAssistantMessage(
+  id: string,
+  sessionId: string,
+): ThreadMessageLike {
   return {
     id,
     role: "assistant",
     content: [
-      { type: "data-trace", data: createExecutionTraceState() },
+      { type: "data-trace", data: createExecutionTraceState({ sessionId }) },
       { type: "text", text: "" },
     ],
     createdAt: new Date(),
@@ -420,7 +432,13 @@ function createStreamingAssistantMessage(id: string): ThreadMessageLike {
   } as ThreadMessageLike;
 }
 
-function buildHistoryMessages(turns: Awaited<ReturnType<typeof getSessionHistory>>["turns"]) {
+function buildHistoryMessages({
+  sessionId,
+  turns,
+}: {
+  sessionId?: string;
+  turns: Awaited<ReturnType<typeof getSessionHistory>>["turns"];
+}) {
   return turns.flatMap<ThreadMessageLike>((turn) => [
     {
       id: `${turn.turn_id}_user`,
@@ -431,10 +449,26 @@ function buildHistoryMessages(turns: Awaited<ReturnType<typeof getSessionHistory
     {
       id: `${turn.turn_id}_assistant`,
       role: "assistant",
-      content: [{ type: "text", text: turn.agent_response }],
+      content: [
+        {
+          type: "data-trace",
+          data: createExecutionTraceState({
+            sessionId,
+            turnId: turn.turn_id,
+            status: "completed",
+            title: "Execution trace available",
+            signals: turn.signals ?? {},
+          }),
+        },
+        { type: "text", text: turn.agent_response },
+      ],
       createdAt: turn.created_at ? new Date(turn.created_at) : new Date(),
       status: { type: "complete", reason: "unknown" },
-      metadata: { usage: turn.usage },
+      metadata: {
+        usage: turn.usage,
+        turn_id: turn.turn_id,
+        signals: turn.signals ?? {},
+      },
     } as ThreadMessageLike,
   ]);
 }
@@ -481,6 +515,13 @@ function applyStreamEventToMessage(message: ThreadMessageLike, event: StreamEven
 
   if (event.data.trace) {
     content = mergeTraceEventIntoContent(content, event.data.trace);
+  }
+
+  if (event.data.response?.signals && typeof event.data.response.signals === "object") {
+    content = mergeTraceSignalsIntoContent(
+      content,
+      event.data.response.signals as Record<string, unknown>,
+    );
   }
 
   const responseText = event.data.response?.text;
@@ -609,13 +650,51 @@ function mergeTraceStatusIntoContent(
   });
 }
 
-function createExecutionTraceState(): ExecutionTraceState {
+function mergeTraceSignalsIntoContent(
+  content: ThreadMessageLike["content"],
+  signals: Record<string, unknown>,
+) {
+  const nextContent = Array.isArray(content) ? [...content] : [];
+  const existingIndex = nextContent.findIndex(
+    (part) => typeof part === "object" && part && part.type === "data-trace",
+  );
+  const currentTrace =
+    existingIndex >= 0 && nextContent[existingIndex]?.type === "data-trace"
+      ? (nextContent[existingIndex].data as ExecutionTraceState)
+      : createExecutionTraceState();
+  const tracePart = {
+    type: "data-trace",
+    data: {
+      ...currentTrace,
+      signals: { ...signals },
+    },
+  };
+  if (existingIndex >= 0) {
+    nextContent[existingIndex] = tracePart;
+  } else {
+    nextContent.unshift(tracePart);
+  }
+  return nextContent;
+}
+
+function createExecutionTraceState(options: {
+  sessionId?: string;
+  turnId?: string;
+  status?: ExecutionTraceState["status"];
+  title?: string;
+  signals?: Record<string, unknown> | null;
+} = {}): ExecutionTraceState {
   return {
-    status: "started",
-    title: "Agent execution started",
-    trace_id: null,
+    status: options.status ?? "started",
+    title: options.title ?? "Agent execution started",
+    trace_id: options.turnId ?? null,
+    turn_id: options.turnId ?? null,
+    session_id: options.sessionId ?? null,
     error: null,
     steps: [],
+    signals: options.signals ?? null,
+    signal_definitions: null,
+    summary: null,
   };
 }
 
@@ -634,6 +713,7 @@ function applyTraceEvent(
             : "error",
       title: event.title,
       trace_id: event.trace_id ?? state.trace_id ?? null,
+      turn_id: event.trace_id ?? state.turn_id ?? null,
       error: event.error ?? state.error ?? null,
     };
   }
@@ -654,6 +734,7 @@ function applyTraceEvent(
     return {
       ...state,
       trace_id: event.trace_id ?? state.trace_id ?? null,
+      turn_id: event.trace_id ?? state.turn_id ?? null,
       steps: upsertTraceStep(state.steps, nextStep),
     };
   }
@@ -675,9 +756,11 @@ function applyTraceEvent(
   return {
     ...state,
     trace_id: event.trace_id ?? state.trace_id ?? null,
+    turn_id: event.trace_id ?? state.turn_id ?? null,
     steps: upsertTraceStep(state.steps, nextStep),
   };
 }
+
 
 function ensureTraceStep(
   steps: ExecutionTraceStep[],
