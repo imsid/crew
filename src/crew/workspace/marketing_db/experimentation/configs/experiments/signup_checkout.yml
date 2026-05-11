@@ -1,6 +1,6 @@
 kind: experiment
 version: 1
-id: signup_checkout
+id: signup_checkout_test
 label: Signup Checkout
 dataset: marketing_db
 experiment_version: v1

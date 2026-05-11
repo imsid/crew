@@ -1,4 +1,5 @@
 import {
+  analyzeExperiment,
   compileMetric,
   getArtifact,
   getExperiment,
@@ -8,6 +9,7 @@ import {
   listExperiments,
   listMetrics,
   searchArtifacts,
+  visualizeMetric,
 } from "@/lib/api";
 import type {
   InlineCommandResult,
@@ -38,6 +40,13 @@ export const SLASH_COMMANDS: SlashCommandDefinition[] = [
     template: "/metrics show ",
   },
   {
+    surface: "metrics",
+    operation: "chart",
+    label: "Metrics chart",
+    hint: "Visualize a metric with an interactive chart card",
+    template: "/metrics chart ",
+  },
+  {
     surface: "experiments",
     operation: "list",
     label: "Experiments list",
@@ -57,6 +66,13 @@ export const SLASH_COMMANDS: SlashCommandDefinition[] = [
     label: "Experiments show",
     hint: "Inspect an experiment and its SQL plan",
     template: "/experiments show ",
+  },
+  {
+    surface: "experiments",
+    operation: "analyze",
+    label: "Experiments analyze",
+    hint: "Render an experiment readout card",
+    template: "/experiments analyze ",
   },
   {
     surface: "artifacts",
@@ -90,12 +106,21 @@ export function parseSlashCommand(input: string): ParsedSlashCommand | null {
   const operation = parts[1] as ParsedSlashCommand["operation"] | undefined;
   const tail = parts.slice(2).join(" ").trim();
 
-  if (
-    (surface !== "metrics" && surface !== "experiments" && surface !== "artifacts") ||
-    (operation !== "list" && operation !== "search" && operation !== "show")
-  ) {
+  if (surface !== "metrics" && surface !== "experiments" && surface !== "artifacts") {
     return null;
   }
+
+  if (!operation) {
+    return null;
+  }
+
+  const validOperations =
+    surface === "metrics"
+      ? ["list", "search", "show", "chart"]
+      : surface === "experiments"
+        ? ["list", "search", "show", "analyze"]
+        : ["list", "search", "show"];
+  if (!validOperations.includes(operation)) return null;
 
   if (operation === "list") {
     return { surface, operation, raw: trimmed };
@@ -137,6 +162,19 @@ export async function executeInlineCommand(
             item.name.toLowerCase().includes(query.toLowerCase()),
           ),
         },
+      };
+    }
+
+    if (command.operation === "chart") {
+      const visualization = await visualizeMetric(token, {
+        metric_name: command.target ?? "",
+        limit: 30,
+      });
+      return {
+        surface: "metrics",
+        operation: "chart",
+        target: command.target ?? visualization.entity.id,
+        data: visualization,
       };
     }
 
@@ -185,6 +223,16 @@ export async function executeInlineCommand(
             item.name.toLowerCase().includes(query.toLowerCase()),
           ),
         },
+      };
+    }
+
+    if (command.operation === "analyze") {
+      const analysis = await analyzeExperiment(token, { name: command.target ?? "" });
+      return {
+        surface: "experiments",
+        operation: "analyze",
+        target: command.target ?? analysis.entity.id,
+        data: analysis,
       };
     }
 

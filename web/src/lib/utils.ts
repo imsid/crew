@@ -53,3 +53,41 @@ export function truncate(value: string, length = 80) {
 export function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+export function formatVisualizationValue(
+  value: string | number | null | undefined,
+  format: "number" | "currency" | "percent" = "number",
+) {
+  if (value === null || value === undefined || value === "") return "—";
+  if (typeof value === "string") return value;
+
+  if (format === "currency") {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      maximumFractionDigits: 2,
+    }).format(value);
+  }
+
+  if (format === "percent") {
+    return new Intl.NumberFormat("en-US", {
+      style: "percent",
+      signDisplay: "exceptZero",
+      maximumFractionDigits: 1,
+    }).format(value);
+  }
+
+  return new Intl.NumberFormat("en-US", {
+    maximumFractionDigits: Number.isInteger(value) ? 0 : 2,
+  }).format(value);
+}
+
+export function formatVisualizationDate(value: string | number | null | undefined) {
+  if (!value && value !== 0) return "—";
+  const date = new Date(String(value));
+  if (Number.isNaN(date.getTime())) return String(value);
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+  }).format(date);
+}

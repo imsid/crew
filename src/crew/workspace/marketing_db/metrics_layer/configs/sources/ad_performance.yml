@@ -21,10 +21,14 @@ dimensions:
     data_type: DATE
 measures:
   - name: spend_total
-    expr: spend
+    expr: spent_amount
     agg: SUM
     data_type: NUMERIC
   - name: clicks_total
     expr: clicks
+    agg: SUM
+    data_type: INT64
+  - name: impressions_total
+    expr: impressions
     agg: SUM
     data_type: INT64

@@ -201,7 +201,15 @@ export type SessionSignalsResponse = {
 };
 
 export type CommandSurface = "metrics" | "experiments" | "artifacts" | "skills";
-export type CommandOperation = "list" | "search" | "show" | "compile" | "plan";
+export type CommandOperation =
+  | "list"
+  | "search"
+  | "show"
+  | "compile"
+  | "plan"
+  | "chart"
+  | "visualize"
+  | "analyze";
 
 export type MetricsListResponse = {
   root: string;
@@ -307,6 +315,117 @@ export type ExperimentPlanResponse = {
       expected_columns: string[];
       warnings: string[];
     }>;
+  };
+};
+
+export type VisualizationValueFormat = "number" | "currency" | "percent";
+
+export type VisualizationStat = {
+  label: string;
+  value: number | string | null;
+  format?: VisualizationValueFormat;
+  tone?: "default" | "positive" | "negative" | "muted";
+};
+
+export type VisualizationSummary = {
+  cards: VisualizationStat[];
+  row_count: number;
+  warnings: string[];
+};
+
+export type VisualizationTableColumn = {
+  key: string;
+  label: string;
+  type: "string" | "number" | "date";
+  format?: VisualizationValueFormat;
+};
+
+export type VisualizationTable = {
+  columns: VisualizationTableColumn[];
+  rows: Array<Record<string, string | number | null>>;
+};
+
+export type VisualizationChart = {
+  kind: "line" | "bar";
+  x_key: string;
+  y_key: string;
+  series_key?: string | null;
+  value_format?: VisualizationValueFormat;
+};
+
+export type VisualizationLineage = {
+  metric_ids: string[];
+  source_ids: string[];
+  experiment_id?: string;
+  queries: Array<{ label: string; sql: string }>;
+};
+
+export type VisualizationControls = {
+  group_by_options?: string[];
+  date_dimension_options?: string[];
+  grain_options?: Array<"day" | "week" | "month">;
+  metric_options?: string[];
+  selected: {
+    group_by?: string | null;
+    date_dimension?: string | null;
+    grain?: "day" | "week" | "month" | null;
+    metric_id?: string | null;
+    limit?: number;
+    date_range?: { dimension?: string; start?: string; end?: string } | null;
+  };
+};
+
+export type VisualizationEntity = {
+  surface: "metrics" | "experiments";
+  id: string;
+  label: string;
+};
+
+export type MetricVisualizationResponse = {
+  entity: VisualizationEntity & { surface: "metrics" };
+  query: {
+    metric_name: string;
+    date_dimension?: string | null;
+    grain?: "day" | "week" | "month" | null;
+    group_by?: string | null;
+    filters: string[];
+    limit: number;
+    date_range?: { dimension?: string; start?: string; end?: string } | null;
+  };
+  summary: VisualizationSummary;
+  chart: VisualizationChart;
+  table: VisualizationTable;
+  lineage: VisualizationLineage;
+  controls: VisualizationControls;
+  meta: {
+    format?: string | null;
+    source_id: string;
+  };
+};
+
+export type ExperimentAnalysisResponse = {
+  entity: VisualizationEntity & { surface: "experiments" };
+  query: {
+    experiment_name: string;
+    metric_id: string;
+    filters: string[];
+    limit: number;
+  };
+  summary: VisualizationSummary;
+  chart: VisualizationChart;
+  table: VisualizationTable;
+  lineage: VisualizationLineage;
+  controls: VisualizationControls;
+  meta: {
+    control_variant: string;
+    format?: string | null;
+    srm: {
+      variants: string[];
+      observed_counts: Record<string, number>;
+      expected_weights: Record<string, number>;
+      chi_square_statistic: number;
+      p_value: number;
+    };
   };
 };
 
@@ -418,7 +537,7 @@ export type CommandPayload = {
 
 export type SlashCommandDefinition = {
   surface: CommandSurface;
-  operation: "list" | "search" | "show";
+  operation: "list" | "search" | "show" | "chart" | "analyze";
   label: string;
   hint: string;
   template: string;
@@ -426,7 +545,7 @@ export type SlashCommandDefinition = {
 
 export type ParsedSlashCommand = {
   surface: CommandSurface;
-  operation: "list" | "search" | "show";
+  operation: "list" | "search" | "show" | "chart" | "analyze";
   raw: string;
   target?: string;
   query?: string;
@@ -449,6 +568,12 @@ export type InlineCommandResult =
       };
     }
   | {
+      surface: "metrics";
+      operation: "chart";
+      target: string;
+      data: MetricVisualizationResponse;
+    }
+  | {
       surface: "experiments";
       operation: "list" | "search";
       query?: string;
@@ -462,6 +587,12 @@ export type InlineCommandResult =
         detail: ExperimentDetailResponse;
         plan: ExperimentPlanResponse | null;
       };
+    }
+  | {
+      surface: "experiments";
+      operation: "analyze";
+      target: string;
+      data: ExperimentAnalysisResponse;
     }
   | {
       surface: "artifacts";

@@ -1,6 +1,6 @@
 kind: experiment
 version: 1
-id: retention_offer
+id: retention_offer_test
 label: Retention Offer
 dataset: marketing_db
 experiment_version: v1

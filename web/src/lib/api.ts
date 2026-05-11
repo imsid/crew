@@ -6,11 +6,13 @@ import type {
   BetaUser,
   CommandEnvelope,
   CommandPayload,
+  ExperimentAnalysisResponse,
   ExperimentDetailResponse,
   ExperimentListResponse,
   ExperimentPlanResponse,
   MetricCompileResponse,
   MetricDetailResponse,
+  MetricVisualizationResponse,
   MetricsListResponse,
   SessionHistoryTurn,
   SessionRecord,
@@ -286,6 +288,26 @@ export async function compileMetric(
   return response.data;
 }
 
+export async function visualizeMetric(
+  token: string,
+  args: {
+    metric_name: string;
+    date_dimension?: string | null;
+    grain?: "day" | "week" | "month" | null;
+    group_by?: string | null;
+    filters?: string[];
+    limit?: number;
+    date_range?: { start?: string; end?: string } | null;
+  },
+): Promise<MetricVisualizationResponse> {
+  const response = await runCommand<MetricVisualizationResponse>(token, {
+    surface: "metrics",
+    operation: "visualize",
+    args,
+  });
+  return response.data;
+}
+
 export async function listExperiments(token: string): Promise<ExperimentListResponse> {
   const response = await runCommand<ExperimentListResponse>(token, {
     surface: "experiments",
@@ -315,6 +337,21 @@ export async function getExperimentPlan(
     surface: "experiments",
     operation: "plan",
     args: { name },
+  });
+  return response.data;
+}
+
+export async function analyzeExperiment(
+  token: string,
+  args: {
+    name: string;
+    metric_id?: string | null;
+  },
+): Promise<ExperimentAnalysisResponse> {
+  const response = await runCommand<ExperimentAnalysisResponse>(token, {
+    surface: "experiments",
+    operation: "analyze",
+    args,
   });
   return response.data;
 }

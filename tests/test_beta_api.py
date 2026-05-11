@@ -594,9 +594,42 @@ def test_session_signals_proxy_returns_definitions_and_turn_values(tmp_path: Pat
 
 
 def test_command_endpoint_dispatches_surfaces(tmp_path: Path) -> None:
+    def _fake_execute(_: Any, sql: str) -> list[dict[str, Any]]:
+        if "AS bucket" in sql:
+            return [
+                {"bucket": "2024-01-01", "metric_value": 120.0},
+                {"bucket": "2024-01-02", "metric_value": 156.0},
+            ]
+        if "canonical_subjects" in sql:
+            return [
+                {"variant_id": "control", "canonical_subjects": 100, "contaminated_subjects": 1},
+                {"variant_id": "treatment", "canonical_subjects": 110, "contaminated_subjects": 2},
+            ]
+        if "metric_sum_squares" in sql:
+            return [
+                {
+                    "variant_id": "control",
+                    "exposed_subjects": 100,
+                    "observed_subjects": 100,
+                    "metric_sum": 45.0,
+                    "metric_sum_squares": 65.0,
+                },
+                {
+                    "variant_id": "treatment",
+                    "exposed_subjects": 110,
+                    "observed_subjects": 110,
+                    "metric_sum": 66.0,
+                    "metric_sum_squares": 92.0,
+                },
+            ]
+        raise AssertionError(f"unexpected SQL: {sql}")
+
     with patch.object(PMAgentSpec, "build_llm", return_value=_DelegatingLLM()), patch.object(
         DataAgentSpec, "build_llm", return_value=_EchoLLM()
-    ), patch.object(DataAgentSpec, "build_mcp_servers", return_value=[]):
+    ), patch.object(DataAgentSpec, "build_mcp_servers", return_value=[]), patch(
+        "crew.beta.visualizations.BigQueryQueryRunner.execute",
+        new=_fake_execute,
+    ):
         with _build_test_client(tmp_path) as client:
             token, _ = _login(client, "alice")
             headers = _auth_headers(token)
@@ -636,6 +669,21 @@ def test_command_endpoint_dispatches_surfaces(tmp_path: Path) -> None:
             assert metrics_show.status_code == 200
             assert metrics_show.json()["data"]["document"]["label"] == "Total Spend"
 
+            metrics_visualize = client.post(
+                "/command",
+                json={
+                    "surface": "metrics",
+                    "operation": "visualize",
+                    "args": {"metric_name": "spend_total"},
+                },
+                headers=headers,
+            )
+            assert metrics_visualize.status_code == 200
+            metric_visual_payload = metrics_visualize.json()["data"]
+            assert metric_visual_payload["entity"]["surface"] == "metrics"
+            assert metric_visual_payload["chart"]["kind"] == "line"
+            assert metric_visual_payload["table"]["rows"][0]["metric_value"] == 120.0
+
             experiments_plan = client.post(
                 "/command",
                 json={
@@ -659,6 +707,21 @@ def test_command_endpoint_dispatches_surfaces(tmp_path: Path) -> None:
             )
             assert experiment_show.status_code == 200
             assert experiment_show.json()["data"]["document"]["label"] == "Signup Checkout"
+
+            experiment_analyze = client.post(
+                "/command",
+                json={
+                    "surface": "experiments",
+                    "operation": "analyze",
+                    "args": {"name": "signup_checkout"},
+                },
+                headers=headers,
+            )
+            assert experiment_analyze.status_code == 200
+            experiment_analysis_payload = experiment_analyze.json()["data"]
+            assert experiment_analysis_payload["entity"]["surface"] == "experiments"
+            assert experiment_analysis_payload["chart"]["kind"] == "bar"
+            assert experiment_analysis_payload["meta"]["control_variant"] == "control"
 
             artifact_search = client.post(
                 "/command",
@@ -714,6 +777,33 @@ def test_command_endpoint_dispatches_surfaces(tmp_path: Path) -> None:
                 headers=headers,
             )
             assert invalid.status_code == 400
+
+
+def test_visualization_command_validation_errors_are_mapped(tmp_path: Path) -> None:
+    with patch.object(PMAgentSpec, "build_llm", return_value=_DelegatingLLM()), patch.object(
+        DataAgentSpec, "build_llm", return_value=_EchoLLM()
+    ), patch.object(DataAgentSpec, "build_mcp_servers", return_value=[]):
+        with _build_test_client(tmp_path) as client:
+            token, _ = _login(client, "alice")
+            headers = _auth_headers(token)
+
+            response = client.post(
+                "/command",
+                json={
+                    "surface": "metrics",
+                    "operation": "visualize",
+                    "args": {
+                        "metric_name": "spend_total",
+                        "group_by": "created_at",
+                    },
+                },
+                headers=headers,
+            )
+
+            assert response.status_code == 422
+            payload = response.json()
+            assert payload["error"]["code"] == "COMMAND_VALIDATION_FAILED"
+            assert "group_by" in payload["error"]["message"]
 
 
 def test_command_endpoint_returns_mixed_artifact_formats(tmp_path: Path) -> None:

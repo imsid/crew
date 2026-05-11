@@ -2,6 +2,7 @@
 
 import { FileTextIcon, FlaskConicalIcon, ListTreeIcon, SigmaIcon } from "lucide-react";
 import { ArtifactReader } from "@/components/artifacts/artifact-reader";
+import { DataVisualizationCard } from "@/components/visualizations/data-visualization-card";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -107,6 +108,10 @@ export function CommandResultCard({
         </Card>
       );
     }
+
+    if (result.operation === "chart") {
+      return <DataVisualizationCard visualization={result.data} />;
+    }
   }
 
   if (result.surface === "experiments") {
@@ -199,6 +204,10 @@ export function CommandResultCard({
           </CardContent>
         </Card>
       );
+    }
+
+    if (result.operation === "analyze") {
+      return <DataVisualizationCard visualization={result.data} />;
     }
   }
 

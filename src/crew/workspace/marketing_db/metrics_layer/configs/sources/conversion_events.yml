@@ -25,6 +25,6 @@ measures:
     agg: COUNT_DISTINCT
     data_type: INT64
   - name: conversion_value_total
-    expr: value
+    expr: conversion_value
     agg: SUM
     data_type: NUMERIC

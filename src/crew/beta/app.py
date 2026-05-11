@@ -44,6 +44,11 @@ from ..skill_library.repo import list_skills, read_skill, search_skills
 from ..shared.runtime_paths import workspace_dir
 from .auth import TokenError, issue_token, verify_token
 from .store import BetaStore
+from .visualizations import (
+    BigQueryExecutionError,
+    build_experiment_analysis,
+    build_metric_visualization,
+)
 
 LOGGER = logging.getLogger(__name__)
 DATA_AGENT_ID = "data"
@@ -1211,6 +1216,37 @@ def _execute_command(payload: CommandRequest) -> dict[str, Any]:
             data = _unwrap_tool_result(
                 compile_metric_configs_to_sql(compile_args, context)
             )
+        elif payload.operation == "visualize":
+            try:
+                data = build_metric_visualization(args, context)
+            except ValueError as exc:
+                raise _map_command_error(
+                    json.dumps(
+                        {
+                            "status": "validation_failed",
+                            "dataset_id": args.get("dataset_id"),
+                            "errors": [
+                                {"metric_name": args.get("metric_name"), "error": str(exc)}
+                            ],
+                        },
+                        ensure_ascii=True,
+                        indent=2,
+                    )
+                ) from exc
+            except BigQueryExecutionError as exc:
+                raise _map_command_error(
+                    json.dumps(
+                        {
+                            "status": "query_failed",
+                            "dataset_id": context.get("dataset_id"),
+                            "errors": [
+                                {"metric_name": args.get("metric_name"), "error": str(exc)}
+                            ],
+                        },
+                        ensure_ascii=True,
+                        indent=2,
+                    )
+                ) from exc
         else:
             raise _invalid_operation(payload.surface, payload.operation)
         return _command_success(payload.surface, payload.operation, data)
@@ -1229,6 +1265,37 @@ def _execute_command(payload: CommandRequest) -> dict[str, Any]:
             data = _unwrap_tool_result(
                 compile_experiment_analysis_sql({"name": args.get("name")}, context)
             )
+        elif payload.operation == "analyze":
+            try:
+                data = build_experiment_analysis(args, context)
+            except ValueError as exc:
+                raise _map_command_error(
+                    json.dumps(
+                        {
+                            "status": "validation_failed",
+                            "dataset_id": args.get("dataset_id"),
+                            "errors": [
+                                {"experiment_name": args.get("name"), "error": str(exc)}
+                            ],
+                        },
+                        ensure_ascii=True,
+                        indent=2,
+                    )
+                ) from exc
+            except BigQueryExecutionError as exc:
+                raise _map_command_error(
+                    json.dumps(
+                        {
+                            "status": "query_failed",
+                            "dataset_id": context.get("dataset_id"),
+                            "errors": [
+                                {"experiment_name": args.get("name"), "error": str(exc)}
+                            ],
+                        },
+                        ensure_ascii=True,
+                        indent=2,
+                    )
+                ) from exc
         else:
             raise _invalid_operation(payload.surface, payload.operation)
         return _command_success(payload.surface, payload.operation, data)
@@ -1313,6 +1380,13 @@ def _map_command_error(message: str) -> AppError:
             return AppError(
                 status_code=422,
                 code="COMMAND_VALIDATION_FAILED",
+                message=normalized,
+                details=details,
+            )
+        if status == "query_failed":
+            return AppError(
+                status_code=502,
+                code="COMMAND_EXECUTION_FAILED",
                 message=normalized,
                 details=details,
             )
