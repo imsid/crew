@@ -183,7 +183,7 @@ This starts the beta FastAPI backend at `http://127.0.0.1:8000`.
 
 ### Start the beta web app
 
-The beta web app now uses `Next.js` App Router with Tailwind, shadcn-style UI
+The beta web app uses `Next.js` App Router with Tailwind, shadcn-style UI
 primitives, `assistant-ui` for chat, `react-markdown` for Markdown artifact rendering,
 and sandboxed iframes for HTML artifacts.
 
@@ -242,10 +242,12 @@ If you do not pass `--workspace`, `crew` defaults to `marketing_db`:
 crew metrics list
 crew metrics show --kind metric --name spend_total
 crew metrics compile --metric spend_total --dimension campaign_id
+crew metrics chart --metric spend_total --date-dimension start_date --grain day
 
 crew experiment list
 crew experiment show --name signup_checkout_test
 crew experiment plan --name signup_checkout_test
+crew experiment analyze --name signup_checkout_test
 
 crew artifact list
 crew artifact show launch_readout_q2

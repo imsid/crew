@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from typing import Sequence
+from typing import Any, Sequence
 
 from mash.cli.client import MashHostClient
 from mash.cli.config import load_config
@@ -12,6 +12,10 @@ from mash.cli.shell import MashRemoteShell, ShellTarget
 
 from ..artifacts.service.context import build_tool_context as build_artifact_context
 from ..artifacts.service.repo import list_artifacts, read_artifact, search_artifacts
+from ..beta.visualizations import (
+    build_experiment_analysis,
+    build_metric_visualization,
+)
 from ..experimentation.service.context import (
     build_tool_context as build_experiment_context,
 )
@@ -198,6 +202,29 @@ def build_parser() -> argparse.ArgumentParser:
     metrics_compile.add_argument("--date-dimension", default=None, help="Date dimension name")
     metrics_compile.add_argument("--start", default=None, help="Date range start YYYY-MM-DD")
     metrics_compile.add_argument("--end", default=None, help="Date range end YYYY-MM-DD")
+    metrics_chart = metrics_subparsers.add_parser(
+        "chart", help="Execute a metric visualization query"
+    )
+    metrics_chart.add_argument("--metric", required=True, help="Metric name")
+    metrics_chart.add_argument("--group-by", default=None, help="Optional grouping dimension")
+    metrics_chart.add_argument("--date-dimension", default=None, help="Date dimension name")
+    metrics_chart.add_argument(
+        "--grain",
+        default=None,
+        choices=["day", "week", "month"],
+        help="Optional date grain",
+    )
+    metrics_chart.add_argument(
+        "--filter", action="append", default=None, help="SQL WHERE clause fragment (repeatable)"
+    )
+    metrics_chart.add_argument("--limit", type=int, default=None, help="Row limit")
+    metrics_chart.add_argument("--start", default=None, help="Date range start YYYY-MM-DD")
+    metrics_chart.add_argument("--end", default=None, help="Date range end YYYY-MM-DD")
+    metrics_chart.add_argument(
+        "--show-sql",
+        action="store_true",
+        help="Render compiled visualization SQL",
+    )
 
     experiment = subparsers.add_parser(
         "experiment", help="Inspect local experimentation configs"
@@ -215,6 +242,20 @@ def build_parser() -> argparse.ArgumentParser:
         "plan", help="Compile experiment SQL plans"
     )
     experiment_plan.add_argument("--name", required=True, help="Experiment config name")
+    experiment_analyze = experiment_subparsers.add_parser(
+        "analyze", help="Execute an experiment analysis query"
+    )
+    experiment_analyze.add_argument("--name", required=True, help="Experiment config name")
+    experiment_analyze.add_argument(
+        "--metric-id",
+        default=None,
+        help="Optional metric id when the experiment has multiple metrics",
+    )
+    experiment_analyze.add_argument(
+        "--show-sql",
+        action="store_true",
+        help="Render compiled analysis SQL",
+    )
 
     return parser
 
@@ -410,6 +451,26 @@ def _run_metrics_command(args: argparse.Namespace, renderer: RichRenderer) -> in
             renderer.markdown(f"```sql\n{plan['sql']}\n```")
         return 0
 
+    if args.metrics_command == "chart":
+        data = build_metric_visualization(
+            {
+                "metric_name": args.metric,
+                "group_by": args.group_by,
+                "date_dimension": args.date_dimension,
+                "grain": args.grain,
+                "filters": list(args.filter or []),
+                "date_range": _build_date_range_args(start=args.start, end=args.end),
+                "limit": args.limit,
+            },
+            context,
+        )
+        _render_visualization_payload(
+            renderer,
+            data,
+            show_sql=bool(args.show_sql),
+        )
+        return 0
+
     raise ValueError("metrics command is required")
 
 
@@ -457,7 +518,126 @@ def _run_experiment_command(args: argparse.Namespace, renderer: RichRenderer) ->
             renderer.markdown(f"```sql\n{metric_plan['sql']}\n```")
         return 0
 
+    if args.experiment_command == "analyze":
+        data = build_experiment_analysis(
+            {
+                "name": args.name,
+                "metric_id": args.metric_id,
+            },
+            context,
+        )
+        _render_visualization_payload(
+            renderer,
+            data,
+            show_sql=bool(args.show_sql),
+        )
+        return 0
+
     raise ValueError("experiment command is required")
+
+
+def _build_date_range_args(*, start: str | None, end: str | None) -> dict[str, str] | None:
+    if not start and not end:
+        return None
+    payload: dict[str, str] = {}
+    if start:
+        payload["start"] = start
+    if end:
+        payload["end"] = end
+    return payload
+
+
+def _render_visualization_payload(
+    renderer: RichRenderer,
+    payload: dict[str, Any],
+    *,
+    show_sql: bool,
+) -> None:
+    entity = payload.get("entity") or {}
+    entity_label = str(entity.get("label") or entity.get("id") or "Visualization")
+    renderer.info(entity_label)
+
+    query = payload.get("query") or {}
+    if entity.get("surface") == "metrics":
+        renderer.info(
+            "Metric: "
+            f"{query.get('metric_name')} | "
+            f"Group By: {query.get('group_by') or 'none'} | "
+            f"Date: {query.get('date_dimension') or 'none'} | "
+            f"Grain: {query.get('grain') or 'none'}"
+        )
+    else:
+        meta = payload.get("meta") or {}
+        renderer.info(
+            "Experiment: "
+            f"{query.get('experiment_name')} | "
+            f"Metric: {query.get('metric_id')} | "
+            f"Control: {meta.get('control_variant') or 'unknown'}"
+        )
+        srm = meta.get("srm") or {}
+        if srm:
+            renderer.info(
+                "SRM: "
+                f"p={_stringify_scalar((srm or {}).get('p_value'))} | "
+                f"chi_square={_stringify_scalar((srm or {}).get('chi_square_statistic'))}"
+            )
+
+    date_range = query.get("date_range") or {}
+    if date_range.get("start") or date_range.get("end"):
+        renderer.info(
+            "Date Range: "
+            f"{date_range.get('start') or 'start'} -> {date_range.get('end') or 'end'}"
+        )
+
+    summary = payload.get("summary") or {}
+    for warning in summary.get("warnings") or []:
+        renderer.warn(f"Warning: {warning}")
+
+    columns = ((payload.get("table") or {}).get("columns") or [])
+    rows = ((payload.get("table") or {}).get("rows") or [])
+    if rows:
+        renderer.table(
+            [str(column.get("label") or column.get("key") or "") for column in columns],
+            [
+                [_format_visualization_cell(row.get(str(column.get("key"))), column) for column in columns]
+                for row in rows
+            ],
+        )
+    else:
+        renderer.warn("No rows returned for this view.")
+
+    if show_sql:
+        for query_plan in ((payload.get("lineage") or {}).get("queries") or []):
+            label = str(query_plan.get("label") or "SQL")
+            renderer.info(label)
+            renderer.markdown(f"```sql\n{query_plan.get('sql') or ''}\n```")
+
+
+def _format_visualization_cell(value: Any, column: dict[str, Any]) -> str:
+    if value is None:
+        return "—"
+
+    column_type = str(column.get("type") or "")
+    column_format = str(column.get("format") or "")
+
+    if column_type == "number" and isinstance(value, (int, float)) and not isinstance(value, bool):
+        if column_format == "percent":
+            return f"{float(value):.2%}"
+        if column_format == "currency":
+            return f"${float(value):,.2f}"
+        if isinstance(value, int) or float(value).is_integer():
+            return f"{int(value):,}"
+        return f"{float(value):,.4f}".rstrip("0").rstrip(".")
+
+    return _stringify_scalar(value)
+
+
+def _stringify_scalar(value: Any) -> str:
+    if value is None:
+        return "—"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
 
 
 if __name__ == "__main__":

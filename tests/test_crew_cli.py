@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from crew.cli.main import main
+from crew.cli.main import build_parser, main
 
 
 def _workspace_root(root: Path) -> Path:
@@ -258,6 +258,128 @@ def test_metrics_cli_list_show_and_compile(monkeypatch, tmp_path: Path, capsys) 
     assert "GROUP BY campaign_id" in compile_output
 
 
+def test_metrics_chart_parser_accepts_visualization_flags() -> None:
+    args = build_parser().parse_args(
+        [
+            "metrics",
+            "chart",
+            "--metric",
+            "spend_total",
+            "--group-by",
+            "campaign_id",
+            "--date-dimension",
+            "start_date",
+            "--grain",
+            "week",
+            "--start",
+            "2026-01-01",
+            "--end",
+            "2026-01-31",
+            "--filter",
+            "campaign_id = 1",
+            "--limit",
+            "25",
+            "--show-sql",
+        ]
+    )
+
+    assert args.command == "metrics"
+    assert args.metrics_command == "chart"
+    assert args.metric == "spend_total"
+    assert args.group_by == "campaign_id"
+    assert args.date_dimension == "start_date"
+    assert args.grain == "week"
+    assert args.start == "2026-01-01"
+    assert args.end == "2026-01-31"
+    assert args.filter == ["campaign_id = 1"]
+    assert args.limit == 25
+    assert args.show_sql is True
+
+
+def test_metrics_cli_chart_uses_shared_visualization_backend(
+    monkeypatch, tmp_path: Path, capsys
+) -> None:
+    _write_metric_fixture(tmp_path)
+    monkeypatch.setenv("CREW_WORKSPACE_ROOT", str(tmp_path))
+
+    captured: dict[str, object] = {}
+
+    def _fake_build_metric_visualization(args, context, runner=None):
+        del runner
+        captured["args"] = args
+        captured["context"] = context
+        return {
+            "entity": {"surface": "metrics", "id": "spend_total", "label": "Total Spend"},
+            "query": {
+                "metric_name": "spend_total",
+                "group_by": "campaign_id",
+                "date_dimension": "start_date",
+                "grain": "week",
+                "date_range": {"dimension": "start_date", "start": "2026-01-01", "end": "2026-01-31"},
+            },
+            "summary": {"warnings": ["sample warning"], "cards": [], "row_count": 2},
+            "chart": {"kind": "line", "x_key": "bucket", "y_key": "metric_value", "series_key": None},
+            "table": {
+                "columns": [
+                    {"key": "bucket", "label": "Bucket", "type": "date"},
+                    {"key": "metric_value", "label": "Metric Value", "type": "number", "format": "currency"},
+                ],
+                "rows": [
+                    {"bucket": "2026-01-01", "metric_value": 123.45},
+                    {"bucket": "2026-01-08", "metric_value": 234.56},
+                ],
+            },
+            "lineage": {
+                "queries": [{"label": "Visualization SQL", "sql": "SELECT * FROM campaign_ads"}]
+            },
+            "controls": {"selected": {}},
+            "meta": {"source_id": "ad_performance", "format": "$#,##0.00"},
+        }
+
+    monkeypatch.setattr("crew.cli.main.build_metric_visualization", _fake_build_metric_visualization)
+
+    assert (
+        main(
+            [
+                "metrics",
+                "chart",
+                "--metric",
+                "spend_total",
+                "--group-by",
+                "campaign_id",
+                "--date-dimension",
+                "start_date",
+                "--grain",
+                "week",
+                "--start",
+                "2026-01-01",
+                "--end",
+                "2026-01-31",
+                "--filter",
+                "campaign_id = 1",
+                "--show-sql",
+            ]
+        )
+        == 0
+    )
+    output = capsys.readouterr().out
+
+    assert captured["args"] == {
+        "metric_name": "spend_total",
+        "group_by": "campaign_id",
+        "date_dimension": "start_date",
+        "grain": "week",
+        "filters": ["campaign_id = 1"],
+        "date_range": {"start": "2026-01-01", "end": "2026-01-31"},
+        "limit": None,
+    }
+    assert "Total Spend" in output
+    assert "sample warning" in output
+    assert "Visualization SQL" in output
+    assert "SELECT * FROM campaign_ads" in output
+    assert "$123.45" in output
+
+
 def test_experiment_cli_list_show_and_plan(monkeypatch, tmp_path: Path, capsys) -> None:
     _write_experiment_fixture(tmp_path)
     monkeypatch.setenv("CREW_WORKSPACE_ROOT", str(tmp_path))
@@ -295,6 +417,103 @@ def test_experiment_cli_list_show_and_plan(monkeypatch, tmp_path: Path, capsys) 
     assert "experiment_exposures" in plan_output
     assert "assignment_unit_id" in plan_output
     assert "created_at" in plan_output
+
+
+def test_experiment_analyze_parser_accepts_metric_and_show_sql() -> None:
+    args = build_parser().parse_args(
+        [
+            "experiment",
+            "analyze",
+            "--name",
+            "signup_checkout_test",
+            "--metric-id",
+            "conversions_total",
+            "--show-sql",
+        ]
+    )
+
+    assert args.command == "experiment"
+    assert args.experiment_command == "analyze"
+    assert args.name == "signup_checkout_test"
+    assert args.metric_id == "conversions_total"
+    assert args.show_sql is True
+
+
+def test_experiment_cli_analyze_uses_shared_visualization_backend(
+    monkeypatch, tmp_path: Path, capsys
+) -> None:
+    _write_experiment_fixture(tmp_path)
+    monkeypatch.setenv("CREW_WORKSPACE_ROOT", str(tmp_path))
+
+    captured: dict[str, object] = {}
+
+    def _fake_build_experiment_analysis(args, context, runner=None):
+        del runner
+        captured["args"] = args
+        captured["context"] = context
+        return {
+            "entity": {
+                "surface": "experiments",
+                "id": "signup_checkout_test",
+                "label": "Signup Checkout Test",
+            },
+            "query": {
+                "experiment_name": "signup_checkout_test",
+                "metric_id": "conversions_total",
+            },
+            "summary": {"warnings": ["srm check"], "cards": [], "row_count": 2},
+            "chart": {"kind": "bar", "x_key": "variant_id", "y_key": "metric_value", "series_key": None},
+            "table": {
+                "columns": [
+                    {"key": "variant_id", "label": "Variant", "type": "string"},
+                    {"key": "metric_value", "label": "Mean", "type": "number", "format": "number"},
+                    {"key": "lift", "label": "Lift", "type": "number", "format": "percent"},
+                ],
+                "rows": [
+                    {"variant_id": "control", "metric_value": 0.1, "lift": 0.0},
+                    {"variant_id": "treatment", "metric_value": 0.12, "lift": 0.2},
+                ],
+            },
+            "lineage": {
+                "queries": [
+                    {"label": "Exposure Summary SQL", "sql": "SELECT * FROM experiment_exposures"},
+                    {"label": "conversions_total Summary SQL", "sql": "SELECT * FROM conversion_events"},
+                ]
+            },
+            "controls": {"selected": {"metric_id": "conversions_total"}},
+            "meta": {
+                "control_variant": "control",
+                "srm": {"p_value": 0.52, "chi_square_statistic": 0.41},
+            },
+        }
+
+    monkeypatch.setattr("crew.cli.main.build_experiment_analysis", _fake_build_experiment_analysis)
+
+    assert (
+        main(
+            [
+                "experiment",
+                "analyze",
+                "--name",
+                "signup_checkout_test",
+                "--metric-id",
+                "conversions_total",
+                "--show-sql",
+            ]
+        )
+        == 0
+    )
+    output = capsys.readouterr().out
+
+    assert captured["args"] == {
+        "name": "signup_checkout_test",
+        "metric_id": "conversions_total",
+    }
+    assert "Signup Checkout Test" in output
+    assert "SRM:" in output
+    assert "Exposure Summary SQL" in output
+    assert "SELECT * FROM experiment_exposures" in output
+    assert "20.00%" in output
 
 
 def test_experiment_cli_rejects_workspace_dataset_mismatch(

@@ -30,10 +30,12 @@ Examples:
 crew metrics list
 crew metrics show --kind metric --name spend_total
 crew metrics compile --metric spend_total --dimension campaign_id
+crew metrics chart --metric spend_total --date-dimension start_date --grain day
 
 crew experiment list
 crew experiment show --name signup_checkout
 crew experiment plan --name signup_checkout
+crew experiment analyze --name signup_checkout
 
 crew artifact list
 crew artifact show launch_readout_q2
@@ -45,6 +47,7 @@ Use command mode when:
 - the user knows exactly what they want to inspect
 - the task is operational rather than conversational
 - the user wants direct access to metric configs, experiment configs, compiled SQL, or saved artifacts
+
 
 ### Agent Mode
 
