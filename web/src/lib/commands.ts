@@ -5,9 +5,12 @@ import {
   getExperiment,
   getExperimentPlan,
   getMetric,
+  getWorkflowRunCommand,
   listArtifacts,
   listExperiments,
   listMetrics,
+  listWorkflowsCommand,
+  runWorkflowCommand,
   searchArtifacts,
   visualizeMetric,
 } from "@/lib/api";
@@ -95,6 +98,27 @@ export const SLASH_COMMANDS: SlashCommandDefinition[] = [
     hint: "Open an artifact document",
     template: "/artifacts show ",
   },
+  {
+    surface: "workflows",
+    operation: "list",
+    label: "Workflows list",
+    hint: "List available workflows",
+    template: "/workflows list",
+  },
+  {
+    surface: "workflows",
+    operation: "run",
+    label: "Workflows run",
+    hint: "Start a workflow with optional JSON input",
+    template: "/workflows run ",
+  },
+  {
+    surface: "workflows",
+    operation: "status",
+    label: "Workflows status",
+    hint: "Inspect a workflow run",
+    template: "/workflows status ",
+  },
 ];
 
 export function parseSlashCommand(input: string): ParsedSlashCommand | null {
@@ -106,12 +130,21 @@ export function parseSlashCommand(input: string): ParsedSlashCommand | null {
   const operation = parts[1] as ParsedSlashCommand["operation"] | undefined;
   const tail = parts.slice(2).join(" ").trim();
 
-  if (surface !== "metrics" && surface !== "experiments" && surface !== "artifacts") {
+  if (
+    surface !== "metrics" &&
+    surface !== "experiments" &&
+    surface !== "artifacts" &&
+    surface !== "workflows"
+  ) {
     return null;
   }
 
   if (!operation) {
     return null;
+  }
+
+  if (surface === "workflows") {
+    return parseWorkflowSlashCommand(trimmed, operation, tail);
   }
 
   const validOperations =
@@ -133,6 +166,85 @@ export function parseSlashCommand(input: string): ParsedSlashCommand | null {
   }
 
   return { surface, operation, raw: trimmed, target: tail };
+}
+
+function parseWorkflowSlashCommand(
+  raw: string,
+  operation: ParsedSlashCommand["operation"],
+  tail: string,
+): ParsedSlashCommand | null {
+  if (!["list", "run", "status"].includes(operation)) return null;
+
+  if (operation === "list") {
+    return { surface: "workflows", operation: "list", raw };
+  }
+
+  if (!tail) return null;
+
+  if (operation === "status") {
+    const [workflowId, runId, ...extra] = tail.split(/\s+/);
+    if (!workflowId || !runId || extra.length > 0) return null;
+    return {
+      surface: "workflows",
+      operation: "status",
+      raw,
+      target: workflowId,
+      workflowId,
+      runId,
+    };
+  }
+
+  const parsed = parseWorkflowRunTail(tail);
+  if (!parsed) return null;
+  return {
+    surface: "workflows",
+    operation: "run",
+    raw,
+    target: parsed.workflowId,
+    workflowId: parsed.workflowId,
+    dedupKey: parsed.dedupKey,
+    workflowInput: parsed.workflowInput,
+  };
+}
+
+function parseWorkflowRunTail(tail: string):
+  | {
+      workflowId: string;
+      dedupKey?: string;
+      workflowInput: Record<string, unknown>;
+    }
+  | null {
+  const inputMarker = " --input ";
+  let beforeInput = tail;
+  let rawInput = "";
+  const markerIndex = tail.indexOf(inputMarker);
+  if (markerIndex >= 0) {
+    beforeInput = tail.slice(0, markerIndex).trim();
+    rawInput = tail.slice(markerIndex + inputMarker.length).trim();
+  } else if (tail.startsWith("--input ")) {
+    beforeInput = "";
+    rawInput = tail.slice("--input ".length).trim();
+  }
+
+  const args = beforeInput.split(/\s+/).filter(Boolean);
+  if (args.length < 1 || args.length > 2) return null;
+
+  let workflowInput: Record<string, unknown> = {};
+  if (rawInput) {
+    try {
+      const decoded = JSON.parse(rawInput) as unknown;
+      if (!decoded || Array.isArray(decoded) || typeof decoded !== "object") return null;
+      workflowInput = decoded as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+  }
+
+  return {
+    workflowId: args[0],
+    dedupKey: args[1],
+    workflowInput,
+  };
 }
 
 export async function executeInlineCommand(
@@ -243,6 +355,43 @@ export async function executeInlineCommand(
       operation: "show",
       target: command.target ?? detail.name,
       data: { detail, plan },
+    };
+  }
+
+  if (command.surface === "workflows") {
+    if (command.operation === "list") {
+      return {
+        surface: "workflows",
+        operation: "list",
+        data: await listWorkflowsCommand(token),
+      };
+    }
+
+    if (command.operation === "run") {
+      const workflowId = command.workflowId ?? command.target ?? "";
+      const run = await runWorkflowCommand(token, {
+        workflow_id: workflowId,
+        dedup_key: command.dedupKey,
+        input: command.workflowInput ?? {},
+      });
+      return {
+        surface: "workflows",
+        operation: "run",
+        target: workflowId,
+        data: run,
+      };
+    }
+
+    const workflowId = command.workflowId ?? command.target ?? "";
+    const status = await getWorkflowRunCommand(token, {
+      workflow_id: workflowId,
+      run_id: command.runId ?? "",
+    });
+    return {
+      surface: "workflows",
+      operation: "status",
+      target: workflowId,
+      data: status,
     };
   }
 

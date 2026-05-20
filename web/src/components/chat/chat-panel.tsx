@@ -375,7 +375,7 @@ function ThreadWelcome({
         What should we analyze today?
       </h2>
       <p className="mt-4 max-w-2xl text-[0.98rem] leading-7 text-muted-foreground sm:text-[1.05rem] sm:leading-8">
-        Answer business questions grounded on metrics, experiments, artifacts, and skills.
+        Answer business questions grounded on metrics, experiments, artifacts, workflows, and skills.
       </p>
       <div className="mt-10 grid w-full gap-3.5 text-left sm:grid-cols-2">
         {[
@@ -498,6 +498,7 @@ function mapRuntimeLabel(label?: string | null, eventType?: string | null) {
   if (source.includes("metric")) return "Checking metrics";
   if (source.includes("experiment")) return "Reviewing experiments";
   if (source.includes("artifact")) return "Searching artifacts";
+  if (source.includes("workflow")) return "Running workflow";
   if (source.includes("draft") || source.includes("response")) return "Drafting answer";
   return label ?? null;
 }

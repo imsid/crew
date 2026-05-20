@@ -200,13 +200,15 @@ export type SessionSignalsResponse = {
   turns: SessionSignalsTurn[];
 };
 
-export type CommandSurface = "metrics" | "experiments" | "artifacts" | "skills";
+export type CommandSurface = "metrics" | "experiments" | "artifacts" | "skills" | "workflows";
 export type CommandOperation =
   | "list"
   | "search"
   | "show"
   | "compile"
   | "plan"
+  | "run"
+  | "status"
   | "chart"
   | "visualize"
   | "analyze";
@@ -522,6 +524,38 @@ export type SkillDetailResponse = {
   content: string;
 };
 
+export type WorkflowTask = {
+  task_id: string;
+  agent_id: string;
+};
+
+export type WorkflowListItem = {
+  workflow_id: string;
+  tasks: WorkflowTask[];
+};
+
+export type WorkflowListResponse = {
+  workflows: WorkflowListItem[];
+};
+
+export type WorkflowRunResponse = {
+  run_id: string;
+  workflow_id: string;
+  status: string;
+};
+
+export type WorkflowRunStatusResponse = {
+  run_id: string;
+  workflow_id: string;
+  dedup_key: string | null;
+  status: string;
+  created_at: number;
+  started_at: number | null;
+  finished_at: number | null;
+  error: string | null;
+  output: Record<string, unknown> | null;
+};
+
 export type CommandEnvelope<T> = {
   surface: CommandSurface;
   operation: string;
@@ -537,7 +571,7 @@ export type CommandPayload = {
 
 export type SlashCommandDefinition = {
   surface: CommandSurface;
-  operation: "list" | "search" | "show" | "chart" | "analyze";
+  operation: "list" | "search" | "show" | "chart" | "analyze" | "run" | "status";
   label: string;
   hint: string;
   template: string;
@@ -545,10 +579,14 @@ export type SlashCommandDefinition = {
 
 export type ParsedSlashCommand = {
   surface: CommandSurface;
-  operation: "list" | "search" | "show" | "chart" | "analyze";
+  operation: "list" | "search" | "show" | "chart" | "analyze" | "run" | "status";
   raw: string;
   target?: string;
   query?: string;
+  workflowId?: string;
+  runId?: string;
+  dedupKey?: string;
+  workflowInput?: Record<string, unknown>;
 };
 
 export type InlineCommandResult =
@@ -610,4 +648,21 @@ export type InlineCommandResult =
       operation: "show";
       target: string;
       data: ArtifactDetailResponse;
+    }
+  | {
+      surface: "workflows";
+      operation: "list";
+      data: WorkflowListResponse;
+    }
+  | {
+      surface: "workflows";
+      operation: "run";
+      target: string;
+      data: WorkflowRunResponse;
+    }
+  | {
+      surface: "workflows";
+      operation: "status";
+      target: string;
+      data: WorkflowRunStatusResponse;
     };

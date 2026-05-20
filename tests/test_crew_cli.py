@@ -695,3 +695,151 @@ def test_agent_invoke_uses_request_stream(monkeypatch, capsys) -> None:
     assert "Agent: data" in output
     assert "Session: session-123" in output
     assert "final response" in output
+
+
+def test_workflow_list_uses_mash_client(monkeypatch, capsys) -> None:
+    class FakeClient:
+        def __init__(self, base_url: str, *, api_key: str | None = None) -> None:
+            self.base_url = base_url
+            self.api_key = api_key
+
+        def list_workflows(self):
+            return [
+                {
+                    "workflow_id": "masher-trace-digest",
+                    "tasks": [{"task_id": "digest-traces", "agent_id": "masher"}],
+                }
+            ]
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr("crew.cli.main.MashHostClient", FakeClient)
+
+    assert (
+        main(
+            [
+                "workflow",
+                "list",
+                "--api-base-url",
+                "http://127.0.0.1:8000",
+            ]
+        )
+        == 0
+    )
+
+    output = _normalize_output(capsys.readouterr().out)
+    assert "masher-trace-digest" in output
+    assert "digest-traces -> masher" in output
+
+
+def test_workflow_run_uses_mash_client(monkeypatch, capsys) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeClient:
+        def __init__(self, base_url: str, *, api_key: str | None = None) -> None:
+            self.base_url = base_url
+            self.api_key = api_key
+
+        def run_workflow(
+            self,
+            workflow_id: str,
+            *,
+            dedup_key: str | None = None,
+            workflow_input: dict[str, object] | None = None,
+        ):
+            captured["run"] = {
+                "workflow_id": workflow_id,
+                "dedup_key": dedup_key,
+                "workflow_input": workflow_input,
+            }
+            return {
+                "workflow_id": workflow_id,
+                "run_id": "mw:h_test:masher-trace-digest:abc",
+                "status": "queued",
+            }
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr("crew.cli.main.MashHostClient", FakeClient)
+
+    assert (
+        main(
+            [
+                "workflow",
+                "run",
+                "--api-base-url",
+                "http://127.0.0.1:8000",
+                "masher-trace-digest",
+                "trace-123",
+                "--input",
+                '{"mode":"trace","session_id":"s1","trace_id":"t1"}',
+            ]
+        )
+        == 0
+    )
+
+    assert captured["run"] == {
+        "workflow_id": "masher-trace-digest",
+        "dedup_key": "trace-123",
+        "workflow_input": {
+            "mode": "trace",
+            "session_id": "s1",
+            "trace_id": "t1",
+        },
+    }
+    output = _normalize_output(capsys.readouterr().out)
+    assert "Workflow: masher-trace-digest" in output
+    assert "Run ID: mw:h_test:masher-trace-digest:abc" in output
+    assert "Status: queued" in output
+
+
+def test_workflow_status_uses_mash_client(monkeypatch, capsys) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeClient:
+        def __init__(self, base_url: str, *, api_key: str | None = None) -> None:
+            self.base_url = base_url
+            self.api_key = api_key
+
+        def get_workflow_run(self, workflow_id: str, run_id: str):
+            captured["status"] = {"workflow_id": workflow_id, "run_id": run_id}
+            return {
+                "workflow_id": workflow_id,
+                "run_id": run_id,
+                "dedup_key": "trace-123",
+                "status": "success",
+                "created_at": 1.0,
+                "started_at": 2.0,
+                "finished_at": 3.0,
+                "error": None,
+                "output": {"task_states": {"digest-traces": {"ok": True}}},
+            }
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr("crew.cli.main.MashHostClient", FakeClient)
+
+    assert (
+        main(
+            [
+                "workflow",
+                "status",
+                "--api-base-url",
+                "http://127.0.0.1:8000",
+                "masher-trace-digest",
+                "mw:h_test:masher-trace-digest:abc",
+            ]
+        )
+        == 0
+    )
+
+    assert captured["status"] == {
+        "workflow_id": "masher-trace-digest",
+        "run_id": "mw:h_test:masher-trace-digest:abc",
+    }
+    output = _normalize_output(capsys.readouterr().out)
+    assert "success" in output
+    assert "digest-traces" in output

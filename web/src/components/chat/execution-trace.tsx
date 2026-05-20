@@ -145,6 +145,20 @@ export function ExecutionTrace({
 
       <CollapsibleContent className="border-t border-border/70 px-4 py-4">
         <div className="space-y-4">
+          {resolvedTrace.session_id || resolvedTrace.trace_id ? (
+            <div className="grid gap-2 rounded-xl border border-border/70 bg-white/70 px-3 py-3 text-xs sm:grid-cols-2">
+              {resolvedTrace.session_id ? (
+                <TraceIdentifier label="Session ID" value={resolvedTrace.session_id} />
+              ) : null}
+              {resolvedTrace.trace_id ? (
+                <TraceIdentifier label="Trace ID" value={resolvedTrace.trace_id} />
+              ) : null}
+              {resolvedTrace.turn_id && resolvedTrace.turn_id !== resolvedTrace.trace_id ? (
+                <TraceIdentifier label="Turn ID" value={resolvedTrace.turn_id} />
+              ) : null}
+            </div>
+          ) : null}
+
           {resolvedTrace.steps.length === 0 && isHydrating ? (
             <p className="text-sm text-muted-foreground">Loading execution trace…</p>
           ) : null}
@@ -265,6 +279,23 @@ export function ExecutionTrace({
         </div>
       </CollapsibleContent>
     </Collapsible>
+  );
+}
+
+function TraceIdentifier({
+  label,
+  value,
+}: Readonly<{
+  label: string;
+  value: string;
+}>) {
+  return (
+    <div className="min-w-0">
+      <p className="font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+        {label}
+      </p>
+      <p className="mt-1 break-all font-mono text-[12px] text-foreground">{value}</p>
+    </div>
   );
 }
 

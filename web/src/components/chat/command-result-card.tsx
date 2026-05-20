@@ -1,6 +1,13 @@
 "use client";
 
-import { FileTextIcon, FlaskConicalIcon, ListTreeIcon, SigmaIcon } from "lucide-react";
+import {
+  FileTextIcon,
+  FlaskConicalIcon,
+  ListTreeIcon,
+  PlayCircleIcon,
+  SigmaIcon,
+  WorkflowIcon,
+} from "lucide-react";
 import { ArtifactReader } from "@/components/artifacts/artifact-reader";
 import { DataVisualizationCard } from "@/components/visualizations/data-visualization-card";
 import { Badge } from "@/components/ui/badge";
@@ -278,7 +285,142 @@ export function CommandResultCard({
     );
   }
 
+  if (result.surface === "workflows") {
+    if (result.operation === "list") {
+      return (
+        <Card className="rounded-[1.2rem] border-primary/10 bg-primary/5">
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <div className="flex size-9 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
+                <WorkflowIcon className="size-4" />
+              </div>
+              <div>
+                <CardTitle>Workflow results</CardTitle>
+                <CardDescription>Available workflow definitions</CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {result.data.workflows.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No workflows are registered.</p>
+            ) : (
+              <div className="overflow-hidden rounded-2xl border border-border/80 bg-white/80">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-secondary/60 text-muted-foreground">
+                    <tr>
+                      <th className="px-3 py-2 font-medium">Workflow</th>
+                      <th className="px-3 py-2 font-medium">Tasks</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {result.data.workflows.map((workflow) => (
+                      <tr key={workflow.workflow_id} className="border-t border-border/60">
+                        <td className="px-3 py-2 font-mono text-xs sm:text-sm">
+                          {workflow.workflow_id}
+                        </td>
+                        <td className="px-3 py-2 text-muted-foreground">
+                          {workflow.tasks.map((task) => `${task.task_id} -> ${task.agent_id}`).join(", ")}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      );
+    }
+
+    if (result.operation === "run") {
+      return (
+        <Card className="rounded-[1.2rem] border-primary/10 bg-primary/5">
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <div className="flex size-9 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
+                <PlayCircleIcon className="size-4" />
+              </div>
+              <div>
+                <CardTitle>Workflow started</CardTitle>
+                <CardDescription className="font-mono text-xs">
+                  {result.data.workflow_id}
+                </CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <WorkflowRunField label="Run ID" value={result.data.run_id} />
+            <WorkflowRunField label="Status" value={result.data.status} />
+          </CardContent>
+        </Card>
+      );
+    }
+
+    return (
+      <Card className="rounded-[1.2rem] border-primary/10 bg-primary/5">
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <div className="flex size-9 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
+              <WorkflowIcon className="size-4" />
+            </div>
+            <div>
+              <CardTitle>Workflow status</CardTitle>
+              <CardDescription className="font-mono text-xs">
+                {result.data.workflow_id}
+              </CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm">
+          <div className="grid gap-2 sm:grid-cols-2">
+            <WorkflowRunField label="Run ID" value={result.data.run_id} />
+            <WorkflowRunField label="Status" value={result.data.status} />
+            <WorkflowRunField label="Dedup key" value={result.data.dedup_key ?? ""} />
+            <WorkflowRunField
+              label="Finished"
+              value={result.data.finished_at ? formatDateTime(result.data.finished_at) : ""}
+            />
+          </div>
+          {result.data.error ? (
+            <div className="rounded-2xl border border-destructive/30 bg-destructive/10 p-3 text-destructive">
+              {result.data.error}
+            </div>
+          ) : null}
+          {result.data.output ? (
+            <Collapsible defaultOpen>
+              <CollapsibleTrigger asChild>
+                <Button variant="outline" size="sm">
+                  Toggle output
+                </Button>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="pt-3">
+                <pre className="overflow-x-auto rounded-2xl border border-border/80 bg-stone-950 p-4 text-xs text-stone-50">
+                  <code>{JSON.stringify(result.data.output, null, 2)}</code>
+                </pre>
+              </CollapsibleContent>
+            </Collapsible>
+          ) : null}
+        </CardContent>
+      </Card>
+    );
+  }
+
   return null;
+}
+
+function WorkflowRunField({
+  label,
+  value,
+}: Readonly<{
+  label: string;
+  value: string;
+}>) {
+  return (
+    <div className="rounded-2xl border border-border/70 bg-white/75 px-3 py-2">
+      <p className="text-[11px] font-medium uppercase text-muted-foreground">{label}</p>
+      <p className="mt-1 break-all font-mono text-xs">{value || "None"}</p>
+    </div>
+  );
 }
 
 export function CommandLoadingCard({

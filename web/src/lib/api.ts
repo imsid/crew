@@ -24,6 +24,9 @@ import type {
   SkillListResponse,
   SkillSearchResponse,
   StreamEvent,
+  WorkflowListResponse,
+  WorkflowRunResponse,
+  WorkflowRunStatusResponse,
 } from "@/lib/types";
 
 type RequestOptions = {
@@ -253,6 +256,39 @@ export async function runCommand<T>(
   return commandPayload;
 }
 
+export async function listWorkflows(token: string): Promise<WorkflowListResponse> {
+  return apiRequest("/workflows", { token });
+}
+
+export async function runWorkflow(
+  token: string,
+  workflowId: string,
+  args: {
+    dedup_key?: string | null;
+    input?: Record<string, unknown>;
+  } = {},
+): Promise<WorkflowRunResponse> {
+  return apiRequest(`/workflows/${encodeURIComponent(workflowId)}/run`, {
+    method: "POST",
+    token,
+    body: {
+      dedup_key: args.dedup_key ?? null,
+      input: args.input ?? {},
+    },
+  });
+}
+
+export async function getWorkflowRun(
+  token: string,
+  workflowId: string,
+  runId: string,
+): Promise<WorkflowRunStatusResponse> {
+  return apiRequest(
+    `/workflows/${encodeURIComponent(workflowId)}/runs/${encodeURIComponent(runId)}`,
+    { token },
+  );
+}
+
 export async function listMetrics(token: string): Promise<MetricsListResponse> {
   const response = await runCommand<MetricsListResponse>(token, {
     surface: "metrics",
@@ -418,6 +454,48 @@ export async function getSkill(
     surface: "skills",
     operation: "show",
     args: { skill_id: skillId },
+  });
+  return response.data;
+}
+
+export async function listWorkflowsCommand(
+  token: string,
+): Promise<WorkflowListResponse> {
+  const response = await runCommand<WorkflowListResponse>(token, {
+    surface: "workflows",
+    operation: "list",
+    args: {},
+  });
+  return response.data;
+}
+
+export async function runWorkflowCommand(
+  token: string,
+  args: {
+    workflow_id: string;
+    dedup_key?: string | null;
+    input?: Record<string, unknown>;
+  },
+): Promise<WorkflowRunResponse> {
+  const response = await runCommand<WorkflowRunResponse>(token, {
+    surface: "workflows",
+    operation: "run",
+    args,
+  });
+  return response.data;
+}
+
+export async function getWorkflowRunCommand(
+  token: string,
+  args: {
+    workflow_id: string;
+    run_id: string;
+  },
+): Promise<WorkflowRunStatusResponse> {
+  const response = await runCommand<WorkflowRunStatusResponse>(token, {
+    surface: "workflows",
+    operation: "status",
+    args,
   });
   return response.data;
 }

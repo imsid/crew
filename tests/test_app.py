@@ -22,12 +22,26 @@ def test_build_host_registers_data_primary_and_support_agents(tmp_path):
 
         assert host.get_primary_agent_id() == "data"
         described = {item["agent_id"]: item for item in host.describe_agents()}
-        assert set(described.keys()) == {"pm", "data", "masher"}
+        assert set(described.keys()) == {"pm", "data"}
         assert described["data"]["role"] == "primary"
         assert described["pm"]["role"] == "subagent"
-        assert described["masher"]["role"] == "subagent"
         assert described["pm"]["metadata"]["display_name"] == "Product Management Specialist"
-        assert described["masher"]["metadata"]["display_name"] == "Masher"
+
+        workflows = {
+            workflow.workflow_id: workflow
+            for workflow in host.get_workflow_registry().list()
+        }
+        assert set(workflows) >= {
+            "masher-trace-digest",
+            "masher-online-eval-curation",
+        }
+        assert workflows["masher-trace-digest"].tasks[0].task_id == "digest-traces"
+        assert workflows["masher-trace-digest"].tasks[0].agent_id == "masher"
+        assert (
+            workflows["masher-online-eval-curation"].tasks[0].task_id
+            == "curate-online-evals"
+        )
+        assert workflows["masher-online-eval-curation"].tasks[0].agent_id == "masher"
 
 
 def test_build_host_requires_runtime_env(monkeypatch, tmp_path):

@@ -22,6 +22,7 @@ from mash.logging import EventLogger
 from mash.memory.search.service import MemorySearchService
 from mash.memory.search.types import FusionWeights, RetrievalConfig
 from mash.runtime import AgentHost
+from mash.workflows import DuplicateWorkflowRunError, WorkflowNotFoundError
 
 from ..app import build_host
 from ..artifacts.service.context import build_tool_context as build_artifact_context
@@ -67,9 +68,14 @@ class SendMessageRequest(BaseModel):
 
 
 class CommandRequest(BaseModel):
-    surface: Literal["metrics", "experiments", "artifacts", "skills"]
+    surface: Literal["metrics", "experiments", "artifacts", "skills", "workflows"]
     operation: str
     args: dict[str, Any] = Field(default_factory=dict)
+
+
+class WorkflowRunRequest(BaseModel):
+    dedup_key: str | None = None
+    input: dict[str, Any] = Field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -222,6 +228,70 @@ def create_beta_app(
     @app.get("/me")
     async def me(current_user: dict[str, Any] = Depends(_require_user)) -> dict[str, Any]:
         return {"data": {"user": _serialize_user(current_user)}}
+
+    @app.get("/workflows")
+    async def list_workflows(
+        request: Request,
+        current_user: dict[str, Any] = Depends(_require_user),
+    ) -> dict[str, Any]:
+        del current_user
+        workflow_service = _beta_state(request).host.get_workflow_service()
+        return {"data": {"workflows": await workflow_service.list_workflows()}}
+
+    @app.post("/workflows/{workflow_id}/run")
+    async def run_workflow(
+        workflow_id: str,
+        payload: WorkflowRunRequest,
+        request: Request,
+        current_user: dict[str, Any] = Depends(_require_user),
+    ) -> dict[str, Any]:
+        del current_user
+        workflow_service = _beta_state(request).host.get_workflow_service()
+        try:
+            run = await workflow_service.run_workflow(
+                workflow_id.strip(),
+                dedup_key=_normalize_optional_text(payload.dedup_key),
+                workflow_input=payload.input,
+            )
+        except WorkflowNotFoundError as exc:
+            raise AppError(
+                status_code=404,
+                code="WORKFLOW_NOT_FOUND",
+                message=str(exc),
+            ) from exc
+        except DuplicateWorkflowRunError as exc:
+            raise AppError(
+                status_code=409,
+                code="DUPLICATE_WORKFLOW_RUN",
+                message=str(exc),
+                details={"existing_run_id": exc.existing_run.run_id},
+            ) from exc
+        except Exception as exc:
+            raise AppError(
+                status_code=500,
+                code="WORKFLOW_RUN_FAILED",
+                message=str(exc),
+            ) from exc
+        return {"data": _serialize_workflow_run_started(run)}
+
+    @app.get("/workflows/{workflow_id}/runs/{run_id}")
+    async def get_workflow_run(
+        workflow_id: str,
+        run_id: str,
+        request: Request,
+        current_user: dict[str, Any] = Depends(_require_user),
+    ) -> dict[str, Any]:
+        del current_user
+        workflow_service = _beta_state(request).host.get_workflow_service()
+        try:
+            run = await workflow_service.get_run(workflow_id.strip(), run_id.strip())
+        except WorkflowNotFoundError as exc:
+            raise AppError(
+                status_code=404,
+                code="WORKFLOW_NOT_FOUND",
+                message=str(exc),
+            ) from exc
+        return {"data": _serialize_workflow_run_status(run)}
 
     @app.get("/sessions")
     async def list_user_sessions(
@@ -548,9 +618,8 @@ def create_beta_app(
         request: Request,
         current_user: dict[str, Any] = Depends(_require_user),
     ) -> dict[str, Any]:
-        del request
         del current_user
-        result = _execute_command(payload)
+        result = await _execute_command(payload, _beta_state(request))
         LOGGER.info(
             "beta command executed",
             extra={"surface": payload.surface, "operation": payload.operation},
@@ -1185,11 +1254,67 @@ def _session_preview_text(turns: list[dict[str, Any]]) -> str | None:
     return None
 
 
-def _execute_command(payload: CommandRequest) -> dict[str, Any]:
-    workspace_root = workspace_dir("marketing_db", require_exists=True)
+async def _execute_command(payload: CommandRequest, state: BetaAppState) -> dict[str, Any]:
     args = dict(payload.args or {})
     if "dataset_id" in args:
         args.pop("dataset_id", None)
+
+    if payload.surface == "workflows":
+        workflow_service = state.host.get_workflow_service()
+        if payload.operation == "list":
+            data = {"workflows": await workflow_service.list_workflows()}
+        elif payload.operation == "run":
+            workflow_id = _require_command_text(args.get("workflow_id"), "workflow_id")
+            workflow_input = args.get("input", {})
+            if not isinstance(workflow_input, dict):
+                raise AppError(
+                    status_code=422,
+                    code="INVALID_COMMAND",
+                    message="workflow input must be a JSON object",
+                )
+            try:
+                run = await workflow_service.run_workflow(
+                    workflow_id,
+                    dedup_key=_normalize_optional_text(str(args.get("dedup_key") or "")),
+                    workflow_input=workflow_input,
+                )
+            except WorkflowNotFoundError as exc:
+                raise AppError(
+                    status_code=404,
+                    code="WORKFLOW_NOT_FOUND",
+                    message=str(exc),
+                ) from exc
+            except DuplicateWorkflowRunError as exc:
+                raise AppError(
+                    status_code=409,
+                    code="DUPLICATE_WORKFLOW_RUN",
+                    message=str(exc),
+                    details={"existing_run_id": exc.existing_run.run_id},
+                ) from exc
+            except Exception as exc:
+                raise AppError(
+                    status_code=500,
+                    code="WORKFLOW_RUN_FAILED",
+                    message=str(exc),
+                ) from exc
+            data = _serialize_workflow_run_started(run)
+        elif payload.operation == "status":
+            workflow_id = _require_command_text(args.get("workflow_id"), "workflow_id")
+            run_id = _require_command_text(args.get("run_id"), "run_id")
+            try:
+                run = await workflow_service.get_run(workflow_id, run_id)
+            except WorkflowNotFoundError as exc:
+                raise AppError(
+                    status_code=404,
+                    code="WORKFLOW_NOT_FOUND",
+                    message=str(exc),
+                ) from exc
+            data = _serialize_workflow_run_status(run)
+        else:
+            raise _invalid_operation(payload.surface, payload.operation)
+        return _command_success(payload.surface, payload.operation, data)
+
+    workspace_root = workspace_dir("marketing_db", require_exists=True)
 
     if payload.surface == "metrics":
         context = build_metrics_context(workspace_root)
@@ -1341,6 +1466,39 @@ def _execute_command(payload: CommandRequest) -> dict[str, Any]:
         return _command_success(payload.surface, payload.operation, data)
 
     raise _invalid_operation(payload.surface, payload.operation)
+
+
+def _require_command_text(value: Any, field_name: str) -> str:
+    text = str(value or "").strip()
+    if not text:
+        raise AppError(
+            status_code=422,
+            code="INVALID_COMMAND",
+            message=f"{field_name} is required",
+        )
+    return text
+
+
+def _serialize_workflow_run_started(run: Any) -> dict[str, Any]:
+    return {
+        "run_id": run.run_id,
+        "workflow_id": run.workflow_id,
+        "status": run.status,
+    }
+
+
+def _serialize_workflow_run_status(run: Any) -> dict[str, Any]:
+    return {
+        "run_id": run.run_id,
+        "workflow_id": run.workflow_id,
+        "dedup_key": run.dedup_key,
+        "status": run.status,
+        "created_at": run.created_at,
+        "started_at": run.started_at,
+        "finished_at": run.finished_at,
+        "error": run.error,
+        "output": run.output,
+    }
 
 
 def _unwrap_tool_result(result: Any) -> Any:

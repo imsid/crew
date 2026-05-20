@@ -26,6 +26,10 @@ const sectionMeta = {
     title: "Artifact library",
     description: "Search and read team-authored Markdown and HTML outputs.",
   },
+  workflows: {
+    title: "Workflow runner",
+    description: "Run registered Mash workflows and inspect their results.",
+  },
   skills: {
     title: "Skills library",
     description: "Reusable SKILL.md workflows available across Crew agents.",
@@ -43,6 +47,7 @@ export function AppShell({
     if (pathname.startsWith("/app/metrics")) return "metrics";
     if (pathname.startsWith("/app/experiments")) return "experiments";
     if (pathname.startsWith("/app/artifacts")) return "artifacts";
+    if (pathname.startsWith("/app/workflows")) return "workflows";
     if (pathname.startsWith("/app/skills")) return "skills";
     return "chat";
   }, [pathname]);

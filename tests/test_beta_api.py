@@ -4,6 +4,7 @@ from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Optional
 from unittest.mock import patch
 
@@ -11,6 +12,12 @@ from fastapi.testclient import TestClient
 from mash.core.context import ToolCall
 from mash.core.llm import LLMProvider
 from mash.core.llm.types import LLMContentBlock, LLMRequest, LLMResponse, LLMTokenUsage
+from mash.workflows.service import (
+    DuplicateWorkflowRunError,
+    WorkflowNotFoundError,
+    WorkflowRun,
+    WorkflowService,
+)
 import pytest
 
 from crew.agents.data.spec import DataAgentSpec
@@ -548,6 +555,316 @@ def test_session_history_turn_trace_can_be_loaded_from_runtime_store(tmp_path: P
             assert payload["trace"]["status"] == "completed"
             assert payload["trace"]["steps"]
             assert payload["trace"]["steps"][0]["title"]
+
+
+def test_workflow_endpoints_are_authenticated_and_use_host_service(
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, object] = {}
+
+    async def fake_run_workflow(
+        self,
+        workflow_id: str,
+        *,
+        dedup_key: str | None = None,
+        workflow_input: dict[str, Any] | None = None,
+    ):
+        del self
+        captured["run"] = {
+            "workflow_id": workflow_id,
+            "dedup_key": dedup_key,
+            "workflow_input": workflow_input,
+        }
+        return SimpleNamespace(
+            run_id="mw:h_test:masher-trace-digest:abc",
+            workflow_id=workflow_id,
+            status="queued",
+        )
+
+    async def fake_get_run(self, workflow_id: str, run_id: str):
+        del self
+        captured["status"] = {"workflow_id": workflow_id, "run_id": run_id}
+        return SimpleNamespace(
+            run_id=run_id,
+            workflow_id=workflow_id,
+            dedup_key="trace-123",
+            status="success",
+            created_at=1.0,
+            started_at=2.0,
+            finished_at=3.0,
+            error=None,
+            output={"task_states": {"digest-traces": {"ok": True}}},
+        )
+
+    with patch.object(PMAgentSpec, "build_llm", return_value=_EchoLLM()), patch.object(
+        DataAgentSpec, "build_llm", return_value=_EchoLLM()
+    ), patch.object(DataAgentSpec, "build_mcp_servers", return_value=[]), patch.object(
+        WorkflowService, "run_workflow", fake_run_workflow
+    ), patch.object(
+        WorkflowService, "get_run", fake_get_run
+    ):
+        with _build_test_client(tmp_path) as client:
+            token, _ = _login(client, "alice")
+
+            workflows = client.get("/workflows", headers=_auth_headers(token))
+            assert workflows.status_code == 200
+            listed = {
+                workflow["workflow_id"]: workflow
+                for workflow in workflows.json()["data"]["workflows"]
+            }
+            assert listed["masher-trace-digest"]["tasks"] == [
+                {"task_id": "digest-traces", "agent_id": "masher"}
+            ]
+
+            unauthorized = client.get("/workflows")
+            assert unauthorized.status_code == 401
+
+            started = client.post(
+                "/workflows/masher-trace-digest/run",
+                json={
+                    "dedup_key": "trace-123",
+                    "input": {
+                        "mode": "trace",
+                        "session_id": "s1",
+                        "trace_id": "t1",
+                    },
+                },
+                headers=_auth_headers(token),
+            )
+            assert started.status_code == 200
+            assert started.json()["data"] == {
+                "run_id": "mw:h_test:masher-trace-digest:abc",
+                "workflow_id": "masher-trace-digest",
+                "status": "queued",
+            }
+            assert captured["run"] == {
+                "workflow_id": "masher-trace-digest",
+                "dedup_key": "trace-123",
+                "workflow_input": {
+                    "mode": "trace",
+                    "session_id": "s1",
+                    "trace_id": "t1",
+                },
+            }
+
+            status = client.get(
+                "/workflows/masher-trace-digest/runs/mw:h_test:masher-trace-digest:abc",
+                headers=_auth_headers(token),
+            )
+            assert status.status_code == 200
+            assert status.json()["data"]["output"] == {
+                "task_states": {"digest-traces": {"ok": True}}
+            }
+            assert captured["status"] == {
+                "workflow_id": "masher-trace-digest",
+                "run_id": "mw:h_test:masher-trace-digest:abc",
+            }
+
+
+def test_workflow_command_surface_dispatches_host_service(tmp_path: Path) -> None:
+    captured: dict[str, object] = {}
+
+    async def fake_run_workflow(
+        self,
+        workflow_id: str,
+        *,
+        dedup_key: str | None = None,
+        workflow_input: dict[str, Any] | None = None,
+    ):
+        del self
+        captured["run"] = {
+            "workflow_id": workflow_id,
+            "dedup_key": dedup_key,
+            "workflow_input": workflow_input,
+        }
+        return SimpleNamespace(
+            run_id="mw:h_test:masher-trace-digest:abc",
+            workflow_id=workflow_id,
+            status="queued",
+        )
+
+    async def fake_get_run(self, workflow_id: str, run_id: str):
+        del self
+        captured["status"] = {"workflow_id": workflow_id, "run_id": run_id}
+        return SimpleNamespace(
+            run_id=run_id,
+            workflow_id=workflow_id,
+            dedup_key="trace-123",
+            status="success",
+            created_at=1.0,
+            started_at=2.0,
+            finished_at=3.0,
+            error=None,
+            output={"task_states": {"digest-traces": {"ok": True}}},
+        )
+
+    with patch.object(PMAgentSpec, "build_llm", return_value=_EchoLLM()), patch.object(
+        DataAgentSpec, "build_llm", return_value=_EchoLLM()
+    ), patch.object(DataAgentSpec, "build_mcp_servers", return_value=[]), patch.object(
+        WorkflowService, "run_workflow", fake_run_workflow
+    ), patch.object(
+        WorkflowService, "get_run", fake_get_run
+    ):
+        with _build_test_client(tmp_path) as client:
+            token, _ = _login(client, "alice")
+            headers = _auth_headers(token)
+
+            listed = client.post(
+                "/command",
+                json={"surface": "workflows", "operation": "list", "args": {}},
+                headers=headers,
+            )
+            assert listed.status_code == 200
+            assert listed.json()["surface"] == "workflows"
+            assert listed.json()["operation"] == "list"
+            workflows = {
+                workflow["workflow_id"]: workflow
+                for workflow in listed.json()["data"]["workflows"]
+            }
+            assert workflows["masher-trace-digest"]["tasks"] == [
+                {"task_id": "digest-traces", "agent_id": "masher"}
+            ]
+
+            started = client.post(
+                "/command",
+                json={
+                    "surface": "workflows",
+                    "operation": "run",
+                    "args": {
+                        "workflow_id": "masher-trace-digest",
+                        "dedup_key": "trace-123",
+                        "input": {
+                            "mode": "trace",
+                            "session_id": "s1",
+                            "trace_id": "t1",
+                        },
+                    },
+                },
+                headers=headers,
+            )
+            assert started.status_code == 200
+            assert started.json()["data"] == {
+                "run_id": "mw:h_test:masher-trace-digest:abc",
+                "workflow_id": "masher-trace-digest",
+                "status": "queued",
+            }
+            assert captured["run"] == {
+                "workflow_id": "masher-trace-digest",
+                "dedup_key": "trace-123",
+                "workflow_input": {
+                    "mode": "trace",
+                    "session_id": "s1",
+                    "trace_id": "t1",
+                },
+            }
+
+            status = client.post(
+                "/command",
+                json={
+                    "surface": "workflows",
+                    "operation": "status",
+                    "args": {
+                        "workflow_id": "masher-trace-digest",
+                        "run_id": "mw:h_test:masher-trace-digest:abc",
+                    },
+                },
+                headers=headers,
+            )
+            assert status.status_code == 200
+            assert status.json()["data"]["status"] == "success"
+            assert status.json()["data"]["output"] == {
+                "task_states": {"digest-traces": {"ok": True}}
+            }
+            assert captured["status"] == {
+                "workflow_id": "masher-trace-digest",
+                "run_id": "mw:h_test:masher-trace-digest:abc",
+            }
+
+
+def test_workflow_command_surface_maps_errors(tmp_path: Path) -> None:
+    async def fake_run_workflow(
+        self,
+        workflow_id: str,
+        *,
+        dedup_key: str | None = None,
+        workflow_input: dict[str, Any] | None = None,
+    ):
+        del self, workflow_input
+        if workflow_id == "duplicate":
+            existing = WorkflowRun(
+                run_id="mw:h_test:duplicate:existing",
+                workflow_id=workflow_id,
+                dedup_key=dedup_key,
+                status="running",
+                created_at=1.0,
+            )
+            raise DuplicateWorkflowRunError(workflow_id, dedup_key or "", existing)
+        raise WorkflowNotFoundError(f"workflow '{workflow_id}' is not registered")
+
+    async def fake_get_run(self, workflow_id: str, run_id: str):
+        del self, run_id
+        raise WorkflowNotFoundError(f"workflow '{workflow_id}' is not registered")
+
+    with patch.object(PMAgentSpec, "build_llm", return_value=_EchoLLM()), patch.object(
+        DataAgentSpec, "build_llm", return_value=_EchoLLM()
+    ), patch.object(DataAgentSpec, "build_mcp_servers", return_value=[]), patch.object(
+        WorkflowService, "run_workflow", fake_run_workflow
+    ), patch.object(
+        WorkflowService, "get_run", fake_get_run
+    ):
+        with _build_test_client(tmp_path) as client:
+            token, _ = _login(client, "alice")
+            headers = _auth_headers(token)
+
+            invalid_operation = client.post(
+                "/command",
+                json={"surface": "workflows", "operation": "delete", "args": {}},
+                headers=headers,
+            )
+            assert invalid_operation.status_code == 400
+
+            missing_id = client.post(
+                "/command",
+                json={"surface": "workflows", "operation": "run", "args": {}},
+                headers=headers,
+            )
+            assert missing_id.status_code == 422
+
+            invalid_input = client.post(
+                "/command",
+                json={
+                    "surface": "workflows",
+                    "operation": "run",
+                    "args": {"workflow_id": "masher-trace-digest", "input": []},
+                },
+                headers=headers,
+            )
+            assert invalid_input.status_code == 422
+
+            duplicate = client.post(
+                "/command",
+                json={
+                    "surface": "workflows",
+                    "operation": "run",
+                    "args": {"workflow_id": "duplicate", "dedup_key": "active"},
+                },
+                headers=headers,
+            )
+            assert duplicate.status_code == 409
+            assert duplicate.json()["error"]["details"]["existing_run_id"] == (
+                "mw:h_test:duplicate:existing"
+            )
+
+            not_found = client.post(
+                "/command",
+                json={
+                    "surface": "workflows",
+                    "operation": "status",
+                    "args": {"workflow_id": "missing", "run_id": "mw:h_test:missing:abc"},
+                },
+                headers=headers,
+            )
+            assert not_found.status_code == 404
 
 
 def test_session_signals_proxy_returns_definitions_and_turn_values(tmp_path: Path) -> None:

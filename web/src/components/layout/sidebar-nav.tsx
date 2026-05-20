@@ -8,6 +8,7 @@ import {
   FlaskConicalIcon,
   FileTextIcon,
   MessagesSquareIcon,
+  WorkflowIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -35,6 +36,12 @@ const navItems = [
     label: "Artifacts",
     description: "Team Knowledge",
     icon: FileTextIcon,
+  },
+  {
+    href: "/app/workflows",
+    label: "Workflows",
+    description: "Run Books",
+    icon: WorkflowIcon,
   },
   {
     href: "/app/skills",

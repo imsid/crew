@@ -159,6 +159,35 @@ def build_parser() -> argparse.ArgumentParser:
     )
     agent_repl.add_argument("--session-id", default=None, help="Remote session id")
 
+    workflow = subparsers.add_parser("workflow", help="List, run, and inspect workflows")
+    workflow_subparsers = workflow.add_subparsers(dest="workflow_command")
+
+    workflow_subparsers.add_parser(
+        "list", parents=[common_remote], help="List remote workflows"
+    )
+
+    workflow_run = workflow_subparsers.add_parser(
+        "run", parents=[common_remote], help="Start a remote workflow run"
+    )
+    workflow_run.add_argument("workflow_id", help="Workflow id to run")
+    workflow_run.add_argument(
+        "dedup_key",
+        nargs="?",
+        default=None,
+        help="Optional active-run deduplication key",
+    )
+    workflow_run.add_argument(
+        "--input",
+        default=None,
+        help="Workflow input as a JSON object",
+    )
+
+    workflow_status = workflow_subparsers.add_parser(
+        "status", parents=[common_remote], help="Show remote workflow run status"
+    )
+    workflow_status.add_argument("workflow_id", help="Workflow id")
+    workflow_status.add_argument("run_id", help="Workflow run id")
+
     artifact = subparsers.add_parser("artifact", help="Browse local artifacts")
     artifact_subparsers = artifact.add_subparsers(dest="artifact_command")
 
@@ -268,6 +297,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if args.command == "agent":
             return _run_agent_command(args, renderer)
+        if args.command == "workflow":
+            return _run_workflow_command(args, renderer)
         if args.command == "artifact":
             return _run_artifact_command(args, renderer)
         if args.command == "metrics":
@@ -335,6 +366,79 @@ def _run_agent_command(args: argparse.Namespace, renderer: RichRenderer) -> int:
         client.close()
 
     raise ValueError("agent command is required")
+
+
+def _run_workflow_command(args: argparse.Namespace, renderer: RichRenderer) -> int:
+    base_url, api_key, _configured_agent = _resolve_connection(args)
+    client = MashHostClient(base_url, api_key=api_key)
+    try:
+        if args.workflow_command == "list":
+            workflows = client.list_workflows()
+            if not workflows:
+                renderer.warn("No workflows registered.")
+                return 0
+            rows = []
+            for workflow in workflows:
+                rendered_tasks = []
+                tasks = workflow.get("tasks")
+                if isinstance(tasks, list):
+                    for task in tasks:
+                        if not isinstance(task, dict):
+                            continue
+                        rendered_tasks.append(
+                            f"{task.get('task_id') or ''} -> {task.get('agent_id') or ''}"
+                        )
+                rows.append(
+                    [
+                        str(workflow.get("workflow_id") or ""),
+                        ", ".join(rendered_tasks),
+                    ]
+                )
+            renderer.table(["Workflow ID", "Tasks"], rows)
+            return 0
+
+        if args.workflow_command == "run":
+            workflow_input = None
+            if args.input is not None:
+                try:
+                    decoded_input = json.loads(args.input)
+                except json.JSONDecodeError as exc:
+                    raise ValueError(f"workflow input must be valid JSON: {exc.msg}") from exc
+                if not isinstance(decoded_input, dict):
+                    raise ValueError("workflow input must be a JSON object")
+                workflow_input = decoded_input
+            run = client.run_workflow(
+                args.workflow_id,
+                dedup_key=args.dedup_key,
+                workflow_input=workflow_input,
+            )
+            renderer.info(f"Workflow: {run.get('workflow_id') or args.workflow_id}")
+            renderer.info(f"Run ID: {run.get('run_id') or ''}")
+            renderer.info(f"Status: {run.get('status') or ''}")
+            return 0
+
+        if args.workflow_command == "status":
+            run = client.get_workflow_run(args.workflow_id, args.run_id)
+            rows = [
+                ["run_id", str(run.get("run_id") or "")],
+                ["workflow_id", str(run.get("workflow_id") or args.workflow_id)],
+                ["dedup_key", str(run.get("dedup_key") or "")],
+                ["status", str(run.get("status") or "")],
+                ["created_at", str(run.get("created_at") or "")],
+                ["started_at", str(run.get("started_at") or "")],
+                ["finished_at", str(run.get("finished_at") or "")],
+                ["error", str(run.get("error") or "")],
+            ]
+            renderer.table(["Field", "Value"], rows)
+            output = run.get("output")
+            if isinstance(output, dict) and output:
+                renderer.info("Output")
+                renderer.print(json.dumps(output, indent=2, sort_keys=True))
+            return 0
+    finally:
+        client.close()
+
+    raise ValueError("workflow command is required")
 
 
 def _run_artifact_command(args: argparse.Namespace, renderer: RichRenderer) -> int:
