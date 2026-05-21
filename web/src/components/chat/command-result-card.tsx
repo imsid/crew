@@ -14,14 +14,19 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
+import { ExecutionTrace } from "@/components/chat/execution-trace";
 import { MarkdownRenderer } from "@/components/chat/markdown-renderer";
-import type { InlineCommandResult } from "@/lib/types";
+import type { ExecutionTraceState, InlineCommandResult } from "@/lib/types";
 import { formatDateTime, titleizeIdentifier, truncate } from "@/lib/utils";
 
 export function CommandResultCard({
   result,
+  trace,
+  isRunning = false,
 }: Readonly<{
   result: InlineCommandResult;
+  trace?: ExecutionTraceState | null;
+  isRunning?: boolean;
 }>) {
   if (result.surface === "metrics") {
     if (result.operation === "list" || result.operation === "search") {
@@ -91,9 +96,9 @@ export function CommandResultCard({
               {detail.document?.base_source ? (
                 <Badge variant="outline">{detail.document.base_source}</Badge>
               ) : null}
-              {(detail.document?.dimensions ?? []).map((dimension) => (
-                <Badge key={dimension} variant="secondary">
-                  {dimension}
+              {(detail.document?.dimensions ?? []).map((dimension, index) => (
+                <Badge key={`${formatDimensionLabel(dimension)}:${index}`} variant="secondary">
+                  {formatDimensionLabel(dimension)}
                 </Badge>
               ))}
             </div>
@@ -333,6 +338,7 @@ export function CommandResultCard({
     }
 
     if (result.operation === "run") {
+      const workflowTrace = result.data.trace ?? trace;
       return (
         <Card className="rounded-[1.2rem] border-primary/10 bg-primary/5">
           <CardHeader>
@@ -348,9 +354,35 @@ export function CommandResultCard({
               </div>
             </div>
           </CardHeader>
-          <CardContent className="space-y-2 text-sm">
-            <WorkflowRunField label="Run ID" value={result.data.run_id} />
-            <WorkflowRunField label="Status" value={result.data.status} />
+          <CardContent className="space-y-4 text-sm">
+            <div className="grid gap-2 sm:grid-cols-2">
+              <WorkflowRunField label="Run ID" value={result.data.run_id} />
+              <WorkflowRunField label="Status" value={result.data.status} />
+            </div>
+            {result.data.error ? (
+              <div className="rounded-2xl border border-destructive/30 bg-destructive/10 p-3 text-destructive">
+                {result.data.error}
+              </div>
+            ) : null}
+            <WorkflowRunOutputPanel
+              title="Workflow Input"
+              output={result.data.workflow_input}
+              emptyText="No workflow input submitted."
+            />
+            {result.data.output !== undefined ? (
+              <WorkflowRunOutputPanel
+                title="Workflow Result"
+                output={result.data.output}
+                emptyText="No workflow result recorded."
+              />
+            ) : null}
+            {workflowTrace ? (
+              <ExecutionTrace
+                trace={workflowTrace}
+                isRunning={isRunning}
+                className="rounded-2xl border-border/70 bg-white/70 shadow-none"
+              />
+            ) : null}
           </CardContent>
         </Card>
       );
@@ -420,6 +452,35 @@ function WorkflowRunField({
       <p className="text-[11px] font-medium uppercase text-muted-foreground">{label}</p>
       <p className="mt-1 break-all font-mono text-xs">{value || "None"}</p>
     </div>
+  );
+}
+
+function formatDimensionLabel(dimension: unknown) {
+  if (typeof dimension === "string") return dimension;
+  if (dimension && typeof dimension === "object") {
+    const record = dimension as Record<string, unknown>;
+    const label = record.label ?? record.name ?? record.id;
+    if (typeof label === "string" && label.trim()) return label;
+  }
+  return String(dimension);
+}
+
+function WorkflowRunOutputPanel({
+  title,
+  output,
+  emptyText,
+}: Readonly<{ title: string; output: unknown; emptyText: string }>) {
+  return (
+    <section className="min-w-0 space-y-2">
+      <h4 className="text-sm font-semibold">{title}</h4>
+      {output === null || output === undefined || output === "" ? (
+        <p className="text-sm text-muted-foreground">{emptyText}</p>
+      ) : (
+        <pre className="max-h-[420px] overflow-auto rounded-2xl border border-border/70 bg-white/75 p-3 text-xs leading-relaxed text-foreground">
+          {typeof output === "string" ? output : JSON.stringify(output, null, 2)}
+        </pre>
+      )}
+    </section>
   );
 }
 

@@ -99,7 +99,23 @@ function AssistantMessage() {
               }
 
               if (part.type === "data" && part.name === "command-result") {
-                return <CommandResultCard result={part.data as InlineCommandResult} />;
+                return (
+                  <CommandResultCard
+                    result={part.data as InlineCommandResult}
+                    isRunning={isThreadRunning}
+                  />
+                );
+              }
+
+              if (part.type === "data" && part.name === "command-error") {
+                const message =
+                  typeof part.data === "object" &&
+                  part.data &&
+                  "message" in part.data &&
+                  typeof part.data.message === "string"
+                    ? part.data.message
+                    : "Command failed";
+                return <CommandErrorCard message={message} />;
               }
 
               return null;
@@ -130,6 +146,20 @@ function AssistantMessage() {
         </div>
       </div>
     </MessagePrimitive.Root>
+  );
+}
+
+function CommandErrorCard({ message }: Readonly<{ message: string }>) {
+  return (
+    <div className="rounded-2xl border border-destructive/25 bg-destructive/8 px-4 py-3 text-destructive">
+      <div className="flex items-start gap-3">
+        <AlertTriangleIcon className="mt-0.5 size-4 shrink-0" />
+        <div>
+          <p className="text-sm font-semibold">Command failed</p>
+          <p className="mt-1 text-sm leading-6">{message}</p>
+        </div>
+      </div>
+    </div>
   );
 }
 

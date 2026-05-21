@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   AlertTriangleIcon,
   ChevronRightIcon,
+  PlayIcon,
   RefreshCcwIcon,
   SearchIcon,
 } from "lucide-react";
@@ -12,6 +13,7 @@ import {
   getTurnTrace,
   listWorkflowRuns,
   listWorkflows,
+  runWorkflow,
 } from "@/lib/api";
 import type {
   ExecutionTraceState,
@@ -25,6 +27,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
 
 const RUNS_LIMIT = 5;
 
@@ -69,6 +72,25 @@ export function WorkflowsView() {
     [runs, selectedRunId],
   );
 
+  const runWorkflowMutation = useMutation({
+    mutationFn: ({
+      workflowId,
+      input,
+    }: {
+      workflowId: string;
+      input: Record<string, unknown>;
+    }) => {
+      if (!auth) {
+        throw new Error("You must be signed in to start a workflow run.");
+      }
+      return runWorkflow(auth.token, workflowId, { input });
+    },
+    onSuccess: async (startedRun) => {
+      await runsQuery.refetch();
+      setSelectedRunId(startedRun.run_id);
+    },
+  });
+
   useEffect(() => {
     if (
       selectedWorkflowId &&
@@ -83,13 +105,8 @@ export function WorkflowsView() {
   }, [selectedWorkflowId]);
 
   useEffect(() => {
-    if (!selectedRunId && runs[0]) {
-      setSelectedRunId(runs[0].run_id);
-      return;
-    }
-
     if (selectedRunId && !runs.some((run) => run.run_id === selectedRunId)) {
-      setSelectedRunId(runs[0]?.run_id ?? null);
+      setSelectedRunId(null);
     }
   }, [runs, selectedRunId]);
 
@@ -116,6 +133,19 @@ export function WorkflowsView() {
       <RunDetailPanel
         workflow={selectedWorkflow}
         run={selectedRun}
+        isCreatingRun={runWorkflowMutation.isPending}
+        createRunError={
+          runWorkflowMutation.error instanceof Error ? runWorkflowMutation.error.message : null
+        }
+        onCreateRun={async (input) => {
+          if (!selectedWorkflow) return;
+          await runWorkflowMutation.mutateAsync({
+            workflowId: selectedWorkflow.workflow_id,
+            input,
+          });
+        }}
+        onResetCreateRunError={() => runWorkflowMutation.reset()}
+        onStartNewRun={() => setSelectedRunId(null)}
       />
     </div>
   );
@@ -201,7 +231,7 @@ function WorkflowNavigator({
           <section className="mt-5 space-y-2">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
-              <h2 className="text-sm font-semibold">Last 5 Runs</h2>
+                <h2 className="text-sm font-semibold">Recent Runs</h2>
               </div>
               <Button
                 type="button"
@@ -250,9 +280,19 @@ function WorkflowNavigator({
 function RunDetailPanel({
   workflow,
   run,
+  isCreatingRun,
+  createRunError,
+  onCreateRun,
+  onResetCreateRunError,
+  onStartNewRun,
 }: Readonly<{
   workflow: WorkflowListItem | null;
   run: WorkflowRunListItem | null;
+  isCreatingRun: boolean;
+  createRunError: string | null;
+  onCreateRun: (input: Record<string, unknown>) => Promise<void>;
+  onResetCreateRunError: () => void;
+  onStartNewRun: () => void;
 }>) {
   const { auth } = useAuth();
   const summary = run?.summary ?? null;
@@ -278,11 +318,16 @@ function RunDetailPanel({
 
       {workflow ? (
         <div className="mx-auto max-w-5xl space-y-4">
-          <WorkflowMetadataCard workflow={workflow} />
+          <WorkflowCard
+            workflow={workflow}
+            isCreatingRun={isCreatingRun}
+            createRunError={createRunError}
+            onCreateRun={onCreateRun}
+            onResetCreateRunError={onResetCreateRunError}
+            onStartNewRun={onStartNewRun}
+          />
 
-          {!run ? (
-            <EmptyState title="No run selected" description="Select a run to inspect its summary." />
-          ) : (
+          {run ? (
             <RunSummaryCard
               run={run}
               workflowInput={workflowInput}
@@ -293,30 +338,214 @@ function RunDetailPanel({
               isTraceUnavailable={Boolean(run && !summary?.session_id && !summary?.turn_id)}
               onRetryTrace={() => void traceQuery.refetch()}
             />
-          )}
+          ) : null}
         </div>
       ) : null}
     </main>
   );
 }
 
-function WorkflowMetadataCard({ workflow }: Readonly<{ workflow: WorkflowListItem }>) {
-  const entries = Object.entries(workflow);
+function WorkflowCard({
+  workflow,
+  isCreatingRun,
+  createRunError,
+  onCreateRun,
+  onResetCreateRunError,
+  onStartNewRun,
+}: Readonly<{
+  workflow: WorkflowListItem;
+  isCreatingRun: boolean;
+  createRunError: string | null;
+  onCreateRun: (input: Record<string, unknown>) => Promise<void>;
+  onResetCreateRunError: () => void;
+  onStartNewRun: () => void;
+}>) {
+  const [isNewRunOpen, setIsNewRunOpen] = useState(false);
+  const metadataEntries = Object.entries(workflow).filter(
+    ([key]) => key !== "workflow_id" && key !== "tasks",
+  );
   return (
-    <section className="rounded-md border border-border/70 bg-secondary/20 p-3">
-      <h2 className="text-sm font-semibold">Workflow Metadata</h2>
-      <dl className="mt-3 grid gap-3 text-xs sm:grid-cols-2">
-        {entries.map(([key, value]) => (
-          <div key={key} className="min-w-0">
-            <dt className="font-medium text-muted-foreground">{key}</dt>
-            <dd className="mt-1 [overflow-wrap:anywhere]">
-              <MetadataValue value={value} />
-            </dd>
+    <section className="overflow-hidden rounded-md border border-border/70 bg-gradient-to-br from-card via-secondary/30 to-accent/40 shadow-sm">
+      <div className="p-4">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0 flex-1 space-y-3">
+            <h2 className="font-mono text-base font-semibold [overflow-wrap:anywhere]">
+              {workflow.workflow_id}
+            </h2>
+            <WorkflowTasks tasks={workflow.tasks} />
           </div>
-        ))}
-      </dl>
+          {!isNewRunOpen ? (
+            <Button
+              type="button"
+              size="sm"
+              className="min-h-9 shrink-0 px-3 py-1.5"
+              onClick={() => {
+                onResetCreateRunError();
+                onStartNewRun();
+                setIsNewRunOpen(true);
+              }}
+            >
+              <PlayIcon className="size-4" />
+              New Run
+            </Button>
+          ) : null}
+        </div>
+        {metadataEntries.length > 0 ? (
+          <dl className="mt-4 grid gap-3 text-xs sm:grid-cols-2">
+            {metadataEntries.map(([key, value]) => (
+              <div key={key} className="min-w-0">
+                <dt className="font-medium text-muted-foreground">{key}</dt>
+                <dd className="mt-1 [overflow-wrap:anywhere]">
+                  <MetadataValue value={value} />
+                </dd>
+              </div>
+            ))}
+          </dl>
+        ) : null}
+      </div>
+      {isNewRunOpen ? (
+        <NewRunForm
+          className="rounded-none border-x-0 border-b-0 border-t border-border/60 bg-card/40 shadow-none"
+          isSubmitting={isCreatingRun}
+          submitError={createRunError}
+          onSubmit={onCreateRun}
+          onCancel={() => {
+            onResetCreateRunError();
+            setIsNewRunOpen(false);
+          }}
+        />
+      ) : null}
     </section>
   );
+}
+
+function WorkflowTasks({ tasks }: Readonly<{ tasks: WorkflowListItem["tasks"] }>) {
+  if (!tasks?.length) {
+    return (
+      <div className="rounded-md border border-border/50 bg-background/45 px-3 py-2 text-sm text-muted-foreground">
+        No tasks configured.
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap gap-2">
+      {tasks.map((task, index) => (
+        <div
+          key={`${task.task_id}-${task.agent_id}-${index}`}
+          className="flex min-w-0 items-center gap-2 rounded-full border border-border/60 bg-background/55 px-2.5 py-1.5"
+        >
+          <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-primary/10 font-mono text-[10px] font-medium text-primary">
+            {index + 1}
+          </span>
+          <span className="min-w-0 font-mono text-xs [overflow-wrap:anywhere]">
+            {task.task_id}
+          </span>
+          <Badge variant="secondary" className="shrink-0 font-mono text-[10px]">
+            {task.agent_id}
+          </Badge>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function NewRunForm({
+  className,
+  isSubmitting,
+  submitError,
+  onSubmit,
+  onCancel,
+}: Readonly<{
+  className?: string;
+  isSubmitting: boolean;
+  submitError: string | null;
+  onSubmit: (input: Record<string, unknown>) => Promise<void>;
+  onCancel: () => void;
+}>) {
+  const [workflowInput, setWorkflowInput] = useState("{}");
+  const [validationError, setValidationError] = useState<string | null>(null);
+
+  return (
+    <form
+      className={cn(
+        "overflow-hidden rounded-md border border-border/60 bg-card/55 shadow-inner",
+        className,
+      )}
+      onSubmit={async (event) => {
+        event.preventDefault();
+        setValidationError(null);
+
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(workflowInput);
+        } catch {
+          setValidationError("workflow_input must be valid JSON.");
+          return;
+        }
+
+        if (!isJsonObject(parsed)) {
+          setValidationError("workflow_input must be a JSON object.");
+          return;
+        }
+
+        try {
+          await onSubmit(parsed);
+          setWorkflowInput("{}");
+          onCancel();
+        } catch {
+          // The mutation-owned error is rendered through submitError.
+        }
+      }}
+    >
+      <div className="flex items-center justify-between gap-3 border-b border-border/50 px-4 py-2.5">
+        <label className="text-xs font-semibold text-muted-foreground" htmlFor="workflow-input">
+          workflow_input
+        </label>
+        <span className="text-[11px] text-muted-foreground">JSON object</span>
+      </div>
+      <Textarea
+        id="workflow-input"
+        value={workflowInput}
+        onChange={(event) => {
+          setWorkflowInput(event.target.value);
+          if (validationError) setValidationError(null);
+        }}
+        className="min-h-[152px] resize-y rounded-none border-0 bg-white/70 px-4 py-3 font-mono text-xs leading-relaxed shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+        disabled={isSubmitting}
+        spellCheck={false}
+      />
+      {validationError || submitError ? (
+        <div className="border-t border-border/50 px-4 py-2 text-xs text-destructive">
+          {validationError ?? submitError}
+        </div>
+      ) : null}
+      <div className="flex items-center justify-end gap-2 border-t border-border/50 bg-background/45 px-3 py-2">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="min-h-9 px-3 py-1.5"
+          onClick={onCancel}
+          disabled={isSubmitting}
+        >
+          Cancel
+        </Button>
+        <Button
+          type="submit"
+          size="sm"
+          className="min-h-9 px-3 py-1.5"
+          disabled={isSubmitting}
+        >
+          {isSubmitting ? "Submitting" : "Submit"}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function MetadataValue({ value }: Readonly<{ value: unknown }>) {

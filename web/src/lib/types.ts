@@ -543,6 +543,10 @@ export type WorkflowRunResponse = {
   run_id: string;
   workflow_id: string;
   status: string;
+  workflow_input?: Record<string, unknown>;
+  output?: unknown;
+  error?: string | null;
+  trace?: ExecutionTraceState;
 };
 
 export type WorkflowRunStatusResponse = {

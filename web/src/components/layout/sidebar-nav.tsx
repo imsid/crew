@@ -47,7 +47,7 @@ const navItems = [
     href: "/app/skills",
     label: "SKILLS",
     description: "Agent Capabilities",
-    icon: FileTextIcon,
+    icon: BrainCircuitIcon,
   },
 ];
 

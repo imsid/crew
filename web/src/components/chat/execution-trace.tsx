@@ -46,6 +46,7 @@ export function ExecutionTrace({
 }>) {
   const [open, setOpen] = useState(isRunning);
   const [hasInteracted, setHasInteracted] = useState(false);
+  const traceContainerRef = useRef<HTMLDivElement>(null);
   const wasRunning = useRef(isRunning);
   const { auth } = useAuth();
 
@@ -97,10 +98,19 @@ export function ExecutionTrace({
 
   return (
     <Collapsible
+      ref={traceContainerRef}
       open={open}
       onOpenChange={(nextOpen) => {
         setHasInteracted(true);
         setOpen(nextOpen);
+        if (nextOpen) {
+          requestAnimationFrame(() => {
+            traceContainerRef.current?.scrollIntoView({
+              behavior: "smooth",
+              block: "start",
+            });
+          });
+        }
       }}
       className={cn(
         "rounded-[1.15rem] border border-border/70 bg-secondary/45 shadow-sm",

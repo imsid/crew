@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import json
+import asyncio
 from typing import Any
-from urllib.parse import quote
 
-import httpx
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 from mash.workflows import DuplicateWorkflowRunError, WorkflowNotFoundError
@@ -134,131 +132,70 @@ async def stream_workflow_run_events(
 
     async def _generate():
         sequence = 0
-        app = _beta_state(request).mash_api_app
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app),
-            base_url="http://mash-internal",
-            timeout=None,
-        ) as client:
-            try:
-                async with client.stream(
-                    "GET",
-                    "/api/v1/workflow/"
-                    f"{quote(normalized_workflow_id, safe='')}/runs/"
-                    f"{quote(normalized_run_id, safe='')}/events",
-                ) as response:
-                    if not response.is_success:
-                        payload = await _read_error_payload(response)
-                        yield _build_sse_payload(
-                            "workflow.error",
-                            _normalize_stream_payload(
-                                event_name="workflow.error",
-                                payload={
-                                    "workflow_id": normalized_workflow_id,
-                                    "run_id": normalized_run_id,
-                                    "status": "error",
-                                    "error": payload,
-                                },
-                                sequence=sequence + 1,
-                            ),
-                        )
-                        return
-                    event_name = "message"
-                    data_lines: list[str] = []
-                    async for raw_line in response.aiter_lines():
-                        stripped = raw_line.strip()
-                        if not stripped:
-                            if not data_lines:
-                                event_name = "message"
-                                continue
-                            raw_data = "\n".join(data_lines)
-                            try:
-                                payload = json.loads(raw_data)
-                            except json.JSONDecodeError:
-                                payload = {"raw": raw_data}
-                            sequence += 1
-                            yield _build_sse_payload(
-                                event_name,
-                                _normalize_stream_payload(
-                                    event_name=event_name,
-                                    payload=payload,
-                                    sequence=sequence,
-                                ),
-                            )
-                            if event_name in {
-                                "workflow.completed",
-                                "workflow.error",
-                            }:
-                                return
-                            event_name = "message"
-                            data_lines = []
-                            continue
-                        if stripped.startswith("event:"):
-                            event_name = stripped[6:].strip() or "message"
-                            continue
-                        if not stripped.startswith("data:"):
-                            continue
-                        data_lines.append(stripped[5:].strip())
-                    if data_lines:
-                        raw_data = "\n".join(data_lines)
-                        try:
-                            payload = json.loads(raw_data)
-                        except json.JSONDecodeError:
-                            payload = {"raw": raw_data}
-                        sequence += 1
-                        yield _build_sse_payload(
-                            event_name,
-                            _normalize_stream_payload(
-                                event_name=event_name,
-                                payload=payload,
-                                sequence=sequence,
-                            ),
-                        )
-            except Exception as exc:
+        workflow_service = _beta_state(request).host.get_workflow_service()
+
+        try:
+            stream = None
+            for attempt in range(40):
+                try:
+                    stream = await workflow_service.stream_run_events(
+                        normalized_workflow_id,
+                        normalized_run_id,
+                    )
+                    break
+                except WorkflowNotFoundError:
+                    if attempt == 39:
+                        raise
+                    yield ": waiting for workflow events\n\n"
+                    await asyncio.sleep(0.25)
+
+            if stream is None:
+                raise WorkflowNotFoundError(
+                    f"workflow run '{normalized_run_id}' was not found"
+                )
+
+            async for event in stream:
+                event_name = str(getattr(event, "event", "") or "message")
+                payload = getattr(event, "data", {}) or {}
+                sequence += 1
+                yield _build_sse_payload(
+                    event_name,
+                    _normalize_stream_payload(
+                        event_name=event_name,
+                        payload=payload,
+                        sequence=sequence,
+                    ),
+                )
+                if event_name in {"workflow.completed", "workflow.error"}:
+                    return
+        except Exception as exc:
+            if not isinstance(exc, WorkflowNotFoundError):
                 LOGGER.exception(
-                    "beta workflow event proxy failed",
+                    "beta workflow event stream failed",
                     extra={
                         "workflow_id": normalized_workflow_id,
                         "run_id": normalized_run_id,
                     },
                 )
-                yield _build_sse_payload(
-                    "workflow.error",
-                    _normalize_stream_payload(
-                        event_name="workflow.error",
-                        payload={
-                            "workflow_id": normalized_workflow_id,
-                            "run_id": normalized_run_id,
-                            "status": "error",
-                            "error": str(exc),
-                        },
-                        sequence=sequence + 1,
-                    ),
-                )
+            yield _build_sse_payload(
+                "workflow.error",
+                _normalize_stream_payload(
+                    event_name="workflow.error",
+                    payload={
+                        "workflow_id": normalized_workflow_id,
+                        "run_id": normalized_run_id,
+                        "status": "error",
+                        "error": str(exc),
+                    },
+                    sequence=sequence + 1,
+                ),
+            )
 
     return StreamingResponse(
         _generate(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
     )
-
-
-async def _read_error_payload(response: httpx.Response) -> str:
-    try:
-        payload = await response.aread()
-    except Exception:
-        return f"Mash API request failed ({response.status_code})"
-    if not payload:
-        return f"Mash API request failed ({response.status_code})"
-    try:
-        decoded = json.loads(payload.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        return payload.decode("utf-8", errors="replace")
-    if isinstance(decoded, dict):
-        error = decoded.get("error")
-        if isinstance(error, dict):
-            return str(error.get("message") or decoded)
-    return str(decoded)
 
 
 def _serialize_workflow_run_started(run: Any) -> dict[str, Any]:

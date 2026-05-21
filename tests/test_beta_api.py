@@ -892,6 +892,49 @@ def test_workflow_command_surface_dispatches_host_service(tmp_path: Path) -> Non
             }
 
 
+def test_workflow_event_stream_uses_beta_host_service(tmp_path: Path) -> None:
+    captured: dict[str, object] = {}
+
+    async def fake_stream_run_events(self, workflow_id: str, run_id: str, **kwargs):
+        del self, kwargs
+        captured["stream"] = {"workflow_id": workflow_id, "run_id": run_id}
+
+        async def _events():
+            yield SimpleNamespace(
+                event="request.completed",
+                data={
+                    "workflow_id": workflow_id,
+                    "run_id": run_id,
+                    "response": {"text": "done"},
+                },
+            )
+
+        return _events()
+
+    with patch.object(PMAgentSpec, "build_llm", return_value=_EchoLLM()), patch.object(
+        DataAgentSpec, "build_llm", return_value=_EchoLLM()
+    ), patch.object(DataAgentSpec, "build_mcp_servers", return_value=[]), patch.object(
+        WorkflowService, "stream_run_events", fake_stream_run_events
+    ):
+        with _build_test_client(tmp_path) as client:
+            token, _ = _login(client, "alice")
+
+            events = _collect_sse_events(
+                client,
+                "/workflow/masher-trace-digest/runs/"
+                "mw:h_test:masher-trace-digest:abc/events",
+                token=token,
+            )
+
+            assert captured["stream"] == {
+                "workflow_id": "masher-trace-digest",
+                "run_id": "mw:h_test:masher-trace-digest:abc",
+            }
+            assert events[-1]["event"] == "request.completed"
+            assert events[-1]["data"]["response"]["text"] == "done"
+            assert events[-1]["data"]["runtime_event"]["sequence"] == 1
+
+
 def test_workflow_command_surface_maps_errors(tmp_path: Path) -> None:
     async def fake_run_workflow(
         self,
