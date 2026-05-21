@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import uuid
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Optional
@@ -184,7 +185,7 @@ def test_workflows_list_includes_masher_workflows(tmp_path: Path) -> None:
         DataAgentSpec, "build_llm", return_value=_EchoLLM()
     ), patch.object(DataAgentSpec, "build_mcp_servers", return_value=[]):
         with _build_test_client(tmp_path) as client:
-            response = client.get("/api/v1/workflows")
+            response = client.get("/api/v1/workflow")
             assert response.status_code == 200
             workflows = {
                 workflow["workflow_id"]: workflow
@@ -237,6 +238,7 @@ def test_workflow_run_and_status_are_exposed(tmp_path: Path) -> None:
             finished_at=3.0,
             error=None,
             output={"task_states": {"digest-traces": {"ok": True}}},
+            summary=None,
         )
 
     with patch.object(PMAgentSpec, "build_llm", return_value=_EchoLLM()), patch.object(
@@ -248,7 +250,7 @@ def test_workflow_run_and_status_are_exposed(tmp_path: Path) -> None:
     ):
         with _build_test_client(tmp_path) as client:
             started = client.post(
-                "/api/v1/workflows/masher-trace-digest/run",
+                "/api/v1/workflow/masher-trace-digest/run",
                 json={
                     "dedup_key": "trace-123",
                     "input": {
@@ -275,7 +277,7 @@ def test_workflow_run_and_status_are_exposed(tmp_path: Path) -> None:
             }
 
             status = client.get(
-                "/api/v1/workflows/masher-trace-digest/runs/"
+                "/api/v1/workflow/masher-trace-digest/runs/"
                 "mw:h_test:masher-trace-digest:abc"
             )
             assert status.status_code == 200
@@ -361,18 +363,19 @@ def test_pm_request_persists_unused_tool_signals(tmp_path: Path) -> None:
         DataAgentSpec, "build_llm", return_value=_EchoLLM()
     ), patch.object(DataAgentSpec, "build_mcp_servers", return_value=[]):
         with _build_test_client(tmp_path) as client:
+            session_id = f"pm-signals-{uuid.uuid4().hex}"
             _, _, payload = _invoke_via_request(
                 client,
                 agent_id="pm",
                 message="capture signals",
-                session_id="pm-signals",
+                session_id=session_id,
             )
             signals = payload["response"]["signals"]
             assert isinstance(signals["unused_tools"], list)
             assert signals["unused_tools"]
             assert int(signals["unused_tool_tokens"]) > 0
 
-            history = client.get("/api/v1/agent/pm/sessions/pm-signals/history")
+            history = client.get(f"/api/v1/agent/pm/sessions/{session_id}/history")
             assert history.status_code == 200
             turns = history.json()["data"]["turns"]
             assert len(turns) == 1

@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from crew.cli.main import build_parser, main
+from crew.cli.main import _stream_workflow_run_events, build_parser, main
 
 
 def _workspace_root(root: Path) -> Path:
@@ -793,6 +793,162 @@ def test_workflow_run_uses_mash_client(monkeypatch, capsys) -> None:
     assert "Workflow: masher-trace-digest" in output
     assert "Run ID: mw:h_test:masher-trace-digest:abc" in output
     assert "Status: queued" in output
+
+
+def test_workflow_run_streams_progress_and_terminal_response(monkeypatch, capsys) -> None:
+    class FakeClient:
+        def __init__(self, base_url: str, *, api_key: str | None = None) -> None:
+            self.base_url = base_url
+            self.api_key = api_key
+
+        def run_workflow(
+            self,
+            workflow_id: str,
+            *,
+            dedup_key: str | None = None,
+            workflow_input: dict[str, object] | None = None,
+        ):
+            del dedup_key, workflow_input
+            return {
+                "workflow_id": workflow_id,
+                "run_id": "mw:h_test:masher-trace-digest:abc",
+                "status": "queued",
+            }
+
+        def stream_workflow_run(self, workflow_id: str, run_id: str):
+            yield {
+                "event": "workflow.task.started",
+                "data": {"task_id": "digest-traces", "status": "running"},
+            }
+            yield {
+                "event": "agent.trace",
+                "data": {"event_type": "runtime.llm.think.completed"},
+            }
+            yield {
+                "event": "request.completed",
+                "data": {"response": {"text": "terminal task response"}},
+            }
+            yield {
+                "event": "workflow.task.completed",
+                "data": {"task_id": "digest-traces", "status": "completed"},
+            }
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr("crew.cli.main.MashHostClient", FakeClient)
+
+    assert (
+        main(
+            [
+                "workflow",
+                "run",
+                "--api-base-url",
+                "http://127.0.0.1:8000",
+                "masher-trace-digest",
+            ]
+        )
+        == 0
+    )
+
+    output = _normalize_output(capsys.readouterr().out)
+    assert "Task running: digest-traces" in output
+    assert "Trace: runtime.llm.think.completed" in output
+    assert "terminal task response" in output
+    assert "Task completed: digest-traces" in output
+
+
+def test_workflow_run_event_fallback_uses_singular_mash_route() -> None:
+    captured: dict[str, object] = {}
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def iter_lines(self, *, chunk_size: int, decode_unicode: bool):
+            captured["iter_lines"] = {
+                "chunk_size": chunk_size,
+                "decode_unicode": decode_unicode,
+            }
+            yield "event: request.accepted"
+            yield 'data: {"ok": true}'
+            yield ""
+
+    class FakeClient:
+        def _request(self, method: str, path: str, *, stream: bool = False):
+            captured["request"] = {"method": method, "path": path, "stream": stream}
+            return FakeResponse()
+
+    events = list(
+        _stream_workflow_run_events(
+            FakeClient(),
+            "masher-trace-digest",
+            "mw:h_test:masher-trace-digest:abc",
+        )
+    )
+
+    assert captured["request"] == {
+        "method": "GET",
+        "path": (
+            "/api/v1/workflow/masher-trace-digest/runs/"
+            "mw%3Ah_test%3Amasher-trace-digest%3Aabc/events"
+        ),
+        "stream": True,
+    }
+    assert captured["iter_lines"] == {"chunk_size": 1, "decode_unicode": True}
+    assert events == [{"event": "request.accepted", "data": {"ok": True}}]
+
+
+def test_workflow_run_returns_error_for_streamed_failure(monkeypatch, capsys) -> None:
+    class FakeClient:
+        def __init__(self, base_url: str, *, api_key: str | None = None) -> None:
+            self.base_url = base_url
+            self.api_key = api_key
+
+        def run_workflow(
+            self,
+            workflow_id: str,
+            *,
+            dedup_key: str | None = None,
+            workflow_input: dict[str, object] | None = None,
+        ):
+            del dedup_key, workflow_input
+            return {
+                "workflow_id": workflow_id,
+                "run_id": "mw:h_test:masher-trace-digest:abc",
+                "status": "queued",
+            }
+
+        def stream_workflow_run(self, workflow_id: str, run_id: str):
+            del workflow_id, run_id
+            yield {
+                "event": "workflow.error",
+                "data": {"error": "workflow failed"},
+            }
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr("crew.cli.main.MashHostClient", FakeClient)
+
+    assert (
+        main(
+            [
+                "workflow",
+                "run",
+                "--api-base-url",
+                "http://127.0.0.1:8000",
+                "masher-trace-digest",
+            ]
+        )
+        == 1
+    )
+
+    output = _normalize_output(capsys.readouterr().out)
+    assert "workflow failed" in output
 
 
 def test_workflow_status_uses_mash_client(monkeypatch, capsys) -> None:

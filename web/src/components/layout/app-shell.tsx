@@ -1,13 +1,15 @@
 "use client";
 
-import { useMemo } from "react";
-import { SparklesIcon } from "lucide-react";
+import { useMemo, useState } from "react";
+import { PanelLeftCloseIcon, PanelLeftOpenIcon, SparklesIcon } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { AccountMenu } from "@/components/layout/account-menu";
 import { MobileNav } from "@/components/layout/mobile-nav";
 import { SessionList } from "@/components/layout/session-list";
 import { SidebarNav } from "@/components/layout/sidebar-nav";
 import { Separator } from "@/components/ui/separator";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 const sectionMeta = {
   chat: {
@@ -42,6 +44,7 @@ export function AppShell({
   children: React.ReactNode;
 }>) {
   const pathname = usePathname();
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const currentSection = useMemo(() => {
     if (pathname.startsWith("/app/metrics")) return "metrics";
@@ -62,37 +65,80 @@ export function AppShell({
   return (
     <div className="mx-auto flex h-screen w-full max-w-[1660px] gap-2 overflow-hidden py-3 pr-3 pl-0 sm:py-4 sm:pr-4 sm:pl-0">
       <aside
-        className={`hidden h-full shrink-0 rounded-r-[1.25rem] border-r border-border/55 bg-white/[0.34] md:flex md:flex-col ${
-          isChatSection ? "w-[272px]" : "w-[320px]"
-        }`}
+        className={cn(
+          "hidden h-full shrink-0 rounded-r-[1.25rem] border-r border-border/55 bg-white/[0.34] transition-[width] duration-200 md:flex md:flex-col",
+          sidebarCollapsed ? "w-[56px]" : isChatSection ? "w-[248px]" : "w-[272px]",
+        )}
       >
-        <div className="flex items-center gap-3 border-b border-border/50 px-4 py-4">
-          <div className="flex size-10 items-center justify-center rounded-[1rem] border border-primary/15 bg-primary text-primary-foreground shadow-sm">
-            <SparklesIcon className="size-[18px] stroke-[2.2]" />
+        <div className={cn(
+          "border-b border-border/50 px-3 py-3",
+          sidebarCollapsed && "px-2",
+        )}>
+          <div className={cn(
+            "flex items-center gap-2",
+            sidebarCollapsed && "flex-col",
+          )}>
+            <div className="flex size-9 items-center justify-center rounded-[0.9rem] border border-primary/15 bg-primary text-primary-foreground shadow-sm">
+              <SparklesIcon className="size-[18px] stroke-[2.2]" />
+            </div>
+            <div className={cn("min-w-0 flex-1", sidebarCollapsed && "sr-only")}>
+              <p className="truncate text-[15px] font-semibold leading-5">Crew</p>
+              <p className="text-[11px] leading-4 text-muted-foreground">
+                Collaborative agent
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-8 shrink-0"
+              onClick={() => setSidebarCollapsed((value) => !value)}
+              title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            >
+              {sidebarCollapsed ? (
+                <PanelLeftOpenIcon className="size-4" />
+              ) : (
+                <PanelLeftCloseIcon className="size-4" />
+              )}
+              <span className="sr-only">
+                {sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+              </span>
+            </Button>
           </div>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-[15px] font-semibold leading-5">Crew</p>
-            <p className="truncate text-[11px] text-muted-foreground">
-              Collaborative agent
-            </p>
-          </div>
-          <AccountMenu />
+          {!sidebarCollapsed ? (
+            <div className="mt-2">
+              <AccountMenu />
+            </div>
+          ) : null}
         </div>
-        <div className="flex flex-1 flex-col gap-5 overflow-y-auto px-3.5 py-4">
-          <div className="space-y-3">
-            <div className="px-1">
+        <div className={cn(
+          "flex flex-1 flex-col gap-3 overflow-y-auto px-2.5 py-3",
+          sidebarCollapsed && "items-center px-1.5",
+        )}>
+          <div className="space-y-2">
+            <div className={cn("px-1", sidebarCollapsed && "sr-only")}>
               <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                 Workspace
               </p>
             </div>
-            <SidebarNav />
+            <SidebarNav collapsed={sidebarCollapsed} />
           </div>
-          <Separator className="bg-border/45" />
-          <SessionList />
+          {!sidebarCollapsed ? (
+            <>
+              <Separator className="bg-border/45" />
+              <SessionList />
+            </>
+          ) : null}
         </div>
       </aside>
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-hidden">
+        {!showShellHeader ? (
+          <div className="absolute left-3 top-3 z-20 md:hidden">
+            <MobileNav />
+          </div>
+        ) : null}
+
         {showShellHeader ? (
           <header className="surface-panel px-4 py-4 sm:px-5">
             <div className="flex min-w-0 items-start gap-3">

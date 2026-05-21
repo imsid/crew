@@ -532,6 +532,7 @@ export type WorkflowTask = {
 export type WorkflowListItem = {
   workflow_id: string;
   tasks: WorkflowTask[];
+  [key: string]: unknown;
 };
 
 export type WorkflowListResponse = {
@@ -555,6 +556,27 @@ export type WorkflowRunStatusResponse = {
   error: string | null;
   output: Record<string, unknown> | null;
 };
+
+export type WorkflowRunSummary = {
+  turn_id: string;
+  session_id: string;
+  request_id?: string | null;
+  task_id: string;
+  agent_id: string;
+  user_message: string;
+  agent_response: string;
+};
+
+export type WorkflowRunListItem = Omit<WorkflowRunStatusResponse, "output"> & {
+  summary: WorkflowRunSummary | null;
+};
+
+export type WorkflowRunListResponse = {
+  workflow_id: string;
+  runs: WorkflowRunListItem[];
+};
+
+export type WorkflowRunEvent = StreamEvent;
 
 export type CommandEnvelope<T> = {
   surface: CommandSurface;

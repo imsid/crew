@@ -103,21 +103,21 @@ export const SLASH_COMMANDS: SlashCommandDefinition[] = [
     operation: "list",
     label: "Workflows list",
     hint: "List available workflows",
-    template: "/workflows list",
+    template: "/workflow list",
   },
   {
     surface: "workflows",
     operation: "run",
     label: "Workflows run",
     hint: "Start a workflow with optional JSON input",
-    template: "/workflows run ",
+    template: "/workflow run ",
   },
   {
     surface: "workflows",
     operation: "status",
     label: "Workflows status",
     hint: "Inspect a workflow run",
-    template: "/workflows status ",
+    template: "/workflow status ",
   },
 ];
 
@@ -134,6 +134,7 @@ export function parseSlashCommand(input: string): ParsedSlashCommand | null {
     surface !== "metrics" &&
     surface !== "experiments" &&
     surface !== "artifacts" &&
+    surface !== "workflow" &&
     surface !== "workflows"
   ) {
     return null;
@@ -143,7 +144,7 @@ export function parseSlashCommand(input: string): ParsedSlashCommand | null {
     return null;
   }
 
-  if (surface === "workflows") {
+  if (surface === "workflow" || surface === "workflows") {
     return parseWorkflowSlashCommand(trimmed, operation, tail);
   }
 

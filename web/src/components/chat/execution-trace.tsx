@@ -31,10 +31,18 @@ export function ExecutionTrace({
   trace,
   isRunning,
   className,
+  persistedTraceQueryKey,
+  fetchPersistedTrace,
+  hydrateSignals = true,
+  unavailableMessage = "Trace could not be loaded",
 }: Readonly<{
   trace: ExecutionTraceState;
   isRunning: boolean;
   className?: string;
+  persistedTraceQueryKey?: readonly unknown[];
+  fetchPersistedTrace?: () => Promise<SessionTurnTraceResponse>;
+  hydrateSignals?: boolean;
+  unavailableMessage?: string;
 }>) {
   const [open, setOpen] = useState(isRunning);
   const [hasInteracted, setHasInteracted] = useState(false);
@@ -55,16 +63,17 @@ export function ExecutionTrace({
     auth &&
       open &&
       !isRunning &&
-      trace.session_id &&
-      trace.turn_id &&
+      (fetchPersistedTrace || (trace.session_id && trace.turn_id)) &&
       trace.steps.length === 0,
   );
   const traceQuery = useQuery({
-    queryKey: ["session-trace", trace.session_id, trace.turn_id],
+    queryKey: persistedTraceQueryKey ?? ["session-trace", trace.session_id, trace.turn_id],
     queryFn: () =>
-      auth && trace.session_id && trace.turn_id
-        ? getTurnTrace(auth.token, trace.session_id, trace.turn_id)
-        : null,
+      fetchPersistedTrace
+        ? fetchPersistedTrace()
+        : auth && trace.session_id && trace.turn_id
+          ? getTurnTrace(auth.token, trace.session_id, trace.turn_id)
+          : null,
     enabled: shouldHydratePersistedTrace,
     staleTime: 300_000,
   });
@@ -72,7 +81,7 @@ export function ExecutionTrace({
     queryKey: ["session-signals", trace.session_id],
     queryFn: () =>
       auth && trace.session_id ? getSessionSignals(auth.token, trace.session_id) : null,
-    enabled: Boolean(auth && open && trace.session_id),
+    enabled: Boolean(hydrateSignals && auth && open && trace.session_id),
     staleTime: 300_000,
   });
 
@@ -129,7 +138,7 @@ export function ExecutionTrace({
                 : isHydrating
                   ? "Loading persisted trace"
                   : hydrationError
-                    ? "Trace could not be loaded"
+                    ? unavailableMessage
                     : resolvedTrace.status === "error"
                   ? "Run ended with an error"
                   : trace.steps.length === 0 && resolvedTrace.steps.length > 0

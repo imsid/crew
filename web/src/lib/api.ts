@@ -25,6 +25,8 @@ import type {
   SkillSearchResponse,
   StreamEvent,
   WorkflowListResponse,
+  WorkflowRunEvent,
+  WorkflowRunListResponse,
   WorkflowRunResponse,
   WorkflowRunStatusResponse,
 } from "@/lib/types";
@@ -229,6 +231,56 @@ export async function streamSessionEvents(
   }
 }
 
+async function streamSseEvents<T extends StreamEvent>(
+  url: string,
+  token: string,
+  onEvent: (event: T) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const response = await fetch(url, {
+    method: "GET",
+    headers: { Authorization: `Bearer ${token}` },
+    signal,
+  });
+
+  if (!response.ok || !response.body) {
+    throw new CrewApiError("Failed to open event stream", response.status);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const chunks = buffer.split("\n\n");
+    buffer = chunks.pop() ?? "";
+
+    for (const chunk of chunks) {
+      const lines = chunk.split("\n");
+      let eventName = "message";
+      const dataLines: string[] = [];
+
+      for (const line of lines) {
+        if (line.startsWith("event:")) {
+          eventName = line.slice(6).trim();
+        } else if (line.startsWith("data:")) {
+          dataLines.push(line.slice(5).trim());
+        }
+      }
+
+      if (!dataLines.length) continue;
+      onEvent({
+        event: eventName,
+        data: JSON.parse(dataLines.join("\n")) as StreamEvent["data"],
+      } as T);
+    }
+  }
+}
+
 export async function runCommand<T>(
   token: string,
   payload: CommandPayload,
@@ -257,7 +309,7 @@ export async function runCommand<T>(
 }
 
 export async function listWorkflows(token: string): Promise<WorkflowListResponse> {
-  return apiRequest("/workflows", { token });
+  return apiRequest("/workflow", { token });
 }
 
 export async function runWorkflow(
@@ -268,7 +320,7 @@ export async function runWorkflow(
     input?: Record<string, unknown>;
   } = {},
 ): Promise<WorkflowRunResponse> {
-  return apiRequest(`/workflows/${encodeURIComponent(workflowId)}/run`, {
+  return apiRequest(`/workflow/${encodeURIComponent(workflowId)}/run`, {
     method: "POST",
     token,
     body: {
@@ -284,8 +336,36 @@ export async function getWorkflowRun(
   runId: string,
 ): Promise<WorkflowRunStatusResponse> {
   return apiRequest(
-    `/workflows/${encodeURIComponent(workflowId)}/runs/${encodeURIComponent(runId)}`,
+    `/workflow/${encodeURIComponent(workflowId)}/runs/${encodeURIComponent(runId)}`,
     { token },
+  );
+}
+
+export async function listWorkflowRuns(
+  token: string,
+  workflowId: string,
+  limit = 5,
+): Promise<WorkflowRunListResponse> {
+  return apiRequest(
+    `/workflow/${encodeURIComponent(workflowId)}/runs?limit=${encodeURIComponent(String(limit))}`,
+    { token },
+  );
+}
+
+export async function streamWorkflowEvents(
+  token: string,
+  workflowId: string,
+  runId: string,
+  onEvent: (event: WorkflowRunEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  return streamSseEvents<WorkflowRunEvent>(
+    absoluteUrl(
+      `/workflow/${encodeURIComponent(workflowId)}/runs/${encodeURIComponent(runId)}/events`,
+    ),
+    token,
+    onEvent,
+    signal,
   );
 }
 

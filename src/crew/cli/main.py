@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 from typing import Any, Sequence
+from urllib.parse import quote
 
 from mash.cli.client import MashHostClient
 from mash.cli.config import load_config
@@ -119,6 +120,102 @@ def _await_request_completion(
                 raise RuntimeError(str(payload.get("error") or "remote request failed"))
             raise RuntimeError("remote request failed")
     raise RuntimeError("request stream ended without a terminal event")
+
+
+def _stream_workflow_run_events(
+    client: MashHostClient,
+    workflow_id: str,
+    run_id: str,
+):
+    stream_method = getattr(client, "stream_workflow_run_events", None)
+    if not callable(stream_method):
+        stream_method = getattr(client, "stream_workflow_run", None)
+    if callable(stream_method):
+        yield from stream_method(workflow_id, run_id)
+        return
+
+    request_method = getattr(client, "_request", None)
+    if not callable(request_method):
+        return
+    with request_method(
+        "GET",
+        "/api/v1/workflow/"
+        f"{quote(workflow_id, safe='')}/runs/{quote(run_id, safe='')}/events",
+        stream=True,
+    ) as response:
+        event_name: str | None = None
+        data_lines: list[str] = []
+        for line in response.iter_lines(chunk_size=1, decode_unicode=True):
+            if line is None:
+                continue
+            stripped = line.strip()
+            if not stripped:
+                if event_name and data_lines:
+                    raw = "\n".join(data_lines)
+                    try:
+                        payload = json.loads(raw)
+                    except json.JSONDecodeError:
+                        payload = {"raw": raw}
+                    yield {"event": event_name, "data": payload}
+                event_name = None
+                data_lines = []
+                continue
+            if stripped.startswith(":"):
+                continue
+            if stripped.startswith("event:"):
+                event_name = stripped[6:].strip()
+                continue
+            if stripped.startswith("data:"):
+                data_lines.append(stripped[5:].strip())
+
+
+def _render_workflow_stream_event(
+    renderer: RichRenderer,
+    event: dict[str, Any],
+    *,
+    rendered_responses: set[str],
+) -> bool:
+    event_name = str(event.get("event") or "")
+    payload = event.get("data")
+    data = payload if isinstance(payload, dict) else {}
+
+    if event_name in {"workflow.task.started", "workflow.task.completed", "workflow.task.error"}:
+        task_id = str(data.get("task_id") or data.get("task") or "").strip()
+        status = str(data.get("status") or "").strip() or event_name.rsplit(".", 1)[-1]
+        message = f"Task {status}"
+        if task_id:
+            message = f"{message}: {task_id}"
+        if event_name == "workflow.task.error":
+            error = str(data.get("error") or "").strip()
+            renderer.error(f"{message}{f' - {error}' if error else ''}")
+            return True
+        renderer.info(message)
+        return False
+
+    if event_name == "agent.trace":
+        runtime_label = ""
+        runtime_event = data.get("runtime_event")
+        if isinstance(runtime_event, dict):
+            runtime_label = str(runtime_event.get("label") or "").strip()
+        event_type = str(data.get("event_type") or runtime_label or "agent.trace").strip()
+        renderer.print(f"Trace: {event_type}")
+        return False
+
+    if event_name == "request.accepted":
+        return False
+
+    if event_name == "request.completed":
+        text = _extract_response_text(data)
+        if text and text not in rendered_responses:
+            rendered_responses.add(text)
+            renderer.markdown(text)
+        return False
+
+    if event_name in {"request.error", "workflow.error"}:
+        renderer.error(str(data.get("error") or "workflow run failed"))
+        return True
+
+    return False
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -415,7 +512,21 @@ def _run_workflow_command(args: argparse.Namespace, renderer: RichRenderer) -> i
             renderer.info(f"Workflow: {run.get('workflow_id') or args.workflow_id}")
             renderer.info(f"Run ID: {run.get('run_id') or ''}")
             renderer.info(f"Status: {run.get('status') or ''}")
-            return 0
+            run_id = str(run.get("run_id") or "").strip()
+            if not run_id:
+                return 0
+            failed = False
+            rendered_responses: set[str] = set()
+            for event in _stream_workflow_run_events(client, args.workflow_id, run_id):
+                failed = (
+                    _render_workflow_stream_event(
+                        renderer,
+                        event,
+                        rendered_responses=rendered_responses,
+                    )
+                    or failed
+                )
+            return 1 if failed else 0
 
         if args.workflow_command == "status":
             run = client.get_workflow_run(args.workflow_id, args.run_id)

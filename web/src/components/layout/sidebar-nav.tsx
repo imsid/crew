@@ -53,13 +53,15 @@ const navItems = [
 
 export function SidebarNav({
   onNavigate,
+  collapsed = false,
 }: Readonly<{
   onNavigate?: () => void;
+  collapsed?: boolean;
 }>) {
   const pathname = usePathname();
 
   return (
-    <nav className="space-y-1">
+    <nav className="space-y-0.5">
       {navItems.map((item) => {
         const isActive =
           item.href === "/app"
@@ -73,23 +75,25 @@ export function SidebarNav({
             href={item.href}
             onClick={onNavigate}
             className={cn(
-              "flex min-h-11 items-center gap-3 rounded-[0.95rem] px-3 py-2 transition-colors",
+              "flex min-h-10 items-center gap-2.5 rounded-[0.85rem] px-2.5 py-1.5 transition-colors",
+              collapsed && "justify-center px-1.5",
               isActive
                 ? "bg-primary/[0.09] text-primary"
                 : "bg-transparent text-foreground hover:bg-white/55",
             )}
+            title={collapsed ? item.label : undefined}
           >
             <div
               className={cn(
-                "flex size-8 shrink-0 items-center justify-center rounded-[0.8rem]",
+                "flex size-7 shrink-0 items-center justify-center rounded-[0.7rem]",
                 isActive
                   ? "bg-primary text-primary-foreground"
                   : "bg-secondary/70 text-foreground",
               )}
             >
-              <Icon className="size-[15px]" />
+              <Icon className="size-3.5" />
             </div>
-            <div className="min-w-0">
+            <div className={cn("min-w-0", collapsed && "sr-only")}>
               <p className="truncate text-sm font-semibold leading-5">{item.label}</p>
               <p className="truncate text-[11px] text-muted-foreground">{item.description}</p>
             </div>

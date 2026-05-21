@@ -63,7 +63,7 @@ export function SessionList({
   }, [sessionQuery.data]);
 
   return (
-    <section className="space-y-3.5">
+    <section className="space-y-2.5">
       <div className="space-y-1">
         <h2 className="text-sm font-semibold">Recent chats</h2>
       </div>
@@ -74,11 +74,11 @@ export function SessionList({
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Search sessions"
-          className="h-11 rounded-[1.1rem] border-border/70 bg-white/85 pl-9 text-sm shadow-sm"
+          className="h-9 rounded-[0.85rem] border-border/70 bg-white/85 pl-9 text-sm shadow-sm"
         />
       </div>
 
-      <div className="space-y-1.5">
+      <div className="space-y-1">
         {sessionQuery.isLoading &&
           Array.from({ length: 4 }).map((_, index) => (
             <Skeleton key={index} className="h-10 w-full rounded-md" />
@@ -99,7 +99,7 @@ export function SessionList({
               key={item.id}
               href={`/app/chat/${item.id}`}
               onClick={onNavigate}
-              className={`block rounded-md px-2 py-2 transition-colors ${
+              className={`block rounded-md px-2 py-1.5 transition-colors ${
                 isActive
                   ? "bg-primary/[0.08] text-primary"
                   : "text-foreground hover:bg-secondary/70"

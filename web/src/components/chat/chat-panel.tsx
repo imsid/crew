@@ -18,14 +18,15 @@ import {
   listSessions,
   sendMessage,
   streamSessionEvents,
+  runWorkflowCommand,
+  streamWorkflowEvents,
 } from "@/lib/api";
 import { executeInlineCommand, parseSlashCommand } from "@/lib/commands";
+import { applyTraceEvent, createExecutionTraceState } from "@/lib/execution-trace";
 import { DRAFT_THREAD_KEY, useChatStore } from "@/lib/chat-store";
 import { truncate } from "@/lib/utils";
 import type {
-  ExecutionTraceResult,
   ExecutionTraceState,
-  ExecutionTraceStep,
   StreamEvent,
   TraceEventPayload,
 } from "@/lib/types";
@@ -120,12 +121,45 @@ export function ChatPanel({
         setLastSubmitted(threadKey, { kind: "command", text });
 
         try {
-          const result = await executeInlineCommand(auth.token, slashCommand);
-          updateMessage(threadKey, assistantId, (current) => ({
-            ...current,
-            content: [{ type: "data-command-result", data: result }],
-            status: { type: "complete", reason: "stop" },
-          }));
+          if (slashCommand.surface === "workflows" && slashCommand.operation === "run") {
+            const workflowId = slashCommand.workflowId ?? slashCommand.target ?? "";
+            const run = await runWorkflowCommand(auth.token, {
+              workflow_id: workflowId,
+              dedup_key: slashCommand.dedupKey,
+              input: slashCommand.workflowInput ?? {},
+            });
+            updateMessage(threadKey, assistantId, (current) => ({
+              ...current,
+              content: [
+                { type: "data-trace", data: createExecutionTraceState({ title: "Workflow started" }) },
+                {
+                  type: "text",
+                  text: `Workflow ${run.workflow_id} started.\n\nRun ID: ${run.run_id}\n`,
+                },
+              ],
+            }));
+            await streamWorkflowEvents(
+              auth.token,
+              run.workflow_id,
+              run.run_id,
+              (event) => {
+                updateMessage(threadKey, assistantId, (current) =>
+                  applyWorkflowCommandStreamEvent(current, event),
+                );
+              },
+            );
+            updateMessage(threadKey, assistantId, (current) => ({
+              ...current,
+              status: { type: "complete", reason: "stop" },
+            }));
+          } else {
+            const result = await executeInlineCommand(auth.token, slashCommand);
+            updateMessage(threadKey, assistantId, (current) => ({
+              ...current,
+              content: [{ type: "data-command-result", data: result }],
+              status: { type: "complete", reason: "stop" },
+            }));
+          }
         } catch (error) {
           updateMessage(threadKey, assistantId, (current) => ({
             ...current,
@@ -678,143 +712,31 @@ function mergeTraceSignalsIntoContent(
   return nextContent;
 }
 
-function createExecutionTraceState(options: {
-  sessionId?: string;
-  turnId?: string;
-  status?: ExecutionTraceState["status"];
-  title?: string;
-  signals?: Record<string, unknown> | null;
-} = {}): ExecutionTraceState {
-  return {
-    status: options.status ?? "started",
-    title: options.title ?? "Agent execution started",
-    trace_id: options.turnId ?? null,
-    turn_id: options.turnId ?? null,
-    session_id: options.sessionId ?? null,
-    error: null,
-    steps: [],
-    signals: options.signals ?? null,
-    signal_definitions: null,
-    summary: null,
-  };
-}
-
-function applyTraceEvent(
-  state: ExecutionTraceState,
-  event: TraceEventPayload,
-): ExecutionTraceState {
-  if (event.kind === "status") {
-    return {
-      ...state,
-      status:
-        event.status === "started"
-          ? "started"
-          : event.status === "completed"
-            ? "completed"
-            : "error",
-      title: event.title,
-      trace_id: event.trace_id ?? state.trace_id ?? null,
-      turn_id: event.trace_id ?? state.turn_id ?? null,
-      error: event.error ?? state.error ?? null,
-    };
+function applyWorkflowCommandStreamEvent(
+  message: ThreadMessageLike,
+  event: StreamEvent,
+): ThreadMessageLike {
+  let content = message.content;
+  const label = event.data.runtime_event?.label ?? event.event;
+  if (event.data.trace) {
+    content = mergeTraceEventIntoContent(content, event.data.trace);
   }
-
-  if (event.kind === "step") {
-    const step = ensureTraceStep(state.steps, event.step_index, event.step_key);
-    const nextStep: ExecutionTraceStep = {
-      ...step,
-      step_index: event.step_index ?? step.step_index,
-      step_key: event.step_key ?? step.step_key ?? null,
-      action_type: event.action_type,
-      title: event.title,
-      assistant_text: event.assistant_text ?? step.assistant_text ?? null,
-      tool_calls: [...event.tool_calls],
-      token_usage: event.token_usage ?? step.token_usage ?? null,
-      duration_ms: event.duration_ms ?? step.duration_ms ?? null,
-    };
-    return {
-      ...state,
-      trace_id: event.trace_id ?? state.trace_id ?? null,
-      turn_id: event.trace_id ?? state.turn_id ?? null,
-      steps: upsertTraceStep(state.steps, nextStep),
-    };
+  if (event.event.startsWith("workflow.") && label) {
+    content = mergeTextPartIntoContent(content, `\n${label}`, "snapshot");
   }
-
-  const step = ensureTraceStep(state.steps, event.step_index, event.step_key);
-  const nextResult: ExecutionTraceResult = {
-    tool_call_id: event.tool_call_id ?? null,
-    tool_name: event.tool_name ?? null,
-    duration_ms: event.duration_ms ?? null,
-    is_error: event.is_error,
-    metadata: { ...event.metadata },
-  };
-  const nextStep: ExecutionTraceStep = {
-    ...step,
-    step_index: event.step_index ?? step.step_index,
-    step_key: event.step_key ?? step.step_key ?? null,
-    results: upsertTraceResult(step.results, nextResult),
-  };
-  return {
-    ...state,
-    trace_id: event.trace_id ?? state.trace_id ?? null,
-    turn_id: event.trace_id ?? state.turn_id ?? null,
-    steps: upsertTraceStep(state.steps, nextStep),
-  };
-}
-
-
-function ensureTraceStep(
-  steps: ExecutionTraceStep[],
-  stepIndex?: number | null,
-  stepKey?: string | null,
-): ExecutionTraceStep {
-  return (
-    steps.find(
-      (step) =>
-        (stepKey && step.step_key === stepKey) ||
-        (typeof stepIndex === "number" && step.step_index === stepIndex),
-    ) ?? {
-      step_index: typeof stepIndex === "number" && stepIndex > 0 ? stepIndex : steps.length + 1,
-      step_key: stepKey ?? null,
-      action_type: "tool_call",
-      title: "Calling tools",
-      assistant_text: null,
-      tool_calls: [],
-      token_usage: null,
-      duration_ms: null,
-      results: [],
+  if (event.event === "request.completed") {
+    const text = event.data.response?.text;
+    if (text) {
+      content = mergeTextPartIntoContent(content, `\n\n${text}`, "snapshot");
     }
-  );
-}
-
-function upsertTraceStep(steps: ExecutionTraceStep[], nextStep: ExecutionTraceStep) {
-  const nextSteps = steps.map((step) => ({ ...step, results: [...step.results] }));
-  const index = nextSteps.findIndex(
-    (step) =>
-      (nextStep.step_key && step.step_key === nextStep.step_key) ||
-      step.step_index === nextStep.step_index,
-  );
-  if (index >= 0) {
-    nextSteps[index] = nextStep;
-  } else {
-    nextSteps.push(nextStep);
   }
-  return nextSteps.sort((left, right) => left.step_index - right.step_index);
-}
-
-function upsertTraceResult(results: ExecutionTraceResult[], nextResult: ExecutionTraceResult) {
-  const nextResults = [...results];
-  const index = nextResults.findIndex(
-    (result) =>
-      (nextResult.tool_call_id && result.tool_call_id === nextResult.tool_call_id) ||
-      (!nextResult.tool_call_id &&
-        result.tool_name === nextResult.tool_name &&
-        result.duration_ms === nextResult.duration_ms),
-  );
-  if (index >= 0) {
-    nextResults[index] = nextResult;
-  } else {
-    nextResults.push(nextResult);
+  if (event.event === "request.error" || event.event === "workflow.error") {
+    content = mergeTraceStatusIntoContent(
+      content,
+      "Workflow failed",
+      "error",
+      event.data.error ?? "Workflow failed",
+    );
   }
-  return nextResults;
+  return { ...message, content };
 }

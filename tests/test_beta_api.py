@@ -22,7 +22,8 @@ import pytest
 
 from crew.agents.data.spec import DataAgentSpec
 from crew.agents.pm.spec import PMAgentSpec
-from crew.beta.app import _normalize_stream_payload, build_beta_app, create_beta_app
+from crew.beta.app import build_beta_app, create_beta_app
+from crew.beta.routes.sessions import _normalize_stream_payload
 
 
 class _EchoLLM(LLMProvider):
@@ -596,17 +597,54 @@ def test_workflow_endpoints_are_authenticated_and_use_host_service(
             output={"task_states": {"digest-traces": {"ok": True}}},
         )
 
+    async def fake_list_runs(
+        self,
+        workflow_id: str,
+        *,
+        status: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+        sort_desc: bool = True,
+    ):
+        del self, status, start_time, end_time, offset, sort_desc
+        captured["runs"] = {"workflow_id": workflow_id, "limit": limit}
+        return [
+            SimpleNamespace(
+                run_id="mw:h_test:masher-trace-digest:latest",
+                workflow_id=workflow_id,
+                dedup_key=None,
+                status="completed",
+                created_at=4.0,
+                started_at=5.0,
+                finished_at=6.0,
+                error=None,
+                output={"hidden": True},
+                summary={
+                    "turn_id": "turn-1",
+                    "session_id": "session-1",
+                    "task_id": "digest-traces",
+                    "agent_id": "masher",
+                    "user_message": "summarize this",
+                    "agent_response": "summary text",
+                },
+            )
+        ]
+
     with patch.object(PMAgentSpec, "build_llm", return_value=_EchoLLM()), patch.object(
         DataAgentSpec, "build_llm", return_value=_EchoLLM()
     ), patch.object(DataAgentSpec, "build_mcp_servers", return_value=[]), patch.object(
         WorkflowService, "run_workflow", fake_run_workflow
     ), patch.object(
         WorkflowService, "get_run", fake_get_run
+    ), patch.object(
+        WorkflowService, "list_runs", fake_list_runs
     ):
         with _build_test_client(tmp_path) as client:
             token, _ = _login(client, "alice")
 
-            workflows = client.get("/workflows", headers=_auth_headers(token))
+            workflows = client.get("/workflow", headers=_auth_headers(token))
             assert workflows.status_code == 200
             listed = {
                 workflow["workflow_id"]: workflow
@@ -616,11 +654,11 @@ def test_workflow_endpoints_are_authenticated_and_use_host_service(
                 {"task_id": "digest-traces", "agent_id": "masher"}
             ]
 
-            unauthorized = client.get("/workflows")
+            unauthorized = client.get("/workflow")
             assert unauthorized.status_code == 401
 
             started = client.post(
-                "/workflows/masher-trace-digest/run",
+                "/workflow/masher-trace-digest/run",
                 json={
                     "dedup_key": "trace-123",
                     "input": {
@@ -648,7 +686,7 @@ def test_workflow_endpoints_are_authenticated_and_use_host_service(
             }
 
             status = client.get(
-                "/workflows/masher-trace-digest/runs/mw:h_test:masher-trace-digest:abc",
+                "/workflow/masher-trace-digest/runs/mw:h_test:masher-trace-digest:abc",
                 headers=_auth_headers(token),
             )
             assert status.status_code == 200
@@ -660,6 +698,79 @@ def test_workflow_endpoints_are_authenticated_and_use_host_service(
                 "run_id": "mw:h_test:masher-trace-digest:abc",
             }
 
+            runs = client.get(
+                "/workflow/masher-trace-digest/runs?limit=5",
+                headers=_auth_headers(token),
+            )
+            assert runs.status_code == 200
+            assert runs.json()["data"] == {
+                "workflow_id": "masher-trace-digest",
+                "runs": [
+                    {
+                        "run_id": "mw:h_test:masher-trace-digest:latest",
+                        "workflow_id": "masher-trace-digest",
+                        "dedup_key": None,
+                        "status": "completed",
+                        "created_at": 4.0,
+                        "started_at": 5.0,
+                        "finished_at": 6.0,
+                        "error": None,
+                        "summary": {
+                            "turn_id": "turn-1",
+                            "session_id": "session-1",
+                            "task_id": "digest-traces",
+                            "agent_id": "masher",
+                            "user_message": "summarize this",
+                            "agent_response": "summary text",
+                        },
+                    }
+                ],
+            }
+            assert captured["runs"] == {
+                "workflow_id": "masher-trace-digest",
+                "limit": 5,
+            }
+
+
+def test_workflow_trace_uses_session_turn_trace_endpoint(tmp_path: Path) -> None:
+    with patch.object(PMAgentSpec, "build_llm", return_value=_EchoLLM()), patch.object(
+        DataAgentSpec, "build_llm", return_value=_EchoLLM()
+    ), patch.object(DataAgentSpec, "build_mcp_servers", return_value=[]):
+        with _build_test_client(tmp_path) as client:
+            token, _ = _login(client, "alice")
+            headers = _auth_headers(token)
+            created = client.post(
+                "/sessions",
+                json={"label": "Workflow trace source"},
+                headers=headers,
+            )
+            session_id = created.json()["data"]["session_id"]
+            sent = client.post(
+                f"/sessions/{session_id}/messages",
+                json={"message": "trace me"},
+                headers=headers,
+            )
+            request_id = sent.json()["data"]["request_id"]
+            _collect_sse_events(
+                client,
+                f"/sessions/{session_id}/requests/{request_id}/events",
+                token=token,
+            )
+            history = client.get(f"/sessions/{session_id}/history", headers=headers)
+            trace_id = history.json()["data"]["turns"][0]["turn_id"]
+
+            response = client.get(
+                f"/sessions/{session_id}/turns/{trace_id}/trace",
+                headers=headers,
+            )
+
+            assert response.status_code == 200
+            payload = response.json()["data"]
+            assert payload["agent_id"] == "data"
+            assert payload["session_id"] == session_id
+            assert payload["turn_id"] == trace_id
+            assert payload["trace"]["status"] == "completed"
+            assert payload["trace"]["steps"]
 
 def test_workflow_command_surface_dispatches_host_service(tmp_path: Path) -> None:
     captured: dict[str, object] = {}
