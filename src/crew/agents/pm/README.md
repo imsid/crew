@@ -11,7 +11,7 @@ The PM agent is the primary product-management agent for Mash Crew and is hosted
 ## Runtime state
 
 - `.mash/pm/memory/`
-- hosted request durability and observability events live in the runtime Postgres store configured by `MASH_RUNTIME_DATABASE_URL`
+- hosted request durability and observability events live in the runtime Postgres store configured by `MASH_DATABASE_URL`
 
 ## Packaged skills
 

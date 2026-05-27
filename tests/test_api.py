@@ -2,16 +2,19 @@ from __future__ import annotations
 
 import os
 import uuid
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Optional
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
+from mash.agents.masher.spec import MasherAgentSpec
 from mash.api import MashHostConfig, create_app
 from mash.core.context import ToolCall
 from mash.core.llm import LLMProvider
 from mash.core.llm.types import LLMContentBlock, LLMRequest, LLMResponse, LLMTokenUsage
+from mash.memory.store import SQLiteStore
 from mash.workflows.service import WorkflowService
 
 from crew.agents.data.spec import DataAgentSpec
@@ -95,15 +98,31 @@ class _DelegatingLLM(LLMProvider):
         del trace_id
 
 
-def _build_test_client(tmp_path: Path) -> TestClient:
+@contextmanager
+def _build_test_client(tmp_path: Path):
     os.environ["GITHUB_REPOS"] = str(tmp_path)
     os.environ["GITHUB_URL"] = "https://github.com/org/repo"
     os.environ["MASH_DATA_DIR"] = str(tmp_path / ".mash")
-    os.environ["MASH_RUNTIME_DATABASE_URL"] = "postgresql://test/runtime"
+    os.environ["MASH_DATABASE_URL"] = "postgresql://test/runtime"
     os.environ["DBOS_CONDUCTOR_KEY"] = "test-conductor-key"
-    host = build_host()
-    app = create_app(host, config=MashHostConfig())
-    return TestClient(app)
+
+    def _sqlite_memory_store(self):
+        return SQLiteStore(Path(os.environ["MASH_DATA_DIR"]) / self.get_agent_id() / "state.db")
+
+    with ExitStack() as stack:
+        stack.enter_context(
+            patch.object(DataAgentSpec, "build_memory_store", _sqlite_memory_store)
+        )
+        stack.enter_context(
+            patch.object(PMAgentSpec, "build_memory_store", _sqlite_memory_store)
+        )
+        stack.enter_context(
+            patch.object(MasherAgentSpec, "build_memory_store", _sqlite_memory_store)
+        )
+        host = build_host()
+        app = create_app(host, config=MashHostConfig())
+        with TestClient(app) as client:
+            yield client
 
 
 def _collect_sse_events(client: TestClient, path: str) -> list[dict[str, Any]]:

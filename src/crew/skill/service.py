@@ -126,7 +126,7 @@ def _skill_scopes(repo_root: Path) -> tuple[SkillScope, ...]:
         SkillScope(
             key="shared",
             label="Shared",
-            root=src_root / "skills",
+            root=src_root / "shared" / "skills",
             used_by=("data", "engineer", "pm"),
         ),
         SkillScope(

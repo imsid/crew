@@ -24,7 +24,7 @@ from ...metrics_layer.service.tool_entrypoints import (
     read_metrics_layer_config,
 )
 from ...shared.runtime_paths import workspace_dir
-from ...skill_library.repo import list_skills, read_skill, search_skills
+from ...skill.service import list_skills, read_skill, search_skills
 from ..app import (
     LOGGER,
     AppError,

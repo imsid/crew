@@ -8,80 +8,51 @@ audience: developers
 # crew
 
 `crew` is a local agent workspace built on top of `mash`.
-It currently runs a data-first host where:
+It is currently organized around a primary data agent plus a supporting
+product subagent:
 
-- `data` is the primary agent for analytics, metrics, and evidence gathering
-- `pm` is a supporting subagent for product framing, prioritization, and trade-off analysis
-- `masher` is a built-in diagnosis subagent for trace and runtime event analysis
-
-For a higher-level product overview, see [docs/product.md](docs/product.md).
+- `data`: primary agent for analytics, metrics, experiments, artifacts, and workflows on top of BigQuery
+- `pm`: supporting subagent for product framing, prioritization, and trade-off analysis
 
 The packaged default workspace is `marketing_db`. Workspace content lives under
-`src/crew/workspace/<name>/...`, while local agent state lives under `<repo>/.mash`
-when running from a checkout. Hosted runtime durability, SSE replay, observability,
-and Masher trace inspection are backed by the runtime Postgres store configured with
-`MASH_RUNTIME_DATABASE_URL`. Agent memory uses Postgres when
-`MASH_MEMORY_DATABASE_URL` is set.
+`src/crew/workspace/<name>/...`. In a local checkout, runtime state defaults to
+`<repo>/.mash` unless you point memory or runtime persistence at Postgres.
 
-## What Crew Includes
+For the product-level overview, see [docs/product.md](docs/product.md). For
+agent-specific details, jump to [Documentation Map](#documentation-map).
 
-- `metrics_layer`: semantic metric and source definitions plus SQL compilation
-- `experimentation`: deterministic experiment contracts and SQL planning
-- `artifacts`: reusable Markdown or HTML outputs created from agent conversations
-- `crew` CLI: the main interface for conversational work, metrics commands, and artifact commands
-- Mash host runtime: the execution engine that powers the local agent host
+## What Is In This Repo?
 
-## Local Development Setup
-
-### Prerequisites
-
-- Python 3.10+
-- [`uv`](https://docs.astral.sh/uv/)
-- Node.js 20+ and `npm` for the beta web app
-- Postgres for the hosted runtime and agent memory store
-- an Anthropic API key
-- BigQuery access for the data agent
-
-### 1. Clone the repo
-
-```bash
-git clone <your-repo-url>
-cd mash-crew
+```text
+src/crew/app.py              Host entrypoint via crew.app:build_host
+src/crew/metrics_layer/      Semantic metrics and SQL compilation
+src/crew/experimentation/    Experiment configs, planning, and analysis helpers
+src/crew/artifacts/          Durable Markdown and HTML artifact services
+src/crew/workflow/           Workflow validation, publishing, and registration
+src/crew/workspace/          Packaged workspaces such as marketing_db
+src/crew/agents/             Agent specs, prompts, skills, and subagent wiring
+web/                         Beta Next.js frontend
+docs/                        Product and design docs
 ```
 
-### 2. Install dependencies
+## Quick Start
+
+Create and activate the local environment:
 
 ```bash
 uv sync --extra dev
 source .venv/bin/activate
 ```
 
-Activating `.venv` puts the local `crew` and `mash` entrypoints on your `PATH` for the current shell.
-
-### 3. Configure hosted runtime environment
-
-`crew.app:build_host` currently loads the `data` and `pm` agent environments.
-Shell environment variables take precedence over agent `.env` files.
-
-Create a project-level `.env` with the hosted runtime settings:
+Configure the host runtime in a project-level `.env`:
 
 ```bash
-MASH_RUNTIME_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/mash_runtime
-MASH_MEMORY_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/mash_memory
+CREW_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/crew_db
+MASH_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/crew_db
 DBOS_CONDUCTOR_KEY=your_dbos_conductor_key
 ```
 
-Field notes:
-
-- `MASH_RUNTIME_DATABASE_URL`: required for hosted runtime durability, SSE replay, observability, and Masher trace reads
-- `MASH_MEMORY_DATABASE_URL`: required if you want Crew agent memory to use `PostgresMemoryStore`; when unset, Mash falls back to local SQLite files under `MASH_DATA_DIR`
-- `DBOS_CONDUCTOR_KEY`: required whenever the hosted Mash runtime starts
-- Postgres must be reachable from the host process before starting `mash host serve` or the beta BFF
-- keep these at the project or shell level, not in per-agent `.env` files
-
-### 4. Configure agent-specific environment
-
-Create `src/crew/agents/data/.env` with:
+Configure the `data` agent in `src/crew/agents/data/.env`:
 
 ```bash
 ANTHROPIC_API_KEY=your_anthropic_key
@@ -92,151 +63,51 @@ GOOGLE_APPLICATION_CREDENTIALS=/absolute/path/to/service-account.json
 GOOGLE_CLOUD_PROJECT=your_gcp_project_id
 ```
 
-Field notes:
-
-- `ANTHROPIC_API_KEY`: required
-- `ANTHROPIC_MODEL`: optional, defaults to `claude-haiku-4-5-20251001`
-- `BIGQUERY_PROJECT_ID`: required for the current data-agent workflow
-- `BIGQUERY_MCP_URL`: optional, defaults to `https://bigquery.googleapis.com/mcp`
-- `GOOGLE_APPLICATION_CREDENTIALS`: required for the standard local service-account setup
-- `GOOGLE_CLOUD_PROJECT`: recommended for local ADC / Google client resolution
-
-Create `src/crew/agents/pm/.env` with:
+Configure the `pm` agent in `src/crew/agents/pm/.env`:
 
 ```bash
 ANTHROPIC_API_KEY=your_anthropic_key
 ANTHROPIC_MODEL=claude-haiku-4-5-20251001
 ```
 
-Field notes:
-
-- `ANTHROPIC_API_KEY`: required
-- `ANTHROPIC_MODEL`: optional, defaults to `claude-haiku-4-5-20251001`
-
-### 5. Start the local host
-
-`crew` uses Mash as its host runtime. Start the host with:
+Start the local host:
 
 ```bash
 mash host serve --host-app crew.app:build_host
 ```
 
-By default, local agent state is stored under `<repo>/.mash` when running from a checkout.
-If `MASH_MEMORY_DATABASE_URL` is set, agent memory is stored in Postgres instead of those
-local SQLite files. Set `MASH_DATA_DIR` explicitly if you want to override the local fallback
-location.
-
-### 6. Connect once
-
-Save the local host URL and default agent:
+Save the connection once:
 
 ```bash
 mash connect --api-base-url http://127.0.0.1:8000 --agent data
 ```
 
-After this, `crew agent ...` commands can reuse the saved connection.
+After that, use either [Crew CLI](#crew-cli) or [Beta Web App](#beta-web-app).
 
-## Beta Web App
+## Runtime Notes
 
-The beta web app uses a FastAPI BFF under `crew.beta`.
-Unlike the CLI flow above, the beta BFF starts the Crew host internally, so you do **not**
-need to run `mash host serve` separately for the web app.
+- `CREW_DATABASE_URL` is the Crew app database used by the beta backend and
+  other Crew-owned persisted state.
+- `MASH_DATABASE_URL` is the Mash runtime database used by the hosted agent
+  runtime.
+- `MASH_DATA_DIR` still defaults to `<repo>/.mash` in a checkout for local
+  runtime state unless you override it explicitly.
+- `DBOS_CONDUCTOR_KEY` is required whenever the hosted Mash runtime starts.
+- Shell environment variables take precedence over per-agent `.env` files.
+- Keep shared runtime settings at the project or shell level, not inside agent
+  `.env` files.
 
-### Beta-specific environment
+## Crew CLI
 
-Set the beta access controls in your shell or project `.env`:
-
-```bash
-CREW_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/crew_beta
-CREW_BETA_ALLOWED_USERS=alice,bob
-CREW_BETA_AUTH_SECRET=replace_me_for_local_beta
-```
-
-Optional beta settings:
-
-```bash
-CREW_BETA_TOKEN_TTL_SECONDS=604800
-CREW_BETA_CORS_ALLOWED_ORIGINS=http://127.0.0.1:3000,http://localhost:3000
-```
-
-Field notes:
-
-- `CREW_DATABASE_URL`: required Postgres connection string for beta users and session ownership
-- `CREW_BETA_ALLOWED_USERS`: required comma-separated list or JSON array of allowed handles
-- `CREW_BETA_AUTH_SECRET`: recommended dedicated secret for beta auth signing
-- `CREW_BETA_TOKEN_TTL_SECONDS`: optional auth token TTL; defaults to 7 days
-- `CREW_BETA_CORS_ALLOWED_ORIGINS`: optional comma-separated list or JSON array of allowed web origins; defaults to `http://127.0.0.1:3000,http://localhost:3000`
-- Postgres must be reachable before starting the beta BFF
-
-The existing hosted runtime and agent env vars from the setup steps above are still required because
-the beta BFF builds the same `data` and `pm` runtime under the hood.
-
-### Start the FastAPI beta BFF
-
-From the repo root:
+Use agent mode for free-form questions. In practice, most users should start
+with `data`:
 
 ```bash
-uv run uvicorn crew.beta:build_beta_app --factory --reload --port 8000
+crew agent repl
+>>  "what metrics are available in the metrics layer?"
 ```
 
-This starts the beta FastAPI backend at `http://127.0.0.1:8000`.
-
-### Start the beta web app
-
-The beta web app uses `Next.js` App Router with Tailwind, shadcn-style UI
-primitives, `assistant-ui` for chat, `react-markdown` for Markdown artifact rendering,
-and sandboxed iframes for HTML artifacts.
-
-Install the frontend dependencies once:
-
-```bash
-cd web
-npm install
-```
-
-Create `web/.env.local` with the required backend URL:
-
-```bash
-NEXT_PUBLIC_CREW_API_BASE_URL=http://127.0.0.1:8000
-```
-
-This should be the origin of the Crew Beta FastAPI BFF.
-For local development, use `http://127.0.0.1:8000`.
-For a deployed environment, use that deployed backend origin instead.
-
-Then start the Next.js dev server:
-
-```bash
-npm run dev
-```
-
-By default the web app runs at `http://127.0.0.1:3000`.
-
-### Beta app flow
-
-1. Start the FastAPI beta BFF.
-2. Start the Next.js web app from `web/`.
-3. Open `http://127.0.0.1:3000`.
-4. Log in with one of the handles from `CREW_BETA_ALLOWED_USERS`.
-5. Open Chat, Metrics, Experiments, or Artifacts from the left sidebar.
-
-## Using The Crew CLI
-
-### Agent mode
-
-Use agent mode for free-form questions and conversational workflows:
-
-```bash
-crew agent repl --agent data
-crew agent invoke --agent data "What changed in activation over the last 4 weeks?"
-```
-
-`crew agent invoke` submits an async hosted runtime request and waits for the terminal SSE event before printing the final response.
-
-### Command mode
-
-Use command mode for direct deterministic operations against the selected workspace.
-If you do not pass `--workspace`, `crew` defaults to `marketing_db`:
+Use command mode for deterministic inspection:
 
 ```bash
 crew metrics list
@@ -252,45 +123,38 @@ crew experiment analyze --name signup_checkout_test
 crew artifact list
 crew artifact show launch_readout_q2
 crew artifact search "launch readiness"
+
+crew workflow list
+crew workflow run weekly-business-review --input '{"week":"2026-05-19"}'
+crew workflow status weekly-business-review <run_id>
 ```
 
-### Switching workspaces
+### Workspaces
 
-Use the global `--workspace` flag to run a command against a different workspace:
+`crew` defaults to `marketing_db`. Override it per command:
 
 ```bash
-crew --workspace marketing_db version
-crew --workspace marketing_db artifact list
 crew --workspace marketing_db metrics list
-crew --workspace marketing_db experiment list
+crew --workspace my_new_workspace artifact list
 ```
 
-In a local checkout, `crew` resolves workspaces under:
+Or make a workspace the shell default:
+
+```bash
+export CREW_WORKSPACE=my_new_workspace
+crew metrics list
+```
+
+Local workspaces resolve under:
 
 ```bash
 src/crew/workspace/
 ```
 
-For example, if you add a workspace at `src/crew/workspace/my_new_workspace`, you can
-target it directly with:
+### Artifacts
 
-```bash
-crew --workspace my_new_workspace metrics list
-```
-
-To make a workspace the default for your current shell session, set `CREW_WORKSPACE`:
-
-```bash
-export CREW_WORKSPACE=my_new_workspace
-crew version
-crew metrics list
-```
-
-Unset or change `CREW_WORKSPACE` to switch back.
-
-## Artifact Workflow
-
-Artifacts are created inside an agent conversation, not through a separate CLI mutation command.
+Artifacts are created from an agent conversation rather than a separate mutation
+command.
 
 Typical flow:
 
@@ -298,20 +162,81 @@ Typical flow:
 crew agent repl --agent data
 ```
 
-Then ask the agent to:
+Then ask the agent to create or find an artifact, for example:
 
 - `create an artifact from this session`
 - `turn this analysis into an artifact`
 - `find the artifact about activation experiments`
 
 Artifact files live under `workspace/<name>/artifacts/`.
-They are reusable Markdown or HTML outputs that teams can search, read, and reference later.
 
-## Internal Modules
+### Workflows
 
-- `crew.app`: host entrypoint with `build_host()`
-- `crew.metrics_layer`: semantic metric definitions and SQL compilation
-- `crew.experimentation`: experiment configs, deterministic SQL planning, and stats helpers
-- `crew.artifacts`: artifact schema, deterministic CRUD/search services, and agent tools
-- `crew.skills`: shared skills available to crew agents, including `create-artifact`
-- `crew.cli`: CLI for agent mode plus metrics and artifact command mode
+Crew also supports registered workflows for bounded multi-step execution across
+host agents.
+
+Use the workflow commands to inspect and run them:
+
+```bash
+crew workflow list
+crew workflow run <workflow_id> --input '{"key":"value"}'
+crew workflow status <workflow_id> <run_id>
+```
+
+## Beta Web App
+
+The beta web app runs a FastAPI BFF under `crew.beta` plus a Next.js frontend
+under `web/`. The BFF starts the Crew host internally, so you do not need to
+run `mash host serve` separately for web development.
+
+Set the beta access-control env vars in your shell or project `.env`:
+
+```bash
+CREW_BETA_ALLOWED_USERS=alice,bob
+CREW_BETA_AUTH_SECRET=replace_me_for_local_beta
+CREW_BETA_TOKEN_TTL_SECONDS=604800
+CREW_BETA_CORS_ALLOWED_ORIGINS=http://127.0.0.1:3000,http://localhost:3000
+```
+
+The shared database and runtime env vars from [Quick Start](#quick-start) still
+apply because the beta BFF builds the same `data` and `pm` runtime.
+
+Start the BFF:
+
+```bash
+uv run uvicorn crew.beta:build_beta_app --factory --reload --port 8000
+```
+
+Configure the frontend in `web/.env.local`:
+
+```bash
+NEXT_PUBLIC_CREW_API_BASE_URL=http://127.0.0.1:8000
+```
+
+Install and run the web app:
+
+```bash
+cd web
+npm install
+npm run dev
+```
+
+The local app runs at [http://127.0.0.1:3000](http://127.0.0.1:3000).
+
+## Documentation Map
+
+- [docs/product.md](docs/product.md): product overview, usage model, and system
+  concepts
+- [src/crew/agents/data/README.md](src/crew/agents/data/README.md): data agent
+  source-of-truth and runtime notes
+- [src/crew/agents/pm/README.md](src/crew/agents/pm/README.md): PM agent prompt,
+  skills, and delegation references
+
+## Prerequisites
+
+- Python 3.10+
+- [`uv`](https://docs.astral.sh/uv/)
+- Node.js 20+ and `npm` for the beta web app
+- Postgres for hosted runtime durability and optional memory storage
+- an Anthropic API key
+- BigQuery access for the data agent

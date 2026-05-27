@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 import json
 import os
 from pathlib import Path
@@ -9,9 +9,11 @@ from typing import Any, Optional
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
+from mash.agents.masher.spec import MasherAgentSpec
 from mash.core.context import ToolCall
 from mash.core.llm import LLMProvider
 from mash.core.llm.types import LLMContentBlock, LLMRequest, LLMResponse, LLMTokenUsage
+from mash.memory.store import SQLiteStore
 from mash.workflows.service import (
     DuplicateWorkflowRunError,
     WorkflowNotFoundError,
@@ -286,7 +288,21 @@ def _build_test_client(tmp_path: Path):
     os.environ["CREW_BETA_AUTH_SECRET"] = "beta-secret"
     os.environ["CREW_BETA_ALLOWED_USERS"] = "alice,bob"
     _FakeBetaStore.last_created = None
-    with patch("crew.beta.app.BetaStore", _FakeBetaStore):
+
+    def _sqlite_memory_store(self):
+        return SQLiteStore(Path(os.environ["MASH_DATA_DIR"]) / self.get_agent_id() / "state.db")
+
+    with ExitStack() as stack:
+        stack.enter_context(patch("crew.beta.app.BetaStore", _FakeBetaStore))
+        stack.enter_context(
+            patch.object(DataAgentSpec, "build_memory_store", _sqlite_memory_store)
+        )
+        stack.enter_context(
+            patch.object(PMAgentSpec, "build_memory_store", _sqlite_memory_store)
+        )
+        stack.enter_context(
+            patch.object(MasherAgentSpec, "build_memory_store", _sqlite_memory_store)
+        )
         app = build_beta_app()
         with TestClient(app) as client:
             yield client

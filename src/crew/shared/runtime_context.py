@@ -18,7 +18,7 @@ class RuntimeContext:
     workflow: WorkflowService
 
 
-_runtime_context: RuntimeContext | None = None
+_RUNTIME_CONTEXT_HOLDER: dict[str, RuntimeContext | None] = {"value": None}
 
 
 def set_runtime_context(
@@ -28,11 +28,10 @@ def set_runtime_context(
     primary_agent_id: str,
     workflow: WorkflowService,
 ) -> None:
-    global _runtime_context
     resolved_primary_agent_id = str(primary_agent_id or "").strip()
     if not resolved_primary_agent_id:
         raise ValueError("primary_agent_id is required")
-    _runtime_context = RuntimeContext(
+    _RUNTIME_CONTEXT_HOLDER["value"] = RuntimeContext(
         store=store,
         host=host,
         primary_agent_id=resolved_primary_agent_id,
@@ -41,11 +40,11 @@ def set_runtime_context(
 
 
 def get_runtime_context() -> RuntimeContext:
-    if _runtime_context is None:
+    context = _RUNTIME_CONTEXT_HOLDER["value"]
+    if context is None:
         raise RuntimeError("Crew runtime context is not available")
-    return _runtime_context
+    return context
 
 
 def clear_runtime_context() -> None:
-    global _runtime_context
-    _runtime_context = None
+    _RUNTIME_CONTEXT_HOLDER["value"] = None

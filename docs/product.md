@@ -40,6 +40,10 @@ crew experiment analyze --name signup_checkout
 crew artifact list
 crew artifact show launch_readout_q2
 crew artifact search "launch readiness"
+
+crew workflow list
+crew workflow run weekly-business-review --input '{"week":"2026-05-19"}'
+crew workflow status weekly-business-review <run_id>
 ```
 
 Use command mode when:
@@ -107,11 +111,12 @@ Use agent mode when:
 ## Context and Memory
 
 The `data` agent is not meant to answer from intuition alone.
-It is grounded by five core product layers:
+It is grounded by six core product layers:
 
 - the `metrics_layer` service
 - the `experimentation` service
 - the `artifacts` service
+- the `workflow` service
 - the `analyst`, `experiment-analyst`, and `steward` skills
 - inbuilt `MemoryStore` layer provided by mash
 
@@ -193,6 +198,28 @@ The `artifacts` service is the collaboration layer for `crew`. It offers:
 - a lightweight way for product, GTM, and data teams to align on the same written output
 
 Artifacts matter because they turn a useful conversation into team knowledge instead of leaving it trapped in one session.
+
+## Workflow Service
+
+The `workflow` service is the repeatability layer for `crew`. It offers:
+
+- durable workflow definitions and published metadata in the Crew app store
+- validation and registration of approved multi-step workflows against the host
+- thin command and API surfaces for listing workflows, starting runs, and checking status
+- a path from one-off analysis into reusable operating processes
+
+This is what keeps workflow execution grounded in registered agents and validated workflow definitions instead of ad hoc procedural prompts.
+
+In practice, the flow is:
+
+```mermaid
+flowchart TD
+    Q["Repeatable process"] --> D["Workflow definition"]
+    D --> V["Workflow service validation"]
+    V --> R["Host workflow registration"]
+    R --> X["Workflow run"]
+    X --> F["Reusable output"]
+```
 
 ## Data-Agent Skills
 
