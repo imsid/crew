@@ -17,8 +17,10 @@ from mash.runtime import AgentHost
 from pydantic import BaseModel, Field
 
 from ..app import build_host
+from ..shared.runtime_context import clear_runtime_context, set_runtime_context
 from .auth import TokenError, verify_token
 from .store import BetaStore
+from ..workflow.service import WorkflowService
 
 LOGGER = logging.getLogger(__name__)
 DATA_AGENT_ID = "data"
@@ -116,6 +118,20 @@ def create_beta_app(
             default_events_limit=max(1, int(mash_api_config.default_events_limit)),
             default_search_limit=max(1, int(mash_api_config.default_search_limit)),
         )
+        primary_agent_id = resolved_host.get_primary_agent_id()
+        workflow = WorkflowService(
+            store=store,
+            host=resolved_host,
+            primary_agent_id=primary_agent_id,
+        )
+        set_runtime_context(
+            store=store,
+            host=resolved_host,
+            primary_agent_id=primary_agent_id,
+            workflow=workflow,
+        )
+
+        await workflow.republish_published_workflows()
         application.state.beta = BetaAppState(
             host=resolved_host,
             store=store,
@@ -125,11 +141,14 @@ def create_beta_app(
         try:
             yield
         finally:
-            state = getattr(application.state, "beta", None)
-            if state is not None:
-                await state.store.close()
-            await resolved_host.close()
-            application.state.beta = None
+            try:
+                state = getattr(application.state, "beta", None)
+                if state is not None:
+                    await state.store.close()
+                await resolved_host.close()
+            finally:
+                clear_runtime_context()
+                application.state.beta = None
 
     app = FastAPI(title="Crew Beta BFF", version="0.1.0", lifespan=_lifespan)
     app.add_middleware(
@@ -297,4 +316,3 @@ def _extract_bearer_token(authorization: str | None) -> str:
             message="bearer token is required",
         )
     return token
-

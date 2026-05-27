@@ -7,6 +7,11 @@ from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 from mash.workflows import DuplicateWorkflowRunError, WorkflowNotFoundError
 
+from ...shared.runtime_context import get_runtime_context
+from ...workflow.service import (
+    WorkflowError,
+    WorkflowService,
+)
 from ..app import (
     LOGGER,
     AppError,
@@ -30,7 +35,111 @@ async def list_workflows(
 ) -> dict[str, Any]:
     del current_user
     workflow_service = _beta_state(request).host.get_workflow_service()
-    return {"data": {"workflows": await workflow_service.list_workflows()}}
+    workflows = await workflow_service.list_workflows()
+    publishing_service = _workflow_service(request)
+    authored = {
+        bundle["workflow"]["workflow_id"]: bundle
+        for bundle in await publishing_service.list_published_workflows()
+    }
+    enriched: list[dict[str, Any]] = []
+    for workflow in workflows:
+        item = dict(workflow) if isinstance(workflow, dict) else workflow
+        if isinstance(item, dict):
+            bundle = authored.get(str(item.get("workflow_id") or ""))
+            if bundle is not None:
+                item.update(_serialize_authored_workflow_bundle(bundle))
+        enriched.append(item)
+    return {"data": {"workflows": enriched}}
+
+
+@router.get("/workflow/{workflow_id}")
+async def get_workflow(
+    workflow_id: str,
+    request: Request,
+    current_user: dict[str, Any] = Depends(_require_user),
+) -> dict[str, Any]:
+    del current_user
+    normalized_workflow_id = workflow_id.strip()
+    try:
+        bundle = await _workflow_service(request).get_workflow(
+            normalized_workflow_id
+        )
+    except WorkflowError:
+        bundle = None
+    if bundle is not None:
+        return {"data": _serialize_authored_workflow_bundle(bundle)}
+
+    workflow_service = _beta_state(request).host.get_workflow_service()
+    for workflow in await workflow_service.list_workflows():
+        if not isinstance(workflow, dict):
+            continue
+        if str(workflow.get("workflow_id") or "") == normalized_workflow_id:
+            return {"data": workflow}
+    raise AppError(
+        status_code=404,
+        code="WORKFLOW_NOT_FOUND",
+        message=f"workflow '{normalized_workflow_id}' was not found",
+    )
+
+
+@router.post("/workflow/validate")
+async def validate_authored_workflow(
+    payload: dict[str, Any],
+    request: Request,
+    current_user: dict[str, Any] = Depends(_require_user),
+) -> dict[str, Any]:
+    del current_user
+    try:
+        normalized = await _workflow_service(request).validate_definition(
+            payload
+        )
+    except WorkflowError as exc:
+        raise AppError(
+            status_code=422,
+            code="WORKFLOW_VALIDATION_FAILED",
+            message=str(exc),
+        ) from exc
+    return {"data": {"valid": True, "definition": normalized}}
+
+
+@router.post("/workflow")
+async def publish_authored_workflow(
+    payload: dict[str, Any],
+    request: Request,
+    current_user: dict[str, Any] = Depends(_require_user),
+) -> dict[str, Any]:
+    del current_user
+    try:
+        published = await _workflow_service(request).publish_workflow(
+            payload
+        )
+    except WorkflowError as exc:
+        raise AppError(
+            status_code=422,
+            code="WORKFLOW_PUBLISH_FAILED",
+            message=str(exc),
+        ) from exc
+    return {"data": published}
+
+
+@router.post("/workflow/{workflow_id}/disable")
+async def disable_authored_workflow(
+    workflow_id: str,
+    request: Request,
+    current_user: dict[str, Any] = Depends(_require_user),
+) -> dict[str, Any]:
+    del current_user
+    try:
+        workflow = await _workflow_service(request).disable_workflow(
+            workflow_id
+        )
+    except WorkflowError as exc:
+        raise AppError(
+            status_code=404,
+            code="WORKFLOW_NOT_FOUND",
+            message=str(exc),
+        ) from exc
+    return {"data": workflow}
 
 
 @router.post("/workflow/{workflow_id}/run")
@@ -42,6 +151,7 @@ async def run_workflow(
 ) -> dict[str, Any]:
     del current_user
     workflow_service = _beta_state(request).host.get_workflow_service()
+    await _validate_authored_workflow_input(request, workflow_id.strip(), payload.input)
     try:
         run = await workflow_service.run_workflow(
             workflow_id.strip(),
@@ -232,3 +342,60 @@ def _serialize_workflow_run_summary(run: Any) -> dict[str, Any]:
         "error": run.error,
         "summary": getattr(run, "summary", None),
     }
+
+
+def _serialize_authored_workflow_bundle(bundle: dict[str, Any]) -> dict[str, Any]:
+    workflow = dict(bundle["workflow"])
+    skill = dict(bundle["skill"] or {})
+    tasks = [dict(task) for task in bundle["tasks"]]
+    workflow["source"] = "crew-authored"
+    workflow["skill"] = {
+        "skill_id": skill.get("skill_id"),
+        "name": skill.get("name"),
+        "description": skill.get("description"),
+        "status": skill.get("status"),
+    }
+    workflow["tasks"] = [
+        {
+            "task_id": task["task_id"],
+            "agent_id": task["agent_id"],
+            "position": task["position"],
+            "title": task["title"],
+            "structured_output": task["structured_output"],
+        }
+        for task in tasks
+    ]
+    return workflow
+
+
+async def _validate_authored_workflow_input(
+    request: Request, workflow_id: str, workflow_input: dict[str, Any]
+) -> None:
+    try:
+        bundle = await _workflow_service(request).get_workflow(workflow_id)
+    except WorkflowError:
+        return
+    workflow = bundle["workflow"]
+    if workflow.get("status") != "published":
+        raise AppError(
+            status_code=404,
+            code="WORKFLOW_NOT_FOUND",
+            message=f"workflow '{workflow_id}' is not published",
+        )
+    schema = workflow.get("input_schema")
+    if not isinstance(schema, dict) or schema.get("type") != "object":
+        return
+    required = schema.get("required")
+    if isinstance(required, list):
+        missing = [str(key) for key in required if str(key) not in workflow_input]
+        if missing:
+            raise AppError(
+                status_code=422,
+                code="INVALID_WORKFLOW_INPUT",
+                message=f"workflow_input missing required fields: {', '.join(missing)}",
+            )
+
+
+def _workflow_service(request: Request) -> WorkflowService:
+    del request
+    return get_runtime_context().workflow

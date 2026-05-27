@@ -11,6 +11,7 @@ from crew.agents.pm.spec import PMAgentSpec
 @pytest.mark.parametrize("spec_factory", [DataAgentSpec, PMAgentSpec])
 def test_agent_specs_default_to_sqlite_store(monkeypatch, tmp_path, spec_factory) -> None:
     monkeypatch.delenv("MASH_MEMORY_DATABASE_URL", raising=False)
+    monkeypatch.delenv("MASH_DATABASE_URL", raising=False)
     monkeypatch.setenv("MASH_DATA_DIR", str(tmp_path / ".mash"))
 
     store = spec_factory().build_memory_store()
@@ -25,7 +26,7 @@ def test_agent_specs_use_postgres_store_when_memory_url_is_set(
     spec_factory,
 ) -> None:
     monkeypatch.setenv("MASH_DATA_DIR", str(tmp_path / ".mash"))
-    monkeypatch.setenv("MASH_MEMORY_DATABASE_URL", "postgresql://memory-store/test")
+    monkeypatch.setenv("MASH_DATABASE_URL", "postgresql://memory-store/test")
 
     store = spec_factory().build_memory_store()
 
@@ -37,7 +38,7 @@ def test_engineer_agent_spec_uses_postgres_store_when_memory_url_is_set(
     tmp_path,
 ) -> None:
     monkeypatch.setenv("MASH_DATA_DIR", str(tmp_path / ".mash"))
-    monkeypatch.setenv("MASH_MEMORY_DATABASE_URL", "postgresql://memory-store/test")
+    monkeypatch.setenv("MASH_DATABASE_URL", "postgresql://memory-store/test")
     monkeypatch.setenv("GITHUB_REPOS", str(tmp_path))
 
     store = EngineerAgentSpec().build_memory_store()

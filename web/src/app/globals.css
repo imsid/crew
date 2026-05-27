@@ -75,6 +75,14 @@
     @apply [&>*:first-child]:mt-0;
   }
 
+  .artifact-prose pre {
+    @apply max-w-full overflow-x-auto;
+  }
+
+  .artifact-prose pre code {
+    @apply block w-max min-w-full whitespace-pre bg-transparent p-0 text-inherit;
+  }
+
   .thread-prose {
     @apply artifact-prose;
     @apply text-[15px] leading-7 sm:text-[16px];

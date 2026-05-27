@@ -245,12 +245,17 @@ def test_shared_artifact_skill_and_tools_are_available_across_agents(
         "search_artifacts",
         "write_new_artifact_file",
     }.issubset(set(pm_spec.build_tools().list_tools()))
+    data_tools = data_spec.build_tools()
     assert {
         "list_artifacts",
         "read_artifact",
         "search_artifacts",
         "write_new_artifact_file",
-    }.issubset(set(data_spec.build_tools().list_tools()))
+        "publish_workflow",
+    }.issubset(set(data_tools.list_tools()))
+    publish_tool = data_tools.get("publish_workflow")
+    assert publish_tool is not None
+    assert "replaced with the live publisher" not in publish_tool.description
 
     with patch.dict(
         "os.environ",

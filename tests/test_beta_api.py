@@ -24,6 +24,7 @@ from crew.agents.data.spec import DataAgentSpec
 from crew.agents.pm.spec import PMAgentSpec
 from crew.beta.app import build_beta_app, create_beta_app
 from crew.beta.routes.sessions import _normalize_stream_payload
+from crew.shared.runtime_context import get_runtime_context
 
 
 class _EchoLLM(LLMProvider):
@@ -110,6 +111,9 @@ class _FakeBetaStore:
         self._users: dict[str, dict[str, Any]] = {}
         self._users_by_username: dict[str, str] = {}
         self._sessions: dict[str, dict[str, Any]] = {}
+        self._skills: dict[str, dict[str, Any]] = {}
+        self._workflows: dict[str, dict[str, Any]] = {}
+        self._workflow_tasks: dict[str, list[dict[str, Any]]] = {}
         self.open_called = False
         self.close_called = False
         _FakeBetaStore.last_created = self
@@ -194,17 +198,83 @@ class _FakeBetaStore:
             if str(session["user_id"]) == str(user_id)
         }
 
+    async def upsert_authored_skill(self, payload: dict[str, Any]) -> dict[str, Any]:
+        self._skills[str(payload["skill_id"])] = dict(payload)
+        return dict(payload)
+
+    async def upsert_authored_workflow(
+        self, payload: dict[str, Any], *, tasks: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        self._workflows[str(payload["workflow_id"])] = dict(payload)
+        self._workflow_tasks[str(payload["workflow_id"])] = [
+            dict(task) for task in sorted(tasks, key=lambda item: int(item["position"]))
+        ]
+        return dict(payload)
+
+    async def get_authored_workflow_bundle(
+        self, workflow_id: str
+    ) -> dict[str, Any] | None:
+        workflow = self._workflows.get(str(workflow_id))
+        if workflow is None:
+            return None
+        return {
+            "workflow": dict(workflow),
+            "skill": dict(self._skills[str(workflow["skill_id"])]),
+            "tasks": [dict(task) for task in self._workflow_tasks.get(str(workflow_id), [])],
+        }
+
+    async def list_authored_workflow_bundles(
+        self, *, status: str | None = None
+    ) -> list[dict[str, Any]]:
+        bundles: list[dict[str, Any]] = []
+        for workflow in self._workflows.values():
+            if status is not None and workflow.get("status") != status:
+                continue
+            bundle = await self.get_authored_workflow_bundle(str(workflow["workflow_id"]))
+            if bundle is not None:
+                bundles.append(bundle)
+        return bundles
+
+    async def set_authored_workflow_status(
+        self, workflow_id: str, status: str
+    ) -> dict[str, Any] | None:
+        workflow = self._workflows.get(str(workflow_id))
+        if workflow is None:
+            return None
+        workflow["status"] = status
+        workflow["updated_at"] = float(workflow.get("updated_at") or 0) + 1
+        return dict(workflow)
+
 
 class _HostStub:
     def __init__(self) -> None:
         self.started = False
         self.closed = False
+        self._runtime = SimpleNamespace(tools=_ToolRegistryStub())
+
+    def get_primary_agent_id(self) -> str:
+        return "data"
+
+    def get_agent(self, agent_id: str):
+        assert agent_id == "data"
+        return self._runtime
 
     async def start(self) -> None:
         self.started = True
 
     async def close(self) -> None:
         self.closed = True
+
+
+class _ToolRegistryStub:
+    def __init__(self) -> None:
+        self.tools: dict[str, Any] = {}
+
+    def unregister(self, name: str) -> None:
+        self.tools.pop(name, None)
+
+    def register(self, tool: Any) -> None:
+        self.tools[tool.name] = tool
 
 
 @contextmanager
@@ -345,10 +415,17 @@ def test_beta_app_opens_and_closes_store(monkeypatch) -> None:
             assert created.open_called is True
             assert created.close_called is False
             assert host.started is True
+            context = get_runtime_context()
+            assert context.store is created
+            assert context.host is host
+            assert context.primary_agent_id == "data"
+            assert context.workflow.primary_agent_id == "data"
 
         created = _FakeBetaStore.last_created
         assert created is not None
         assert created.close_called is True
+        with pytest.raises(RuntimeError, match="runtime context"):
+            get_runtime_context()
         assert host.closed is True
 
 
@@ -730,6 +807,87 @@ def test_workflow_endpoints_are_authenticated_and_use_host_service(
                 "workflow_id": "masher-trace-digest",
                 "limit": 5,
             }
+
+
+def test_authored_workflow_publish_endpoint_registers_primary_agent_workflow(
+    tmp_path: Path,
+) -> None:
+    with patch.object(PMAgentSpec, "build_llm", return_value=_EchoLLM()), patch.object(
+        DataAgentSpec, "build_llm", return_value=_EchoLLM()
+    ), patch.object(DataAgentSpec, "build_mcp_servers", return_value=[]):
+        with _build_test_client(tmp_path) as client:
+            token, _ = _login(client, "alice")
+            payload = {
+                "skill": {
+                    "name": "weekly-metrics-review",
+                    "description": "Review weekly metrics.",
+                    "content": "# Weekly Metrics Review\n\nReview the requested metrics.",
+                },
+                "workflow": {
+                    "workflow_id": "weekly-business-review",
+                    "name": "Weekly Business Review",
+                    "description": "Summarize weekly performance.",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {"week": {"type": "string"}},
+                        "required": ["week"],
+                    },
+                    "source_session_id": "data_session",
+                },
+                "tasks": [
+                    {
+                        "task_id": "review-metrics",
+                        "agent_id": "data",
+                        "title": "Review metrics",
+                        "structured_output": {
+                            "type": "object",
+                            "properties": {"markdown": {"type": "string"}},
+                            "required": ["markdown"],
+                        },
+                    }
+                ],
+            }
+
+            response = client.post(
+                "/workflow",
+                json=payload,
+                headers=_auth_headers(token),
+            )
+
+            assert response.status_code == 200
+            assert response.json()["data"]["skill_name"] == "weekly-metrics-review"
+            host = client.app.state.beta.host
+            workflow = host.get_workflow_registry().get("weekly-business-review")
+            assert workflow.tasks[0].agent_id == "data"
+            assert workflow.tasks[0].structured_output == {
+                "type": "object",
+                "properties": {"markdown": {"type": "string"}},
+                "required": ["markdown"],
+            }
+            assert workflow.task_message.skill_name == "weekly-metrics-review"
+            assert "publish_workflow" in host.get_agent("data").tools.list_tools()
+
+            detail = client.get(
+                "/workflow/weekly-business-review",
+                headers=_auth_headers(token),
+            )
+            assert detail.status_code == 200
+            assert detail.json()["data"]["skill"]["name"] == "weekly-metrics-review"
+
+            listed = client.get("/workflow", headers=_auth_headers(token))
+            assert listed.status_code == 200
+            workflows = {
+                item["workflow_id"]: item
+                for item in listed.json()["data"]["workflows"]
+            }
+            assert workflows["weekly-business-review"]["source"] == "crew-authored"
+
+            builtin_detail = client.get(
+                "/workflow/masher-trace-digest",
+                headers=_auth_headers(token),
+            )
+            assert builtin_detail.status_code == 200
+            assert builtin_detail.json()["data"]["workflow_id"] == "masher-trace-digest"
 
 
 def test_workflow_trace_uses_session_turn_trace_endpoint(tmp_path: Path) -> None:
