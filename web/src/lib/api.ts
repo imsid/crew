@@ -24,6 +24,7 @@ import type {
   SkillListResponse,
   SkillSearchResponse,
   StreamEvent,
+  WorkspaceRecord,
   WorkflowListResponse,
   WorkflowRunEvent,
   WorkflowRunListResponse,
@@ -114,15 +115,27 @@ export async function getMe(token: string): Promise<{ user: BetaUser }> {
   return apiRequest("/me", { token });
 }
 
-export async function listSessions(token: string): Promise<{ sessions: SessionRecord[] }> {
-  return apiRequest("/sessions", { token });
+export async function listWorkspaces(token: string): Promise<{ workspaces: WorkspaceRecord[] }> {
+  return apiRequest("/workspace", { token });
+}
+
+function workspacePath(workspaceId: string, path: string) {
+  return `/workspace/${encodeURIComponent(workspaceId)}${path}`;
+}
+
+export async function listSessions(
+  token: string,
+  workspaceId: string,
+): Promise<{ sessions: SessionRecord[] }> {
+  return apiRequest(workspacePath(workspaceId, "/sessions"), { token });
 }
 
 export async function createSession(
   token: string,
+  workspaceId: string,
   label?: string,
 ): Promise<SessionRecord> {
-  return apiRequest("/sessions", {
+  return apiRequest(workspacePath(workspaceId, "/sessions"), {
     method: "POST",
     token,
     body: { label: label || null },
@@ -131,46 +144,52 @@ export async function createSession(
 
 export async function searchSessions(
   token: string,
+  workspaceId: string,
   query: string,
 ): Promise<{ query: string; results: SessionSearchResult[] }> {
-  return apiRequest(`/sessions/search?q=${encodeURIComponent(query)}`, { token });
+  return apiRequest(workspacePath(workspaceId, `/sessions/search?q=${encodeURIComponent(query)}`), { token });
 }
 
 export async function getSession(
   token: string,
+  workspaceId: string,
   sessionId: string,
 ): Promise<{ session: SessionRecord; runtime: SessionRuntime }> {
-  return apiRequest(`/sessions/${sessionId}`, { token });
+  return apiRequest(workspacePath(workspaceId, `/sessions/${sessionId}`), { token });
 }
 
 export async function getSessionHistory(
   token: string,
+  workspaceId: string,
   sessionId: string,
 ): Promise<{ session_id: string; turns: SessionHistoryTurn[] }> {
-  return apiRequest(`/sessions/${sessionId}/history`, { token });
+  return apiRequest(workspacePath(workspaceId, `/sessions/${sessionId}/history`), { token });
 }
 
 export async function getSessionSignals(
   token: string,
+  workspaceId: string,
   sessionId: string,
 ): Promise<SessionSignalsResponse> {
-  return apiRequest(`/sessions/${sessionId}/signals`, { token });
+  return apiRequest(workspacePath(workspaceId, `/sessions/${sessionId}/signals`), { token });
 }
 
 export async function getTurnTrace(
   token: string,
+  workspaceId: string,
   sessionId: string,
   turnId: string,
 ): Promise<SessionTurnTraceResponse> {
-  return apiRequest(`/sessions/${sessionId}/turns/${turnId}/trace`, { token });
+  return apiRequest(workspacePath(workspaceId, `/sessions/${sessionId}/turns/${turnId}/trace`), { token });
 }
 
 export async function sendMessage(
   token: string,
+  workspaceId: string,
   sessionId: string,
   message: string,
 ): Promise<{ request_id: string }> {
-  return apiRequest(`/sessions/${sessionId}/messages`, {
+  return apiRequest(workspacePath(workspaceId, `/sessions/${sessionId}/messages`), {
     method: "POST",
     token,
     body: { message },
@@ -179,13 +198,14 @@ export async function sendMessage(
 
 export async function streamSessionEvents(
   token: string,
+  workspaceId: string,
   sessionId: string,
   requestId: string,
   onEvent: (event: StreamEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
   const response = await fetch(
-    absoluteUrl(`/sessions/${sessionId}/requests/${requestId}/events`),
+    absoluteUrl(workspacePath(workspaceId, `/sessions/${sessionId}/requests/${requestId}/events`)),
     {
       method: "GET",
       headers: { Authorization: `Bearer ${token}` },
@@ -283,9 +303,10 @@ async function streamSseEvents<T extends StreamEvent>(
 
 export async function runCommand<T>(
   token: string,
+  workspaceId: string,
   payload: CommandPayload,
 ): Promise<CommandEnvelope<T>> {
-  const response = await fetch(absoluteUrl("/command"), {
+  const response = await fetch(absoluteUrl(workspacePath(workspaceId, "/command")), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -308,19 +329,23 @@ export async function runCommand<T>(
   return commandPayload;
 }
 
-export async function listWorkflows(token: string): Promise<WorkflowListResponse> {
-  return apiRequest("/workflow", { token });
+export async function listWorkflows(
+  token: string,
+  workspaceId: string,
+): Promise<WorkflowListResponse> {
+  return apiRequest(workspacePath(workspaceId, "/workflow"), { token });
 }
 
 export async function runWorkflow(
   token: string,
+  workspaceId: string,
   workflowId: string,
   args: {
     dedup_key?: string | null;
     input?: Record<string, unknown>;
   } = {},
 ): Promise<WorkflowRunResponse> {
-  return apiRequest(`/workflow/${encodeURIComponent(workflowId)}/run`, {
+  return apiRequest(workspacePath(workspaceId, `/workflow/${encodeURIComponent(workflowId)}/run`), {
     method: "POST",
     token,
     body: {
@@ -332,28 +357,31 @@ export async function runWorkflow(
 
 export async function getWorkflowRun(
   token: string,
+  workspaceId: string,
   workflowId: string,
   runId: string,
 ): Promise<WorkflowRunStatusResponse> {
   return apiRequest(
-    `/workflow/${encodeURIComponent(workflowId)}/runs/${encodeURIComponent(runId)}`,
+    workspacePath(workspaceId, `/workflow/${encodeURIComponent(workflowId)}/runs/${encodeURIComponent(runId)}`),
     { token },
   );
 }
 
 export async function listWorkflowRuns(
   token: string,
+  workspaceId: string,
   workflowId: string,
   limit = 5,
 ): Promise<WorkflowRunListResponse> {
   return apiRequest(
-    `/workflow/${encodeURIComponent(workflowId)}/runs?limit=${encodeURIComponent(String(limit))}`,
+    workspacePath(workspaceId, `/workflow/${encodeURIComponent(workflowId)}/runs?limit=${encodeURIComponent(String(limit))}`),
     { token },
   );
 }
 
 export async function streamWorkflowEvents(
   token: string,
+  workspaceId: string,
   workflowId: string,
   runId: string,
   onEvent: (event: WorkflowRunEvent) => void,
@@ -361,7 +389,7 @@ export async function streamWorkflowEvents(
 ): Promise<void> {
   return streamSseEvents<WorkflowRunEvent>(
     absoluteUrl(
-      `/workflow/${encodeURIComponent(workflowId)}/runs/${encodeURIComponent(runId)}/events`,
+      workspacePath(workspaceId, `/workflow/${encodeURIComponent(workflowId)}/runs/${encodeURIComponent(runId)}/events`),
     ),
     token,
     onEvent,
@@ -369,8 +397,11 @@ export async function streamWorkflowEvents(
   );
 }
 
-export async function listMetrics(token: string): Promise<MetricsListResponse> {
-  const response = await runCommand<MetricsListResponse>(token, {
+export async function listMetrics(
+  token: string,
+  workspaceId: string,
+): Promise<MetricsListResponse> {
+  const response = await runCommand<MetricsListResponse>(token, workspaceId, {
     surface: "metrics",
     operation: "list",
     args: {},
@@ -380,10 +411,11 @@ export async function listMetrics(token: string): Promise<MetricsListResponse> {
 
 export async function getMetric(
   token: string,
+  workspaceId: string,
   name: string,
   kind: "metric" | "source" = "metric",
 ): Promise<MetricDetailResponse> {
-  const response = await runCommand<MetricDetailResponse>(token, {
+  const response = await runCommand<MetricDetailResponse>(token, workspaceId, {
     surface: "metrics",
     operation: "show",
     args: { kind, name },
@@ -393,10 +425,11 @@ export async function getMetric(
 
 export async function compileMetric(
   token: string,
+  workspaceId: string,
   metricName: string,
   dimensions: string[] = [],
 ): Promise<MetricCompileResponse> {
-  const response = await runCommand<MetricCompileResponse>(token, {
+  const response = await runCommand<MetricCompileResponse>(token, workspaceId, {
     surface: "metrics",
     operation: "compile",
     args: { metric_names: [metricName], dimensions },
@@ -406,6 +439,7 @@ export async function compileMetric(
 
 export async function visualizeMetric(
   token: string,
+  workspaceId: string,
   args: {
     metric_name: string;
     date_dimension?: string | null;
@@ -416,7 +450,7 @@ export async function visualizeMetric(
     date_range?: { start?: string; end?: string } | null;
   },
 ): Promise<MetricVisualizationResponse> {
-  const response = await runCommand<MetricVisualizationResponse>(token, {
+  const response = await runCommand<MetricVisualizationResponse>(token, workspaceId, {
     surface: "metrics",
     operation: "visualize",
     args,
@@ -424,8 +458,11 @@ export async function visualizeMetric(
   return response.data;
 }
 
-export async function listExperiments(token: string): Promise<ExperimentListResponse> {
-  const response = await runCommand<ExperimentListResponse>(token, {
+export async function listExperiments(
+  token: string,
+  workspaceId: string,
+): Promise<ExperimentListResponse> {
+  const response = await runCommand<ExperimentListResponse>(token, workspaceId, {
     surface: "experiments",
     operation: "list",
     args: {},
@@ -435,9 +472,10 @@ export async function listExperiments(token: string): Promise<ExperimentListResp
 
 export async function getExperiment(
   token: string,
+  workspaceId: string,
   name: string,
 ): Promise<ExperimentDetailResponse> {
-  const response = await runCommand<ExperimentDetailResponse>(token, {
+  const response = await runCommand<ExperimentDetailResponse>(token, workspaceId, {
     surface: "experiments",
     operation: "show",
     args: { name },
@@ -447,9 +485,10 @@ export async function getExperiment(
 
 export async function getExperimentPlan(
   token: string,
+  workspaceId: string,
   name: string,
 ) : Promise<ExperimentPlanResponse> {
-  const response = await runCommand<ExperimentPlanResponse>(token, {
+  const response = await runCommand<ExperimentPlanResponse>(token, workspaceId, {
     surface: "experiments",
     operation: "plan",
     args: { name },
@@ -459,12 +498,13 @@ export async function getExperimentPlan(
 
 export async function analyzeExperiment(
   token: string,
+  workspaceId: string,
   args: {
     name: string;
     metric_id?: string | null;
   },
 ): Promise<ExperimentAnalysisResponse> {
-  const response = await runCommand<ExperimentAnalysisResponse>(token, {
+  const response = await runCommand<ExperimentAnalysisResponse>(token, workspaceId, {
     surface: "experiments",
     operation: "analyze",
     args,
@@ -472,8 +512,11 @@ export async function analyzeExperiment(
   return response.data;
 }
 
-export async function listArtifacts(token: string): Promise<ArtifactListResponse> {
-  const response = await runCommand<ArtifactListResponse>(token, {
+export async function listArtifacts(
+  token: string,
+  workspaceId: string,
+): Promise<ArtifactListResponse> {
+  const response = await runCommand<ArtifactListResponse>(token, workspaceId, {
     surface: "artifacts",
     operation: "list",
     args: {},
@@ -483,9 +526,10 @@ export async function listArtifacts(token: string): Promise<ArtifactListResponse
 
 export async function searchArtifacts(
   token: string,
+  workspaceId: string,
   query: string,
 ): Promise<ArtifactSearchResponse> {
-  const response = await runCommand<ArtifactSearchResponse>(token, {
+  const response = await runCommand<ArtifactSearchResponse>(token, workspaceId, {
     surface: "artifacts",
     operation: "search",
     args: { query, limit: 10 },
@@ -495,9 +539,10 @@ export async function searchArtifacts(
 
 export async function getArtifact(
   token: string,
+  workspaceId: string,
   artifactId: string,
 ): Promise<ArtifactDetailResponse> {
-  const response = await runCommand<ArtifactDetailResponse>(token, {
+  const response = await runCommand<ArtifactDetailResponse>(token, workspaceId, {
     surface: "artifacts",
     operation: "show",
     args: { artifact_id: artifactId },
@@ -505,8 +550,11 @@ export async function getArtifact(
   return response.data;
 }
 
-export async function listSkills(token: string): Promise<SkillListResponse> {
-  const response = await runCommand<SkillListResponse>(token, {
+export async function listSkills(
+  token: string,
+  workspaceId: string,
+): Promise<SkillListResponse> {
+  const response = await runCommand<SkillListResponse>(token, workspaceId, {
     surface: "skills",
     operation: "list",
     args: {},
@@ -516,9 +564,10 @@ export async function listSkills(token: string): Promise<SkillListResponse> {
 
 export async function searchSkills(
   token: string,
+  workspaceId: string,
   query: string,
 ): Promise<SkillSearchResponse> {
-  const response = await runCommand<SkillSearchResponse>(token, {
+  const response = await runCommand<SkillSearchResponse>(token, workspaceId, {
     surface: "skills",
     operation: "search",
     args: { query, limit: 10 },
@@ -528,9 +577,10 @@ export async function searchSkills(
 
 export async function getSkill(
   token: string,
+  workspaceId: string,
   skillId: string,
 ): Promise<SkillDetailResponse> {
-  const response = await runCommand<SkillDetailResponse>(token, {
+  const response = await runCommand<SkillDetailResponse>(token, workspaceId, {
     surface: "skills",
     operation: "show",
     args: { skill_id: skillId },
@@ -540,8 +590,9 @@ export async function getSkill(
 
 export async function listWorkflowsCommand(
   token: string,
+  workspaceId: string,
 ): Promise<WorkflowListResponse> {
-  const response = await runCommand<WorkflowListResponse>(token, {
+  const response = await runCommand<WorkflowListResponse>(token, workspaceId, {
     surface: "workflows",
     operation: "list",
     args: {},
@@ -551,13 +602,14 @@ export async function listWorkflowsCommand(
 
 export async function runWorkflowCommand(
   token: string,
+  workspaceId: string,
   args: {
     workflow_id: string;
     dedup_key?: string | null;
     input?: Record<string, unknown>;
   },
 ): Promise<WorkflowRunResponse> {
-  const response = await runCommand<WorkflowRunResponse>(token, {
+  const response = await runCommand<WorkflowRunResponse>(token, workspaceId, {
     surface: "workflows",
     operation: "run",
     args,
@@ -567,12 +619,13 @@ export async function runWorkflowCommand(
 
 export async function getWorkflowRunCommand(
   token: string,
+  workspaceId: string,
   args: {
     workflow_id: string;
     run_id: string;
   },
 ): Promise<WorkflowRunStatusResponse> {
-  const response = await runCommand<WorkflowRunStatusResponse>(token, {
+  const response = await runCommand<WorkflowRunStatusResponse>(token, workspaceId, {
     surface: "workflows",
     operation: "status",
     args,

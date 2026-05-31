@@ -60,6 +60,8 @@ class _FakeAsyncConnection:
             return []
         if query.startswith("CREATE INDEX IF NOT EXISTS idx_sessions_user_id"):
             return []
+        if query.startswith("CREATE INDEX IF NOT EXISTS idx_sessions_workspace_user_id"):
+            return []
         if query.startswith("CREATE INDEX IF NOT EXISTS idx_sessions_last_opened_at"):
             return []
         if query.startswith("CREATE TABLE IF NOT EXISTS skills"):
@@ -95,8 +97,9 @@ class _FakeAsyncConnection:
             self.users_by_username[str(username)] = str(user_id)
             return [dict(payload)]
         if query.startswith("INSERT INTO sessions"):
-            session_id, user_id, agent_id, label, created_at, last_opened_at = params
+            workspace_id, session_id, user_id, agent_id, label, created_at, last_opened_at = params
             payload = {
+                "workspace_id": str(workspace_id),
                 "session_id": str(session_id),
                 "user_id": str(user_id),
                 "agent_id": str(agent_id),
@@ -106,32 +109,39 @@ class _FakeAsyncConnection:
             }
             self.sessions[str(session_id)] = payload
             return []
-        if query.startswith("SELECT session_id, user_id, agent_id, label, created_at, last_opened_at FROM sessions WHERE session_id ="):
-            session = self.sessions.get(str(params[0]))
-            return [dict(session)] if session is not None else []
+        if query.startswith("SELECT workspace_id, session_id, user_id, agent_id, label"):
+            if "WHERE workspace_id = %s AND session_id = %s" in query:
+                workspace_id, session_id = params
+                session = self.sessions.get(str(session_id))
+                if session is None or str(session["workspace_id"]) != str(workspace_id):
+                    return []
+                return [dict(session)]
+            if "WHERE workspace_id = %s AND user_id = %s" in query:
+                workspace_id, user_id = params
+                rows = [
+                    dict(session)
+                    for session in self.sessions.values()
+                    if str(session["workspace_id"]) == str(workspace_id)
+                    and str(session["user_id"]) == str(user_id)
+                ]
+                rows.sort(
+                    key=lambda item: (-float(item["last_opened_at"]), -float(item["created_at"]))
+                )
+                return rows
         if query.startswith("UPDATE sessions SET last_opened_at ="):
-            last_opened_at, session_id = params
+            last_opened_at, workspace_id, session_id = params
             session = self.sessions.get(str(session_id))
-            if session is not None:
+            if session is not None and str(session["workspace_id"]) == str(workspace_id):
                 session["last_opened_at"] = float(last_opened_at)
             return []
-        if query.startswith("SELECT session_id, user_id, agent_id, label, created_at, last_opened_at FROM sessions WHERE user_id ="):
-            user_id = str(params[0])
-            rows = [
-                dict(session)
-                for session in self.sessions.values()
-                if str(session["user_id"]) == user_id
-            ]
-            rows.sort(
-                key=lambda item: (-float(item["last_opened_at"]), -float(item["created_at"]))
-            )
-            return rows
-        if query.startswith("SELECT session_id FROM sessions WHERE user_id ="):
-            user_id = str(params[0])
+        if query.startswith("SELECT session_id FROM sessions WHERE workspace_id ="):
+            workspace_id = str(params[0])
+            user_id = str(params[1])
             rows = [
                 {"session_id": str(session["session_id"])}
                 for session in self.sessions.values()
-                if str(session["user_id"]) == user_id
+                if str(session["workspace_id"]) == workspace_id
+                and str(session["user_id"]) == user_id
             ]
             return rows
         if query.startswith("INSERT INTO skills"):
@@ -320,25 +330,41 @@ async def test_beta_store_touch_session_updates_ordering(
 
     user = await store.ensure_user("alice")
     first = await store.create_session(
+        workspace_id="marketing_db",
         session_id="session-1",
         user_id=str(user["id"]),
         agent_id="data",
         label=None,
     )
     second = await store.create_session(
+        workspace_id="sales_db",
+        session_id="session-3",
+        user_id=str(user["id"]),
+        agent_id="data",
+        label=None,
+    )
+    third = await store.create_session(
+        workspace_id="marketing_db",
         session_id="session-2",
         user_id=str(user["id"]),
         agent_id="data",
         label=None,
     )
 
-    before = await store.list_sessions_for_user(str(user["id"]))
-    assert [item["session_id"] for item in before] == [second["session_id"], first["session_id"]]
+    before = await store.list_sessions_for_user(
+        workspace_id="marketing_db",
+        user_id=str(user["id"]),
+    )
+    assert [item["session_id"] for item in before] == [third["session_id"], first["session_id"]]
 
-    await store.touch_session(first["session_id"])
+    await store.touch_session(workspace_id="marketing_db", session_id=first["session_id"])
 
-    after = await store.list_sessions_for_user(str(user["id"]))
-    assert [item["session_id"] for item in after] == [first["session_id"], second["session_id"]]
+    after = await store.list_sessions_for_user(
+        workspace_id="marketing_db",
+        user_id=str(user["id"]),
+    )
+    assert [item["session_id"] for item in after] == [first["session_id"], third["session_id"]]
+    assert all(item["workspace_id"] == "marketing_db" for item in after)
 
 
 @pytest.mark.anyio

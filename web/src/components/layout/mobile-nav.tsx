@@ -15,6 +15,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { SessionList } from "@/components/layout/session-list";
 import { SidebarNav } from "@/components/layout/sidebar-nav";
+import { WorkspaceSwitcher } from "@/components/layout/workspace-switcher";
 
 export function MobileNav() {
   const [open, setOpen] = useState(false);
@@ -38,6 +39,7 @@ export function MobileNav() {
           </SheetDescription>
         </SheetHeader>
         <div className="mt-5 space-y-5">
+          <WorkspaceSwitcher />
           <SidebarNav onNavigate={() => setOpen(false)} />
           <Separator />
           <SessionList onNavigate={() => setOpen(false)} />

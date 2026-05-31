@@ -7,6 +7,7 @@ from typing import Any, Callable, List
 
 from mash.tools.base import FunctionTool, Tool
 
+from ..shared.workspace_context import current_workspace_dir
 from .service.context import build_tool_context
 from .service.tool_entrypoints import (
     list_artifacts_tool,
@@ -16,17 +17,18 @@ from .service.tool_entrypoints import (
 )
 
 
-def _async_tool_executor(
-    func: Callable[[dict[str, Any], Any], Any], context: Any
+def _workspace_tool_executor(
+    func: Callable[[dict[str, Any], Any], Any],
+    workspace_root: Path | None,
 ) -> Callable[[dict[str, Any]], Any]:
     async def _executor(args: dict[str, Any]) -> Any:
-        return func(args, context)
+        root = workspace_root if workspace_root is not None else current_workspace_dir()
+        return func(args, build_tool_context(root))
 
     return _executor
 
 
-def build_artifact_tools(workspace_root: Path) -> List[Tool]:
-    context = build_tool_context(workspace_root)
+def build_artifact_tools(workspace_root: Path | None = None) -> List[Tool]:
     return [
         FunctionTool(
             name="list_artifacts",
@@ -38,7 +40,7 @@ def build_artifact_tools(workspace_root: Path) -> List[Tool]:
                     "limit": {"type": "integer", "minimum": 1},
                 },
             },
-            _executor=_async_tool_executor(list_artifacts_tool, context),
+            _executor=_workspace_tool_executor(list_artifacts_tool, workspace_root),
         ),
         FunctionTool(
             name="read_artifact",
@@ -50,7 +52,7 @@ def build_artifact_tools(workspace_root: Path) -> List[Tool]:
                 },
                 "required": ["artifact_id"],
             },
-            _executor=_async_tool_executor(read_artifact_tool, context),
+            _executor=_workspace_tool_executor(read_artifact_tool, workspace_root),
         ),
         FunctionTool(
             name="search_artifacts",
@@ -63,7 +65,7 @@ def build_artifact_tools(workspace_root: Path) -> List[Tool]:
                 },
                 "required": ["query"],
             },
-            _executor=_async_tool_executor(search_artifacts_tool, context),
+            _executor=_workspace_tool_executor(search_artifacts_tool, workspace_root),
         ),
         FunctionTool(
             name="write_new_artifact_file",
@@ -81,6 +83,6 @@ def build_artifact_tools(workspace_root: Path) -> List[Tool]:
                     "format": {"type": "string", "enum": ["markdown", "html"]},
                 },
             },
-            _executor=_async_tool_executor(write_new_artifact_file_tool, context),
+            _executor=_workspace_tool_executor(write_new_artifact_file_tool, workspace_root),
         ),
     ]

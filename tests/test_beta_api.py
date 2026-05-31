@@ -155,6 +155,7 @@ class _FakeBetaStore:
     async def create_session(
         self,
         *,
+        workspace_id: str,
         session_id: str,
         user_id: str,
         agent_id: str,
@@ -162,6 +163,7 @@ class _FakeBetaStore:
     ) -> dict[str, Any]:
         now = float(len(self._sessions) + 1)
         payload = {
+            "workspace_id": workspace_id,
             "session_id": session_id,
             "user_id": user_id,
             "agent_id": agent_id,
@@ -172,32 +174,42 @@ class _FakeBetaStore:
         self._sessions[session_id] = payload
         return dict(payload)
 
-    async def get_session(self, session_id: str) -> dict[str, Any] | None:
+    async def get_session(
+        self, *, workspace_id: str, session_id: str
+    ) -> dict[str, Any] | None:
         session = self._sessions.get(session_id)
-        return dict(session) if session is not None else None
+        if session is None or str(session.get("workspace_id")) != str(workspace_id):
+            return None
+        return dict(session)
 
-    async def touch_session(self, session_id: str) -> None:
+    async def touch_session(self, *, workspace_id: str, session_id: str) -> None:
         session = self._sessions.get(session_id)
-        if session is None:
+        if session is None or str(session.get("workspace_id")) != str(workspace_id):
             return
         session["last_opened_at"] = float(session["last_opened_at"]) + 1000.0
 
-    async def list_sessions_for_user(self, user_id: str) -> list[dict[str, Any]]:
+    async def list_sessions_for_user(
+        self, *, workspace_id: str, user_id: str
+    ) -> list[dict[str, Any]]:
         rows = [
             dict(session)
             for session in self._sessions.values()
-            if str(session["user_id"]) == str(user_id)
+            if str(session["workspace_id"]) == str(workspace_id)
+            and str(session["user_id"]) == str(user_id)
         ]
         rows.sort(
             key=lambda item: (-float(item["last_opened_at"]), -float(item["created_at"]))
         )
         return rows
 
-    async def list_session_ids_for_user(self, user_id: str) -> set[str]:
+    async def list_session_ids_for_user(
+        self, *, workspace_id: str, user_id: str
+    ) -> set[str]:
         return {
             str(session["session_id"])
             for session in self._sessions.values()
-            if str(session["user_id"]) == str(user_id)
+            if str(session["workspace_id"]) == str(workspace_id)
+            and str(session["user_id"]) == str(user_id)
         }
 
     async def upsert_authored_skill(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -368,6 +380,36 @@ Launch readiness was green across paid and lifecycle channels.
 """,
         encoding="utf-8",
     )
+    _write_html_artifact(artifacts_root)
+
+
+def _write_named_artifact_workspace(root: Path, workspace_id: str, artifact_id: str) -> None:
+    artifacts_root = root / workspace_id / "artifacts"
+    artifacts_root.mkdir(parents=True, exist_ok=True)
+    (artifacts_root / f"{artifact_id}.md").write_text(
+        f"""---
+artifact_id: {artifact_id}
+source_agent: data
+title: {workspace_id} Readout
+description: Workspace-specific artifact.
+kind: readout
+session_id: session-1
+updated_at: 2026-04-05T12:00:00Z
+---
+
+## Summary
+
+This artifact belongs to {workspace_id}.
+
+## Next Steps
+
+- Keep this workspace isolated.
+""",
+        encoding="utf-8",
+    )
+
+
+def _write_html_artifact(artifacts_root: Path) -> None:
     (artifacts_root / "launch_dashboard_q2.html").write_text(
         """---
 artifact_id: launch_dashboard_q2
@@ -406,6 +448,94 @@ def _login(client: TestClient, username: str) -> tuple[str, dict[str, Any]]:
 
 def _auth_headers(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
+
+
+def test_workspace_endpoints_list_and_validate_workspaces(tmp_path: Path) -> None:
+    workspace_root = tmp_path / "workspace"
+    (workspace_root / "marketing_db").mkdir(parents=True)
+    (workspace_root / "sales_db").mkdir()
+    (workspace_root / ".hidden").mkdir()
+
+    with patch.dict("os.environ", {"CREW_WORKSPACE_ROOT": str(workspace_root)}, clear=False):
+        with patch.object(PMAgentSpec, "build_llm", return_value=_DelegatingLLM()), patch.object(
+            DataAgentSpec, "build_llm", return_value=_EchoLLM()
+        ), patch.object(DataAgentSpec, "build_mcp_servers", return_value=[]):
+            with _build_test_client(tmp_path) as client:
+                token, _ = _login(client, "alice")
+                headers = _auth_headers(token)
+
+                response = client.get("/workspace", headers=headers)
+                assert response.status_code == 200
+                assert [
+                    item["workspace_id"]
+                    for item in response.json()["data"]["workspaces"]
+                ] == ["marketing_db", "sales_db"]
+
+                detail = client.get("/workspace/sales_db", headers=headers)
+                assert detail.status_code == 200
+                assert detail.json()["data"]["dataset_id"] == "sales_db"
+
+                missing = client.get("/workspace/missing", headers=headers)
+                assert missing.status_code == 404
+                assert missing.json()["error"]["code"] == "WORKSPACE_NOT_FOUND"
+
+
+def test_workspace_scoped_sessions_and_artifacts_are_isolated(tmp_path: Path) -> None:
+    workspace_root = tmp_path / "workspace"
+    _write_named_artifact_workspace(workspace_root, "marketing_db", "marketing_readout")
+    _write_named_artifact_workspace(workspace_root, "sales_db", "sales_readout")
+
+    with patch.dict("os.environ", {"CREW_WORKSPACE_ROOT": str(workspace_root)}, clear=False):
+        with patch.object(PMAgentSpec, "build_llm", return_value=_DelegatingLLM()), patch.object(
+            DataAgentSpec, "build_llm", return_value=_EchoLLM()
+        ), patch.object(DataAgentSpec, "build_mcp_servers", return_value=[]):
+            with _build_test_client(tmp_path) as client:
+                token, _ = _login(client, "alice")
+                headers = _auth_headers(token)
+
+                marketing_session = client.post(
+                    "/workspace/marketing_db/sessions",
+                    json={"label": "Marketing"},
+                    headers=headers,
+                )
+                assert marketing_session.status_code == 200
+                session_id = marketing_session.json()["data"]["session_id"]
+                assert marketing_session.json()["data"]["workspace_id"] == "marketing_db"
+
+                sales_sessions = client.get(
+                    "/workspace/sales_db/sessions",
+                    headers=headers,
+                )
+                assert sales_sessions.status_code == 200
+                assert sales_sessions.json()["data"]["sessions"] == []
+
+                wrong_workspace = client.get(
+                    f"/workspace/sales_db/sessions/{session_id}",
+                    headers=headers,
+                )
+                assert wrong_workspace.status_code == 404
+
+                marketing_artifacts = client.post(
+                    "/workspace/marketing_db/command",
+                    json={"surface": "artifacts", "operation": "list", "args": {}},
+                    headers=headers,
+                )
+                assert marketing_artifacts.status_code == 200
+                assert [
+                    item["artifact_id"]
+                    for item in marketing_artifacts.json()["data"]["artifacts"]
+                ] == ["marketing_readout"]
+
+                sales_artifacts = client.post(
+                    "/workspace/sales_db/command",
+                    json={"surface": "artifacts", "operation": "list", "args": {}},
+                    headers=headers,
+                )
+                assert sales_artifacts.status_code == 200
+                assert [
+                    item["artifact_id"]
+                    for item in sales_artifacts.json()["data"]["artifacts"]
+                ] == ["sales_readout"]
 
 
 def test_build_beta_app_requires_database_url(monkeypatch) -> None:
@@ -469,34 +599,34 @@ def test_user_sessions_are_private_and_history_proxies(tmp_path: Path) -> None:
             bob_token, _ = _login(client, "bob")
 
             created = client.post(
-                "/sessions",
+                "/workspace/marketing_db/sessions",
                 json={"label": "Activation chat"},
                 headers=_auth_headers(alice_token),
             )
             assert created.status_code == 200
             session_id = created.json()["data"]["session_id"]
 
-            listed = client.get("/sessions", headers=_auth_headers(alice_token))
+            listed = client.get("/workspace/marketing_db/sessions", headers=_auth_headers(alice_token))
             assert listed.status_code == 200
             assert [item["session_id"] for item in listed.json()["data"]["sessions"]] == [
                 session_id
             ]
 
             empty_history = client.get(
-                f"/sessions/{session_id}/history",
+                f"/workspace/marketing_db/sessions/{session_id}/history",
                 headers=_auth_headers(alice_token),
             )
             assert empty_history.status_code == 200
             assert empty_history.json()["data"]["turns"] == []
 
             denied = client.get(
-                f"/sessions/{session_id}/history",
+                f"/workspace/marketing_db/sessions/{session_id}/history",
                 headers=_auth_headers(bob_token),
             )
             assert denied.status_code == 403
 
             sent = client.post(
-                f"/sessions/{session_id}/messages",
+                f"/workspace/marketing_db/sessions/{session_id}/messages",
                 json={"message": "hello crew"},
                 headers=_auth_headers(alice_token),
             )
@@ -505,7 +635,7 @@ def test_user_sessions_are_private_and_history_proxies(tmp_path: Path) -> None:
 
             events = _collect_sse_events(
                 client,
-                f"/sessions/{session_id}/requests/{request_id}/events",
+                f"/workspace/marketing_db/sessions/{session_id}/requests/{request_id}/events",
                 token=alice_token,
             )
             assert events[-1]["event"] == "request.completed"
@@ -519,7 +649,7 @@ def test_user_sessions_are_private_and_history_proxies(tmp_path: Path) -> None:
             assert events[-1]["data"]["runtime_event"]["sequence"] >= 1
 
             history = client.get(
-                f"/sessions/{session_id}/history",
+                f"/workspace/marketing_db/sessions/{session_id}/history",
                 headers=_auth_headers(alice_token),
             )
             assert history.status_code == 200
@@ -533,7 +663,7 @@ def test_user_sessions_are_private_and_history_proxies(tmp_path: Path) -> None:
                 "total_tokens": 2,
             }
 
-            relisted = client.get("/sessions", headers=_auth_headers(alice_token))
+            relisted = client.get("/workspace/marketing_db/sessions", headers=_auth_headers(alice_token))
             assert relisted.status_code == 200
             enriched_session = relisted.json()["data"]["sessions"][0]
             assert enriched_session["preview_text"] == "echo:hello crew"
@@ -550,40 +680,40 @@ def test_session_search_filters_results_to_owned_sessions(tmp_path: Path) -> Non
             bob_token, _ = _login(client, "bob")
 
             alice_session = client.post(
-                "/sessions",
+                "/workspace/marketing_db/sessions",
                 json={},
                 headers=_auth_headers(alice_token),
             ).json()["data"]["session_id"]
             bob_session = client.post(
-                "/sessions",
+                "/workspace/marketing_db/sessions",
                 json={},
                 headers=_auth_headers(bob_token),
             ).json()["data"]["session_id"]
 
             alice_request = client.post(
-                f"/sessions/{alice_session}/messages",
+                f"/workspace/marketing_db/sessions/{alice_session}/messages",
                 json={"message": "activation keyword alpha"},
                 headers=_auth_headers(alice_token),
             ).json()["data"]["request_id"]
             _collect_sse_events(
                 client,
-                f"/sessions/{alice_session}/requests/{alice_request}/events",
+                f"/workspace/marketing_db/sessions/{alice_session}/requests/{alice_request}/events",
                 token=alice_token,
             )
 
             bob_request = client.post(
-                f"/sessions/{bob_session}/messages",
+                f"/workspace/marketing_db/sessions/{bob_session}/messages",
                 json={"message": "activation keyword beta"},
                 headers=_auth_headers(bob_token),
             ).json()["data"]["request_id"]
             _collect_sse_events(
                 client,
-                f"/sessions/{bob_session}/requests/{bob_request}/events",
+                f"/workspace/marketing_db/sessions/{bob_session}/requests/{bob_request}/events",
                 token=bob_token,
             )
 
             own = client.get(
-                "/sessions/search",
+                "/workspace/marketing_db/sessions/search",
                 params={"q": "alpha"},
                 headers=_auth_headers(alice_token),
             )
@@ -593,7 +723,7 @@ def test_session_search_filters_results_to_owned_sessions(tmp_path: Path) -> Non
             assert all(result["session_id"] == alice_session for result in own_results)
 
             filtered = client.get(
-                "/sessions/search",
+                "/workspace/marketing_db/sessions/search",
                 params={"q": "beta"},
                 headers=_auth_headers(alice_token),
             )
@@ -609,7 +739,7 @@ def test_session_history_turn_trace_can_be_loaded_from_runtime_store(tmp_path: P
             token, _ = _login(client, "alice")
 
             created = client.post(
-                "/sessions",
+                "/workspace/marketing_db/sessions",
                 json={"label": "Trace hydration"},
                 headers=_auth_headers(token),
             )
@@ -617,7 +747,7 @@ def test_session_history_turn_trace_can_be_loaded_from_runtime_store(tmp_path: P
             session_id = created.json()["data"]["session_id"]
 
             sent = client.post(
-                f"/sessions/{session_id}/messages",
+                f"/workspace/marketing_db/sessions/{session_id}/messages",
                 json={"message": "trace me"},
                 headers=_auth_headers(token),
             )
@@ -625,19 +755,19 @@ def test_session_history_turn_trace_can_be_loaded_from_runtime_store(tmp_path: P
             request_id = sent.json()["data"]["request_id"]
             _collect_sse_events(
                 client,
-                f"/sessions/{session_id}/requests/{request_id}/events",
+                f"/workspace/marketing_db/sessions/{session_id}/requests/{request_id}/events",
                 token=token,
             )
 
             history = client.get(
-                f"/sessions/{session_id}/history",
+                f"/workspace/marketing_db/sessions/{session_id}/history",
                 headers=_auth_headers(token),
             )
             assert history.status_code == 200
             turn_id = history.json()["data"]["turns"][0]["turn_id"]
 
             trace = client.get(
-                f"/sessions/{session_id}/turns/{turn_id}/trace",
+                f"/workspace/marketing_db/sessions/{session_id}/turns/{turn_id}/trace",
                 headers=_auth_headers(token),
             )
             assert trace.status_code == 200
@@ -737,7 +867,7 @@ def test_workflow_endpoints_are_authenticated_and_use_host_service(
         with _build_test_client(tmp_path) as client:
             token, _ = _login(client, "alice")
 
-            workflows = client.get("/workflow", headers=_auth_headers(token))
+            workflows = client.get("/workspace/marketing_db/workflow", headers=_auth_headers(token))
             assert workflows.status_code == 200
             listed = {
                 workflow["workflow_id"]: workflow
@@ -747,11 +877,11 @@ def test_workflow_endpoints_are_authenticated_and_use_host_service(
                 {"task_id": "digest-traces", "agent_id": "masher"}
             ]
 
-            unauthorized = client.get("/workflow")
+            unauthorized = client.get("/workspace/marketing_db/workflow")
             assert unauthorized.status_code == 401
 
             started = client.post(
-                "/workflow/masher-trace-digest/run",
+                "/workspace/marketing_db/workflow/masher-trace-digest/run",
                 json={
                     "dedup_key": "trace-123",
                     "input": {
@@ -779,7 +909,7 @@ def test_workflow_endpoints_are_authenticated_and_use_host_service(
             }
 
             status = client.get(
-                "/workflow/masher-trace-digest/runs/mw:h_test:masher-trace-digest:abc",
+                "/workspace/marketing_db/workflow/masher-trace-digest/runs/mw:h_test:masher-trace-digest:abc",
                 headers=_auth_headers(token),
             )
             assert status.status_code == 200
@@ -792,7 +922,7 @@ def test_workflow_endpoints_are_authenticated_and_use_host_service(
             }
 
             runs = client.get(
-                "/workflow/masher-trace-digest/runs?limit=5",
+                "/workspace/marketing_db/workflow/masher-trace-digest/runs?limit=5",
                 headers=_auth_headers(token),
             )
             assert runs.status_code == 200
@@ -865,7 +995,7 @@ def test_authored_workflow_publish_endpoint_registers_primary_agent_workflow(
             }
 
             response = client.post(
-                "/workflow",
+                "/workspace/marketing_db/workflow",
                 json=payload,
                 headers=_auth_headers(token),
             )
@@ -884,13 +1014,13 @@ def test_authored_workflow_publish_endpoint_registers_primary_agent_workflow(
             assert "publish_workflow" in host.get_agent("data").tools.list_tools()
 
             detail = client.get(
-                "/workflow/weekly-business-review",
+                "/workspace/marketing_db/workflow/weekly-business-review",
                 headers=_auth_headers(token),
             )
             assert detail.status_code == 200
             assert detail.json()["data"]["skill"]["name"] == "weekly-metrics-review"
 
-            listed = client.get("/workflow", headers=_auth_headers(token))
+            listed = client.get("/workspace/marketing_db/workflow", headers=_auth_headers(token))
             assert listed.status_code == 200
             workflows = {
                 item["workflow_id"]: item
@@ -899,7 +1029,7 @@ def test_authored_workflow_publish_endpoint_registers_primary_agent_workflow(
             assert workflows["weekly-business-review"]["source"] == "crew-authored"
 
             builtin_detail = client.get(
-                "/workflow/masher-trace-digest",
+                "/workspace/marketing_db/workflow/masher-trace-digest",
                 headers=_auth_headers(token),
             )
             assert builtin_detail.status_code == 200
@@ -914,27 +1044,27 @@ def test_workflow_trace_uses_session_turn_trace_endpoint(tmp_path: Path) -> None
             token, _ = _login(client, "alice")
             headers = _auth_headers(token)
             created = client.post(
-                "/sessions",
+                "/workspace/marketing_db/sessions",
                 json={"label": "Workflow trace source"},
                 headers=headers,
             )
             session_id = created.json()["data"]["session_id"]
             sent = client.post(
-                f"/sessions/{session_id}/messages",
+                f"/workspace/marketing_db/sessions/{session_id}/messages",
                 json={"message": "trace me"},
                 headers=headers,
             )
             request_id = sent.json()["data"]["request_id"]
             _collect_sse_events(
                 client,
-                f"/sessions/{session_id}/requests/{request_id}/events",
+                f"/workspace/marketing_db/sessions/{session_id}/requests/{request_id}/events",
                 token=token,
             )
-            history = client.get(f"/sessions/{session_id}/history", headers=headers)
+            history = client.get(f"/workspace/marketing_db/sessions/{session_id}/history", headers=headers)
             trace_id = history.json()["data"]["turns"][0]["turn_id"]
 
             response = client.get(
-                f"/sessions/{session_id}/turns/{trace_id}/trace",
+                f"/workspace/marketing_db/sessions/{session_id}/turns/{trace_id}/trace",
                 headers=headers,
             )
 
@@ -995,7 +1125,7 @@ def test_workflow_command_surface_dispatches_host_service(tmp_path: Path) -> Non
             headers = _auth_headers(token)
 
             listed = client.post(
-                "/command",
+                "/workspace/marketing_db/command",
                 json={"surface": "workflows", "operation": "list", "args": {}},
                 headers=headers,
             )
@@ -1011,7 +1141,7 @@ def test_workflow_command_surface_dispatches_host_service(tmp_path: Path) -> Non
             ]
 
             started = client.post(
-                "/command",
+                "/workspace/marketing_db/command",
                 json={
                     "surface": "workflows",
                     "operation": "run",
@@ -1044,7 +1174,7 @@ def test_workflow_command_surface_dispatches_host_service(tmp_path: Path) -> Non
             }
 
             status = client.post(
-                "/command",
+                "/workspace/marketing_db/command",
                 json={
                     "surface": "workflows",
                     "operation": "status",
@@ -1095,7 +1225,7 @@ def test_workflow_event_stream_uses_beta_host_service(tmp_path: Path) -> None:
 
             events = _collect_sse_events(
                 client,
-                "/workflow/masher-trace-digest/runs/"
+                "/workspace/marketing_db/workflow/masher-trace-digest/runs/"
                 "mw:h_test:masher-trace-digest:abc/events",
                 token=token,
             )
@@ -1145,21 +1275,21 @@ def test_workflow_command_surface_maps_errors(tmp_path: Path) -> None:
             headers = _auth_headers(token)
 
             invalid_operation = client.post(
-                "/command",
+                "/workspace/marketing_db/command",
                 json={"surface": "workflows", "operation": "delete", "args": {}},
                 headers=headers,
             )
             assert invalid_operation.status_code == 400
 
             missing_id = client.post(
-                "/command",
+                "/workspace/marketing_db/command",
                 json={"surface": "workflows", "operation": "run", "args": {}},
                 headers=headers,
             )
             assert missing_id.status_code == 422
 
             invalid_input = client.post(
-                "/command",
+                "/workspace/marketing_db/command",
                 json={
                     "surface": "workflows",
                     "operation": "run",
@@ -1170,7 +1300,7 @@ def test_workflow_command_surface_maps_errors(tmp_path: Path) -> None:
             assert invalid_input.status_code == 422
 
             duplicate = client.post(
-                "/command",
+                "/workspace/marketing_db/command",
                 json={
                     "surface": "workflows",
                     "operation": "run",
@@ -1184,7 +1314,7 @@ def test_workflow_command_surface_maps_errors(tmp_path: Path) -> None:
             )
 
             not_found = client.post(
-                "/command",
+                "/workspace/marketing_db/command",
                 json={
                     "surface": "workflows",
                     "operation": "status",
@@ -1203,7 +1333,7 @@ def test_session_signals_proxy_returns_definitions_and_turn_values(tmp_path: Pat
             token, _ = _login(client, "alice")
 
             created = client.post(
-                "/sessions",
+                "/workspace/marketing_db/sessions",
                 json={"label": "Signals"},
                 headers=_auth_headers(token),
             )
@@ -1211,7 +1341,7 @@ def test_session_signals_proxy_returns_definitions_and_turn_values(tmp_path: Pat
             session_id = created.json()["data"]["session_id"]
 
             sent = client.post(
-                f"/sessions/{session_id}/messages",
+                f"/workspace/marketing_db/sessions/{session_id}/messages",
                 json={"message": "capture signals"},
                 headers=_auth_headers(token),
             )
@@ -1219,12 +1349,12 @@ def test_session_signals_proxy_returns_definitions_and_turn_values(tmp_path: Pat
             request_id = sent.json()["data"]["request_id"]
             _collect_sse_events(
                 client,
-                f"/sessions/{session_id}/requests/{request_id}/events",
+                f"/workspace/marketing_db/sessions/{session_id}/requests/{request_id}/events",
                 token=token,
             )
 
             response = client.get(
-                f"/sessions/{session_id}/signals",
+                f"/workspace/marketing_db/sessions/{session_id}/signals",
                 headers=_auth_headers(token),
             )
             assert response.status_code == 200
@@ -1280,7 +1410,7 @@ def test_command_endpoint_dispatches_surfaces(tmp_path: Path) -> None:
             headers = _auth_headers(token)
 
             metrics_list = client.post(
-                "/command",
+                "/workspace/marketing_db/command",
                 json={"surface": "metrics", "operation": "list", "args": {}},
                 headers=headers,
             )
@@ -1291,7 +1421,7 @@ def test_command_endpoint_dispatches_surfaces(tmp_path: Path) -> None:
             assert metrics_list.json()["data"]["dataset_id"] == "marketing_db"
 
             metrics_compile = client.post(
-                "/command",
+                "/workspace/marketing_db/command",
                 json={
                     "surface": "metrics",
                     "operation": "compile",
@@ -1303,7 +1433,7 @@ def test_command_endpoint_dispatches_surfaces(tmp_path: Path) -> None:
             assert metrics_compile.json()["data"]["plans"]
 
             metrics_show = client.post(
-                "/command",
+                "/workspace/marketing_db/command",
                 json={
                     "surface": "metrics",
                     "operation": "show",
@@ -1315,7 +1445,7 @@ def test_command_endpoint_dispatches_surfaces(tmp_path: Path) -> None:
             assert metrics_show.json()["data"]["document"]["label"] == "Total Spend"
 
             metrics_visualize = client.post(
-                "/command",
+                "/workspace/marketing_db/command",
                 json={
                     "surface": "metrics",
                     "operation": "visualize",
@@ -1330,7 +1460,7 @@ def test_command_endpoint_dispatches_surfaces(tmp_path: Path) -> None:
             assert metric_visual_payload["table"]["rows"][0]["metric_value"] == 120.0
 
             experiments_plan = client.post(
-                "/command",
+                "/workspace/marketing_db/command",
                 json={
                     "surface": "experiments",
                     "operation": "plan",
@@ -1342,7 +1472,7 @@ def test_command_endpoint_dispatches_surfaces(tmp_path: Path) -> None:
             assert "experiment_exposures" in json.dumps(experiments_plan.json()["data"])
 
             experiment_show = client.post(
-                "/command",
+                "/workspace/marketing_db/command",
                 json={
                     "surface": "experiments",
                     "operation": "show",
@@ -1354,7 +1484,7 @@ def test_command_endpoint_dispatches_surfaces(tmp_path: Path) -> None:
             assert experiment_show.json()["data"]["document"]["label"] == "Signup Checkout"
 
             experiment_analyze = client.post(
-                "/command",
+                "/workspace/marketing_db/command",
                 json={
                     "surface": "experiments",
                     "operation": "analyze",
@@ -1369,7 +1499,7 @@ def test_command_endpoint_dispatches_surfaces(tmp_path: Path) -> None:
             assert experiment_analysis_payload["meta"]["control_variant"] == "control"
 
             artifact_search = client.post(
-                "/command",
+                "/workspace/marketing_db/command",
                 json={
                     "surface": "artifacts",
                     "operation": "search",
@@ -1382,7 +1512,7 @@ def test_command_endpoint_dispatches_surfaces(tmp_path: Path) -> None:
             assert artifact_search.json()["data"]["results"][0]["format"] == "markdown"
 
             skills_list = client.post(
-                "/command",
+                "/workspace/marketing_db/command",
                 json={"surface": "skills", "operation": "list", "args": {}},
                 headers=headers,
             )
@@ -1392,7 +1522,7 @@ def test_command_endpoint_dispatches_surfaces(tmp_path: Path) -> None:
             assert any(item["skill_id"] == "shared--create-artifact" for item in skills_payload["skills"])
 
             skills_search = client.post(
-                "/command",
+                "/workspace/marketing_db/command",
                 json={
                     "surface": "skills",
                     "operation": "search",
@@ -1404,7 +1534,7 @@ def test_command_endpoint_dispatches_surfaces(tmp_path: Path) -> None:
             assert skills_search.json()["data"]["results"]
 
             skills_show = client.post(
-                "/command",
+                "/workspace/marketing_db/command",
                 json={
                     "surface": "skills",
                     "operation": "show",
@@ -1417,7 +1547,7 @@ def test_command_endpoint_dispatches_surfaces(tmp_path: Path) -> None:
             assert "data" in skills_show.json()["data"]["used_by"]
 
             invalid = client.post(
-                "/command",
+                "/workspace/marketing_db/command",
                 json={"surface": "metrics", "operation": "delete", "args": {}},
                 headers=headers,
             )
@@ -1433,7 +1563,7 @@ def test_visualization_command_validation_errors_are_mapped(tmp_path: Path) -> N
             headers = _auth_headers(token)
 
             response = client.post(
-                "/command",
+                "/workspace/marketing_db/command",
                 json={
                     "surface": "metrics",
                     "operation": "visualize",
@@ -1464,7 +1594,7 @@ def test_command_endpoint_returns_mixed_artifact_formats(tmp_path: Path) -> None
                 headers = _auth_headers(token)
 
                 artifact_list = client.post(
-                    "/command",
+                    "/workspace/marketing_db/command",
                     json={"surface": "artifacts", "operation": "list", "args": {}},
                     headers=headers,
                 )
@@ -1473,7 +1603,7 @@ def test_command_endpoint_returns_mixed_artifact_formats(tmp_path: Path) -> None
                 assert {item["format"] for item in list_payload} == {"markdown", "html"}
 
                 artifact_show = client.post(
-                    "/command",
+                    "/workspace/marketing_db/command",
                     json={
                         "surface": "artifacts",
                         "operation": "show",
@@ -1488,7 +1618,7 @@ def test_command_endpoint_returns_mixed_artifact_formats(tmp_path: Path) -> None
                 assert show_payload["ordered_sections"] == []
 
                 artifact_search = client.post(
-                    "/command",
+                    "/workspace/marketing_db/command",
                     json={
                         "surface": "artifacts",
                         "operation": "search",

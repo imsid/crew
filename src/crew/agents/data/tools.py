@@ -7,6 +7,7 @@ from typing import Any, Callable, List
 
 from mash.tools.base import FunctionTool, Tool
 
+from ...shared.workspace_context import current_workspace_dir
 from ...metrics_layer.service.context import build_tool_context
 from ...metrics_layer.service.tool_entrypoints import (
     compile_metric_configs_to_sql,
@@ -19,18 +20,18 @@ from ...metrics_layer.service.tool_entrypoints import (
 
 
 def _async_tool_executor(
-    func: Callable[[dict[str, Any], Any], Any], context: Any
+    func: Callable[[dict[str, Any], Any], Any],
+    workspace_root: Path | None,
 ) -> Callable[[dict[str, Any]], Any]:
     async def _executor(args: dict[str, Any]) -> Any:
-        return func(args, context)
+        root = workspace_root if workspace_root is not None else current_workspace_dir()
+        return func(args, build_tool_context(root))
 
     return _executor
 
 
-def build_steward_tools(workspace_root: Path) -> List[Tool]:
+def build_steward_tools(workspace_root: Path | None = None) -> List[Tool]:
     """Build tools used by the data steward role."""
-
-    context = build_tool_context(workspace_root)
 
     return [
         FunctionTool(
@@ -39,7 +40,7 @@ def build_steward_tools(workspace_root: Path) -> List[Tool]:
                 "List source/metric config files under metrics_layer."
             ),
             parameters={"type": "object", "properties": {}},
-            _executor=_async_tool_executor(list_metrics_layer_configs, context),
+            _executor=_async_tool_executor(list_metrics_layer_configs, workspace_root),
         ),
         FunctionTool(
             name="read_metrics_layer_config",
@@ -60,7 +61,7 @@ def build_steward_tools(workspace_root: Path) -> List[Tool]:
                 },
                 "required": ["kind", "name"],
             },
-            _executor=_async_tool_executor(read_metrics_layer_config, context),
+            _executor=_async_tool_executor(read_metrics_layer_config, workspace_root),
         ),
         FunctionTool(
             name="validate_and_write_metrics_layer_config",
@@ -90,7 +91,7 @@ def build_steward_tools(workspace_root: Path) -> List[Tool]:
                 "required": ["kind", "name", "content"],
             },
             _executor=_async_tool_executor(
-                validate_and_write_metrics_layer_config, context
+                validate_and_write_metrics_layer_config, workspace_root
             ),
         ),
         FunctionTool(
@@ -108,7 +109,7 @@ def build_steward_tools(workspace_root: Path) -> List[Tool]:
                 },
                 "required": ["schema_kind"],
             },
-            _executor=_async_tool_executor(get_metrics_layer_schema, context),
+            _executor=_async_tool_executor(get_metrics_layer_schema, workspace_root),
         ),
         FunctionTool(
             name="validate_yaml",
@@ -127,15 +128,13 @@ def build_steward_tools(workspace_root: Path) -> List[Tool]:
                 },
                 "required": ["document_text", "schema_text"],
             },
-            _executor=_async_tool_executor(validate_yaml, context),
+            _executor=_async_tool_executor(validate_yaml, workspace_root),
         ),
     ]
 
 
-def build_analyst_tools(workspace_root: Path) -> List[Tool]:
+def build_analyst_tools(workspace_root: Path | None = None) -> List[Tool]:
     """Build tools used by the data analyst role."""
-
-    context = build_tool_context(workspace_root)
 
     return [
         FunctionTool(
@@ -190,6 +189,6 @@ def build_analyst_tools(workspace_root: Path) -> List[Tool]:
                 },
                 "required": ["metric_names"],
             },
-            _executor=_async_tool_executor(compile_metric_configs_to_sql, context),
+            _executor=_async_tool_executor(compile_metric_configs_to_sql, workspace_root),
         )
     ]

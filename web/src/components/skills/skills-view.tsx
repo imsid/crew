@@ -7,6 +7,7 @@ import { SearchIcon } from "lucide-react";
 import { listSkills, searchSkills } from "@/lib/api";
 import type { SkillListItem, SkillListResponse, SkillSearchResponse } from "@/lib/types";
 import { useAuth } from "@/providers/auth-provider";
+import { useWorkspace } from "@/providers/workspace-provider";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -16,6 +17,7 @@ import { truncate } from "@/lib/utils";
 
 export function SkillsView() {
   const { auth } = useAuth();
+  const { workspaceId } = useWorkspace();
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query.trim());
 
@@ -24,16 +26,16 @@ export function SkillsView() {
     | { mode: "search"; data: SkillSearchResponse }
     | null
   >({
-    queryKey: ["skills", deferredQuery],
+    queryKey: ["skills", workspaceId, deferredQuery],
     queryFn: () => {
       if (!auth) return null;
       if (deferredQuery) {
-        return searchSkills(auth.token, deferredQuery).then((data) => ({
+        return searchSkills(auth.token, workspaceId, deferredQuery).then((data) => ({
           mode: "search" as const,
           data,
         }));
       }
-      return listSkills(auth.token).then((data) => ({
+      return listSkills(auth.token, workspaceId).then((data) => ({
         mode: "list" as const,
         data,
       }));

@@ -2,6 +2,7 @@
 
 import { AuthProvider } from "@/providers/auth-provider";
 import { QueryProvider } from "@/providers/query-provider";
+import { WorkspaceProvider } from "@/providers/workspace-provider";
 
 export function AppProviders({
   children,
@@ -10,7 +11,9 @@ export function AppProviders({
 }>) {
   return (
     <QueryProvider>
-      <AuthProvider>{children}</AuthProvider>
+      <AuthProvider>
+        <WorkspaceProvider>{children}</WorkspaceProvider>
+      </AuthProvider>
     </QueryProvider>
   );
 }

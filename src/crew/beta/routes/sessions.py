@@ -13,6 +13,8 @@ from mash.logging import EventLogger
 from mash.memory.search.service import MemorySearchService
 from mash.memory.search.types import FusionWeights, RetrievalConfig
 
+from ...shared.workspace_context import bound_workspace, register_request_workspace
+from ...shared.workspaces import resolve_workspace
 from ..app import (
     DATA_AGENT_ID,
     LOGGER,
@@ -29,11 +31,16 @@ router = APIRouter()
 
 @router.get("/sessions")
 async def list_user_sessions(
+    workspace_id: str,
     request: Request,
     current_user: dict[str, Any] = Depends(_require_user),
 ) -> dict[str, Any]:
+    _require_workspace(workspace_id)
     state = _beta_state(request)
-    sessions = await state.store.list_sessions_for_user(str(current_user["id"]))
+    sessions = await state.store.list_sessions_for_user(
+        workspace_id=workspace_id,
+        user_id=str(current_user["id"]),
+    )
     agent = _data_agent(request)
     enriched_sessions = [
         await _enrich_session_record(agent, session) for session in sessions
@@ -43,13 +50,16 @@ async def list_user_sessions(
 
 @router.post("/sessions")
 async def create_session(
+    workspace_id: str,
     payload: CreateSessionRequest,
     request: Request,
     current_user: dict[str, Any] = Depends(_require_user),
 ) -> dict[str, Any]:
+    _require_workspace(workspace_id)
     state = _beta_state(request)
     session_id = f"{DATA_AGENT_ID}_{uuid.uuid4().hex}"
     session = await state.store.create_session(
+        workspace_id=workspace_id,
         session_id=session_id,
         user_id=str(current_user["id"]),
         agent_id=DATA_AGENT_ID,
@@ -64,11 +74,13 @@ async def create_session(
 
 @router.get("/sessions/search")
 async def search_sessions(
+    workspace_id: str,
     request: Request,
     q: str = Query(...),
     limit: int = Query(default=10, ge=1, le=50),
     current_user: dict[str, Any] = Depends(_require_user),
 ) -> dict[str, Any]:
+    _require_workspace(workspace_id)
     state = _beta_state(request)
     query = q.strip()
     if not query:
@@ -78,7 +90,8 @@ async def search_sessions(
             message="q is required",
         )
     owned_session_ids = await state.store.list_session_ids_for_user(
-        str(current_user["id"])
+        workspace_id=workspace_id,
+        user_id=str(current_user["id"]),
     )
     agent = _data_agent(request)
     search_service = _build_memory_search_service(agent)
@@ -142,26 +155,36 @@ async def search_sessions(
 
 @router.get("/sessions/{session_id}")
 async def get_session(
+    workspace_id: str,
     session_id: str,
     request: Request,
     current_user: dict[str, Any] = Depends(_require_user),
 ) -> dict[str, Any]:
-    session = await _owned_session(request, current_user, session_id)
+    _require_workspace(workspace_id)
+    session = await _owned_session(request, current_user, workspace_id, session_id)
     runtime = await _data_agent(request).get_session_info(session_id)
-    await _beta_state(request).store.touch_session(session_id)
+    await _beta_state(request).store.touch_session(
+        workspace_id=workspace_id,
+        session_id=session_id,
+    )
     return {"data": {"session": session, "runtime": runtime}}
 
 
 @router.get("/sessions/{session_id}/history")
 async def get_session_history(
+    workspace_id: str,
     session_id: str,
     request: Request,
     limit: int | None = Query(default=None, ge=1),
     current_user: dict[str, Any] = Depends(_require_user),
 ) -> dict[str, Any]:
-    await _owned_session(request, current_user, session_id)
+    _require_workspace(workspace_id)
+    await _owned_session(request, current_user, workspace_id, session_id)
     turns = await _data_agent(request).get_history_turns(session_id, limit=limit)
-    await _beta_state(request).store.touch_session(session_id)
+    await _beta_state(request).store.touch_session(
+        workspace_id=workspace_id,
+        session_id=session_id,
+    )
     return {
         "data": {
             "session_id": session_id,
@@ -172,14 +195,19 @@ async def get_session_history(
 
 @router.get("/sessions/{session_id}/signals")
 async def get_session_signals(
+    workspace_id: str,
     session_id: str,
     request: Request,
     limit: int | None = Query(default=None, ge=1),
     current_user: dict[str, Any] = Depends(_require_user),
 ) -> dict[str, Any]:
-    await _owned_session(request, current_user, session_id)
+    _require_workspace(workspace_id)
+    await _owned_session(request, current_user, workspace_id, session_id)
     agent = _data_agent(request)
-    await _beta_state(request).store.touch_session(session_id)
+    await _beta_state(request).store.touch_session(
+        workspace_id=workspace_id,
+        session_id=session_id,
+    )
     return {
         "data": {
             "agent_id": agent.app_id,
@@ -192,14 +220,16 @@ async def get_session_signals(
 
 @router.get("/sessions/{session_id}/turns/{turn_id}/trace")
 async def get_turn_trace(
+    workspace_id: str,
     session_id: str,
     turn_id: str,
     request: Request,
     current_user: dict[str, Any] = Depends(_require_user),
 ) -> dict[str, Any]:
+    _require_workspace(workspace_id)
     is_workflow_session = session_id.startswith("workflow:")
     if not is_workflow_session:
-        await _owned_session(request, current_user, session_id)
+        await _owned_session(request, current_user, workspace_id, session_id)
     normalized_turn_id = str(turn_id or "").strip()
     if not normalized_turn_id:
         raise AppError(
@@ -246,7 +276,10 @@ async def get_turn_trace(
         trace_id=normalized_turn_id,
     )
     if not is_workflow_session:
-        await _beta_state(request).store.touch_session(session_id)
+        await _beta_state(request).store.touch_session(
+            workspace_id=workspace_id,
+            session_id=session_id,
+        )
     return {
         "data": {
             "source": "runtime_event_log",
@@ -291,12 +324,14 @@ async def _resolve_workflow_trace_agent_id(request: Request, session_id: str) ->
 
 @router.post("/sessions/{session_id}/messages")
 async def send_message(
+    workspace_id: str,
     session_id: str,
     payload: SendMessageRequest,
     request: Request,
     current_user: dict[str, Any] = Depends(_require_user),
 ) -> dict[str, Any]:
-    await _owned_session(request, current_user, session_id)
+    _require_workspace(workspace_id)
+    await _owned_session(request, current_user, workspace_id, session_id)
     message = str(payload.message or "").strip()
     if not message:
         raise AppError(
@@ -306,7 +341,9 @@ async def send_message(
         )
     client = _data_client(request)
     try:
-        request_id = await client.post_request(message, session_id=session_id)
+        with bound_workspace(workspace_id):
+            request_id = await client.post_request(message, session_id=session_id)
+        register_request_workspace(request_id, workspace_id)
     except Exception as exc:
         LOGGER.exception(
             "beta message proxy failed",
@@ -317,7 +354,10 @@ async def send_message(
             code="MASH_PROXY_ERROR",
             message=f"failed to submit message: {exc}",
         ) from exc
-    await _beta_state(request).store.touch_session(session_id)
+    await _beta_state(request).store.touch_session(
+        workspace_id=workspace_id,
+        session_id=session_id,
+    )
     LOGGER.info(
         "beta message submitted",
         extra={
@@ -331,12 +371,14 @@ async def send_message(
 
 @router.get("/sessions/{session_id}/requests/{request_id}/events")
 async def stream_request_events(
+    workspace_id: str,
     session_id: str,
     request_id: str,
     request: Request,
     current_user: dict[str, Any] = Depends(_require_user),
 ) -> StreamingResponse:
-    await _owned_session(request, current_user, session_id)
+    _require_workspace(workspace_id)
+    await _owned_session(request, current_user, workspace_id, session_id)
     client = _data_client(request)
 
     async def _generate():
@@ -382,7 +424,10 @@ async def stream_request_events(
                 ),
             )
 
-    await _beta_state(request).store.touch_session(session_id)
+    await _beta_state(request).store.touch_session(
+        workspace_id=workspace_id,
+        session_id=session_id,
+    )
     return StreamingResponse(
         _generate(),
         media_type="text/event-stream",
@@ -401,6 +446,7 @@ def _data_client(request: Request):
 async def _owned_session(
     request: Request,
     current_user: dict[str, Any],
+    workspace_id: str,
     session_id: str,
 ) -> dict[str, Any]:
     normalized = str(session_id or "").strip()
@@ -410,7 +456,10 @@ async def _owned_session(
             code="INVALID_REQUEST",
             message="session_id is required",
         )
-    session = await _beta_state(request).store.get_session(normalized)
+    session = await _beta_state(request).store.get_session(
+        workspace_id=workspace_id,
+        session_id=normalized,
+    )
     if session is None:
         raise AppError(
             status_code=404,
@@ -424,6 +473,17 @@ async def _owned_session(
             message="session does not belong to the current user",
         )
     return session
+
+
+def _require_workspace(workspace_id: str) -> None:
+    try:
+        resolve_workspace(workspace_id)
+    except ValueError as exc:
+        raise AppError(
+            status_code=404,
+            code="WORKSPACE_NOT_FOUND",
+            message=str(exc),
+        ) from exc
 
 
 def _build_memory_search_service(agent: Any) -> MemorySearchService:

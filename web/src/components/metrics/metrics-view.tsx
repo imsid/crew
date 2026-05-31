@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { SearchIcon } from "lucide-react";
 import { getMetric, listMetrics, visualizeMetric } from "@/lib/api";
 import { useAuth } from "@/providers/auth-provider";
+import { useWorkspace } from "@/providers/workspace-provider";
 import { DataVisualizationCard } from "@/components/visualizations/data-visualization-card";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,14 +21,15 @@ type MetricViewControls = {
 
 export function MetricsView() {
   const { auth } = useAuth();
+  const { workspaceId } = useWorkspace();
   const [query, setQuery] = useState("");
   const [selectedMetric, setSelectedMetric] = useState<string | null>(null);
   const [controls, setControls] = useState<MetricViewControls>({});
   const deferredQuery = useDeferredValue(query.trim().toLowerCase());
 
   const metricsQuery = useQuery({
-    queryKey: ["metrics"],
-    queryFn: () => (auth ? listMetrics(auth.token) : null),
+    queryKey: ["metrics", workspaceId],
+    queryFn: () => (auth ? listMetrics(auth.token, workspaceId) : null),
     enabled: Boolean(auth),
   });
 
@@ -51,16 +53,16 @@ export function MetricsView() {
   }, [selectedMetric]);
 
   const detailQuery = useQuery({
-    queryKey: ["metric", selectedMetric],
-    queryFn: () => (auth && selectedMetric ? getMetric(auth.token, selectedMetric, "metric") : null),
+    queryKey: ["metric", workspaceId, selectedMetric],
+    queryFn: () => (auth && selectedMetric ? getMetric(auth.token, workspaceId, selectedMetric, "metric") : null),
     enabled: Boolean(auth && selectedMetric),
   });
 
   const visualizationQuery = useQuery({
-    queryKey: ["metric-visualization", selectedMetric, controls],
+    queryKey: ["metric-visualization", workspaceId, selectedMetric, controls],
     queryFn: () =>
       auth && selectedMetric
-        ? visualizeMetric(auth.token, {
+        ? visualizeMetric(auth.token, workspaceId, {
             metric_name: selectedMetric,
             date_dimension: controls.date_dimension,
             grain: controls.grain,

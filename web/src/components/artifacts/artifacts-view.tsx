@@ -7,6 +7,7 @@ import { SearchIcon } from "lucide-react";
 import { listArtifacts, searchArtifacts } from "@/lib/api";
 import type { ArtifactListResponse, ArtifactSearchResponse } from "@/lib/types";
 import { useAuth } from "@/providers/auth-provider";
+import { useWorkspace } from "@/providers/workspace-provider";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -16,6 +17,7 @@ import { formatDateTime, truncate } from "@/lib/utils";
 
 export function ArtifactsView() {
   const { auth } = useAuth();
+  const { workspaceId } = useWorkspace();
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query.trim());
 
@@ -24,16 +26,16 @@ export function ArtifactsView() {
     | { mode: "search"; data: ArtifactSearchResponse }
     | null
   >({
-    queryKey: ["artifacts", deferredQuery],
+    queryKey: ["artifacts", workspaceId, deferredQuery],
     queryFn: () => {
       if (!auth) return null;
       if (deferredQuery) {
-        return searchArtifacts(auth.token, deferredQuery).then((data) => ({
+        return searchArtifacts(auth.token, workspaceId, deferredQuery).then((data) => ({
           mode: "search" as const,
           data,
         }));
       }
-      return listArtifacts(auth.token).then((data) => ({
+      return listArtifacts(auth.token, workspaceId).then((data) => ({
         mode: "list" as const,
         data,
       }));

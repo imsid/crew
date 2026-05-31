@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { SearchIcon } from "lucide-react";
 import { analyzeExperiment, getExperiment, getExperimentPlan, listExperiments } from "@/lib/api";
 import { useAuth } from "@/providers/auth-provider";
+import { useWorkspace } from "@/providers/workspace-provider";
 import { DataVisualizationCard } from "@/components/visualizations/data-visualization-card";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,14 +14,15 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 export function ExperimentsView() {
   const { auth } = useAuth();
+  const { workspaceId } = useWorkspace();
   const [query, setQuery] = useState("");
   const [selectedExperiment, setSelectedExperiment] = useState<string | null>(null);
   const [selectedMetricId, setSelectedMetricId] = useState<string | null>(null);
   const deferredQuery = useDeferredValue(query.trim().toLowerCase());
 
   const experimentsQuery = useQuery({
-    queryKey: ["experiments"],
-    queryFn: () => (auth ? listExperiments(auth.token) : null),
+    queryKey: ["experiments", workspaceId],
+    queryFn: () => (auth ? listExperiments(auth.token, workspaceId) : null),
     enabled: Boolean(auth),
   });
 
@@ -49,23 +51,23 @@ export function ExperimentsView() {
   }, [selectedExperiment]);
 
   const detailQuery = useQuery({
-    queryKey: ["experiment", selectedExperiment],
-    queryFn: () => (auth && selectedExperiment ? getExperiment(auth.token, selectedExperiment) : null),
+    queryKey: ["experiment", workspaceId, selectedExperiment],
+    queryFn: () => (auth && selectedExperiment ? getExperiment(auth.token, workspaceId, selectedExperiment) : null),
     enabled: Boolean(auth && selectedExperiment),
   });
 
   const planQuery = useQuery({
-    queryKey: ["experiment-plan", selectedExperiment],
-    queryFn: () => (auth && selectedExperiment ? getExperimentPlan(auth.token, selectedExperiment) : null),
+    queryKey: ["experiment-plan", workspaceId, selectedExperiment],
+    queryFn: () => (auth && selectedExperiment ? getExperimentPlan(auth.token, workspaceId, selectedExperiment) : null),
     enabled: Boolean(auth && selectedExperiment),
     retry: false,
   });
 
   const analysisQuery = useQuery({
-    queryKey: ["experiment-analysis", selectedExperiment, selectedMetricId],
+    queryKey: ["experiment-analysis", workspaceId, selectedExperiment, selectedMetricId],
     queryFn: () =>
       auth && selectedExperiment
-        ? analyzeExperiment(auth.token, {
+        ? analyzeExperiment(auth.token, workspaceId, {
             name: selectedExperiment,
             metric_id: selectedMetricId,
           })

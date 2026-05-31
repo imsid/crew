@@ -6,6 +6,7 @@ import { ArrowLeftIcon, FileTextIcon } from "lucide-react";
 import { getArtifact } from "@/lib/api";
 import type { ArtifactDetailResponse } from "@/lib/types";
 import { useAuth } from "@/providers/auth-provider";
+import { useWorkspace } from "@/providers/workspace-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,9 +25,10 @@ export function ArtifactReader({
   compact?: boolean;
 }>) {
   const { auth } = useAuth();
+  const { workspaceId } = useWorkspace();
   const artifactQuery = useQuery({
-    queryKey: ["artifact", artifactId],
-    queryFn: () => (auth && artifactId ? getArtifact(auth.token, artifactId) : null),
+    queryKey: ["artifact", workspaceId, artifactId],
+    queryFn: () => (auth && artifactId ? getArtifact(auth.token, workspaceId, artifactId) : null),
     enabled: Boolean(auth && artifactId && !artifact),
   });
 

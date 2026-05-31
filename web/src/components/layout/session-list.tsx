@@ -7,6 +7,7 @@ import { useQuery } from "@tanstack/react-query";
 import { SearchIcon } from "lucide-react";
 import { listSessions, searchSessions } from "@/lib/api";
 import { useAuth } from "@/providers/auth-provider";
+import { useWorkspace } from "@/providers/workspace-provider";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatRelativeTime, truncate } from "@/lib/utils";
@@ -17,20 +18,21 @@ export function SessionList({
   onNavigate?: () => void;
 }>) {
   const { auth } = useAuth();
+  const { workspaceId } = useWorkspace();
   const pathname = usePathname();
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query.trim());
 
   const sessionQuery = useQuery({
     queryKey: deferredQuery
-      ? ["sessions", "search", deferredQuery]
-      : ["sessions", "list"],
+      ? ["sessions", workspaceId, "search", deferredQuery]
+      : ["sessions", workspaceId, "list"],
     queryFn: async () => {
       if (!auth) return null;
       if (deferredQuery) {
-        return { mode: "search" as const, data: await searchSessions(auth.token, deferredQuery) };
+        return { mode: "search" as const, data: await searchSessions(auth.token, workspaceId, deferredQuery) };
       }
-      return { mode: "list" as const, data: await listSessions(auth.token) };
+      return { mode: "list" as const, data: await listSessions(auth.token, workspaceId) };
     },
     enabled: Boolean(auth),
   });

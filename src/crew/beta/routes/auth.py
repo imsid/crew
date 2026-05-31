@@ -27,7 +27,6 @@ async def health(request: Request) -> dict[str, Any]:
             "status": "ok",
             "service": "crew-beta-bff",
             "primary_agent_id": DATA_AGENT_ID,
-            "workspace": state.config.workspace_name,
         }
     }
 

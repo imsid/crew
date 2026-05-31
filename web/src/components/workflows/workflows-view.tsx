@@ -22,6 +22,7 @@ import type {
 } from "@/lib/types";
 import { cn, formatDateTime } from "@/lib/utils";
 import { useAuth } from "@/providers/auth-provider";
+import { useWorkspace } from "@/providers/workspace-provider";
 import { ExecutionTrace } from "@/components/chat/execution-trace";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -33,13 +34,14 @@ const RUNS_LIMIT = 5;
 
 export function WorkflowsView() {
   const { auth } = useAuth();
+  const { workspaceId } = useWorkspace();
   const [query, setQuery] = useState("");
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
 
   const workflowsQuery = useQuery({
-    queryKey: ["workflows"],
-    queryFn: () => (auth ? listWorkflows(auth.token) : null),
+    queryKey: ["workflows", workspaceId],
+    queryFn: () => (auth ? listWorkflows(auth.token, workspaceId) : null),
     enabled: Boolean(auth),
   });
 
@@ -58,10 +60,10 @@ export function WorkflowsView() {
   );
 
   const runsQuery = useQuery({
-    queryKey: ["workflow-runs", selectedWorkflowId, RUNS_LIMIT],
+    queryKey: ["workflow-runs", workspaceId, selectedWorkflowId, RUNS_LIMIT],
     queryFn: () =>
       auth && selectedWorkflowId
-        ? listWorkflowRuns(auth.token, selectedWorkflowId, RUNS_LIMIT)
+        ? listWorkflowRuns(auth.token, workspaceId, selectedWorkflowId, RUNS_LIMIT)
         : null,
     enabled: Boolean(auth && selectedWorkflowId),
   });
@@ -83,7 +85,7 @@ export function WorkflowsView() {
       if (!auth) {
         throw new Error("You must be signed in to start a workflow run.");
       }
-      return runWorkflow(auth.token, workflowId, { input });
+      return runWorkflow(auth.token, workspaceId, workflowId, { input });
     },
     onSuccess: async (startedRun) => {
       await runsQuery.refetch();
@@ -133,6 +135,7 @@ export function WorkflowsView() {
       <RunDetailPanel
         workflow={selectedWorkflow}
         run={selectedRun}
+        workspaceId={workspaceId}
         isCreatingRun={runWorkflowMutation.isPending}
         createRunError={
           runWorkflowMutation.error instanceof Error ? runWorkflowMutation.error.message : null
@@ -278,6 +281,7 @@ function WorkflowNavigator({
 }
 
 function RunDetailPanel({
+  workspaceId,
   workflow,
   run,
   isCreatingRun,
@@ -286,6 +290,7 @@ function RunDetailPanel({
   onResetCreateRunError,
   onStartNewRun,
 }: Readonly<{
+  workspaceId: string;
   workflow: WorkflowListItem | null;
   run: WorkflowRunListItem | null;
   isCreatingRun: boolean;
@@ -298,10 +303,10 @@ function RunDetailPanel({
   const summary = run?.summary ?? null;
 
   const traceQuery = useQuery({
-    queryKey: ["workflow-run-trace", summary?.session_id, summary?.turn_id],
+    queryKey: ["workflow-run-trace", workspaceId, summary?.session_id, summary?.turn_id],
     queryFn: () =>
       auth && summary?.session_id && summary.turn_id
-        ? getTurnTrace(auth.token, summary.session_id, summary.turn_id)
+        ? getTurnTrace(auth.token, workspaceId, summary.session_id, summary.turn_id)
         : null,
     enabled: Boolean(auth && summary?.session_id && summary.turn_id),
     staleTime: 300_000,

@@ -32,6 +32,7 @@ import type {
   TraceEventPayload,
 } from "@/lib/types";
 import { useAuth } from "@/providers/auth-provider";
+import { useWorkspace } from "@/providers/workspace-provider";
 import { MessageComposer } from "@/components/chat/message-composer";
 import { MessageList } from "@/components/chat/message-list";
 import { MobileNav } from "@/components/layout/mobile-nav";
@@ -46,6 +47,7 @@ export function ChatPanel({
   const router = useRouter();
   const queryClient = useQueryClient();
   const { auth } = useAuth();
+  const { workspaceId } = useWorkspace();
 
   const thread = useChatStore((state) => state.threads[threadKey]);
   const ensureThread = useChatStore((state) => state.ensureThread);
@@ -64,22 +66,22 @@ export function ChatPanel({
   }, [ensureThread, threadKey]);
 
   const sessionsQuery = useQuery({
-    queryKey: ["session-records", "list"],
-    queryFn: () => (auth ? listSessions(auth.token) : null),
+    queryKey: ["session-records", workspaceId, "list"],
+    queryFn: () => (auth ? listSessions(auth.token, workspaceId) : null),
     enabled: Boolean(auth && sessionId),
   });
 
   const sessionDetailQuery = useQuery({
-    queryKey: ["session-detail", sessionId],
-    queryFn: () => (auth && sessionId ? getSession(auth.token, sessionId) : null),
+    queryKey: ["session-detail", workspaceId, sessionId],
+    queryFn: () => (auth && sessionId ? getSession(auth.token, workspaceId, sessionId) : null),
     enabled: Boolean(auth && sessionId),
     staleTime: 300_000,
   });
 
   const shouldLoadHistory = Boolean(auth && sessionId && !thread?.hydrated);
   const historyQuery = useQuery({
-    queryKey: ["session-history", sessionId],
-    queryFn: () => (auth && sessionId ? getSessionHistory(auth.token, sessionId) : null),
+    queryKey: ["session-history", workspaceId, sessionId],
+    queryFn: () => (auth && sessionId ? getSessionHistory(auth.token, workspaceId, sessionId) : null),
     enabled: shouldLoadHistory,
     staleTime: 300_000,
   });
@@ -124,7 +126,7 @@ export function ChatPanel({
         try {
           if (slashCommand.surface === "workflows" && slashCommand.operation === "run") {
             const workflowId = slashCommand.workflowId ?? slashCommand.target ?? "";
-            const run = await runWorkflowCommand(auth.token, {
+            const run = await runWorkflowCommand(auth.token, workspaceId, {
               workflow_id: workflowId,
               dedup_key: slashCommand.dedupKey,
               input: slashCommand.workflowInput ?? {},
@@ -149,6 +151,7 @@ export function ChatPanel({
             }));
             await streamWorkflowEvents(
               auth.token,
+              workspaceId,
               run.workflow_id,
               run.run_id,
               (event) => {
@@ -162,7 +165,7 @@ export function ChatPanel({
               status: { type: "complete", reason: "stop" },
             }));
           } else {
-            const result = await executeInlineCommand(auth.token, slashCommand);
+            const result = await executeInlineCommand(auth.token, workspaceId, slashCommand);
             updateMessage(threadKey, assistantId, (current) => ({
               ...current,
               content: [{ type: "data-command-result", data: result }],
@@ -188,6 +191,7 @@ export function ChatPanel({
         (
           await createSession(
             auth.token,
+            workspaceId,
             truncate(text.replace(/\s+/g, " "), 48),
           )
         ).session_id;
@@ -215,9 +219,10 @@ export function ChatPanel({
       setAbortController(activeThreadKey, controller);
 
       try {
-        const { request_id } = await sendMessage(auth.token, activeSessionId, text);
+        const { request_id } = await sendMessage(auth.token, workspaceId, activeSessionId, text);
         await streamSessionEvents(
           auth.token,
+          workspaceId,
           activeSessionId,
           request_id,
           (event) => {
@@ -273,10 +278,10 @@ export function ChatPanel({
         setRunning(activeThreadKey, false);
         setStatusLabel(activeThreadKey, null);
         setAbortController(activeThreadKey, null);
-        queryClient.invalidateQueries({ queryKey: ["sessions"] });
-        queryClient.invalidateQueries({ queryKey: ["session-records"] });
-        queryClient.invalidateQueries({ queryKey: ["session-detail", activeSessionId] });
-        queryClient.invalidateQueries({ queryKey: ["session-history", activeSessionId] });
+        queryClient.invalidateQueries({ queryKey: ["sessions", workspaceId] });
+        queryClient.invalidateQueries({ queryKey: ["session-records", workspaceId] });
+        queryClient.invalidateQueries({ queryKey: ["session-detail", workspaceId, activeSessionId] });
+        queryClient.invalidateQueries({ queryKey: ["session-history", workspaceId, activeSessionId] });
       }
     },
     [
@@ -292,6 +297,7 @@ export function ChatPanel({
       setStatusLabel,
       threadKey,
       updateMessage,
+      workspaceId,
     ],
   );
 

@@ -26,6 +26,7 @@ import type {
   Usage,
 } from "@/lib/types";
 import { useAuth } from "@/providers/auth-provider";
+import { useWorkspace } from "@/providers/workspace-provider";
 
 export function ExecutionTrace({
   trace,
@@ -49,6 +50,7 @@ export function ExecutionTrace({
   const traceContainerRef = useRef<HTMLDivElement>(null);
   const wasRunning = useRef(isRunning);
   const { auth } = useAuth();
+  const { workspaceId } = useWorkspace();
 
   useEffect(() => {
     if (isRunning && !wasRunning.current && !hasInteracted) {
@@ -68,20 +70,20 @@ export function ExecutionTrace({
       trace.steps.length === 0,
   );
   const traceQuery = useQuery({
-    queryKey: persistedTraceQueryKey ?? ["session-trace", trace.session_id, trace.turn_id],
+    queryKey: persistedTraceQueryKey ?? ["session-trace", workspaceId, trace.session_id, trace.turn_id],
     queryFn: () =>
       fetchPersistedTrace
         ? fetchPersistedTrace()
         : auth && trace.session_id && trace.turn_id
-          ? getTurnTrace(auth.token, trace.session_id, trace.turn_id)
+          ? getTurnTrace(auth.token, workspaceId, trace.session_id, trace.turn_id)
           : null,
     enabled: shouldHydratePersistedTrace,
     staleTime: 300_000,
   });
   const signalsQuery = useQuery({
-    queryKey: ["session-signals", trace.session_id],
+    queryKey: ["session-signals", workspaceId, trace.session_id],
     queryFn: () =>
-      auth && trace.session_id ? getSessionSignals(auth.token, trace.session_id) : null,
+      auth && trace.session_id ? getSessionSignals(auth.token, workspaceId, trace.session_id) : null,
     enabled: Boolean(hydrateSignals && auth && open && trace.session_id),
     staleTime: 300_000,
   });

@@ -97,6 +97,7 @@ class BetaStore:
     async def create_session(
         self,
         *,
+        workspace_id: str,
         session_id: str,
         user_id: str,
         agent_id: str,
@@ -104,6 +105,7 @@ class BetaStore:
     ) -> dict[str, Any]:
         now = float(time.time())
         payload = {
+            "workspace_id": str(workspace_id),
             "session_id": session_id,
             "user_id": user_id,
             "agent_id": agent_id,
@@ -117,15 +119,17 @@ class BetaStore:
                 await cursor.execute(
                     """
                     INSERT INTO sessions (
+                        workspace_id,
                         session_id,
                         user_id,
                         agent_id,
                         label,
                         created_at,
                         last_opened_at
-                    ) VALUES (%s, %s, %s, %s, %s, %s)
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s)
                     """,
                     (
+                        payload["workspace_id"],
                         payload["session_id"],
                         payload["user_id"],
                         payload["agent_id"],
@@ -136,41 +140,57 @@ class BetaStore:
                 )
         return payload
 
-    async def get_session(self, session_id: str) -> dict[str, Any] | None:
+    async def get_session(
+        self, *, workspace_id: str, session_id: str
+    ) -> dict[str, Any] | None:
         return await self._fetch_one(
             """
-            SELECT session_id, user_id, agent_id, label, created_at, last_opened_at
+            SELECT workspace_id, session_id, user_id, agent_id, label,
+                   created_at, last_opened_at
             FROM sessions
-            WHERE session_id = %s
+            WHERE workspace_id = %s AND session_id = %s
             """,
-            (session_id,),
+            (workspace_id, session_id),
         )
 
-    async def touch_session(self, session_id: str) -> None:
+    async def touch_session(self, *, workspace_id: str, session_id: str) -> None:
         now = float(time.time())
         async with self._lock:
             conn = self._get_conn()
             async with conn.cursor() as cursor:
                 await cursor.execute(
-                    "UPDATE sessions SET last_opened_at = %s WHERE session_id = %s",
-                    (now, session_id),
+                    """
+                    UPDATE sessions
+                    SET last_opened_at = %s
+                    WHERE workspace_id = %s AND session_id = %s
+                    """,
+                    (now, workspace_id, session_id),
                 )
 
-    async def list_sessions_for_user(self, user_id: str) -> list[dict[str, Any]]:
+    async def list_sessions_for_user(
+        self, *, workspace_id: str, user_id: str
+    ) -> list[dict[str, Any]]:
         return await self._fetch_all(
             """
-            SELECT session_id, user_id, agent_id, label, created_at, last_opened_at
+            SELECT workspace_id, session_id, user_id, agent_id, label,
+                   created_at, last_opened_at
             FROM sessions
-            WHERE user_id = %s
+            WHERE workspace_id = %s AND user_id = %s
             ORDER BY last_opened_at DESC, created_at DESC
             """,
-            (user_id,),
+            (workspace_id, user_id),
         )
 
-    async def list_session_ids_for_user(self, user_id: str) -> set[str]:
+    async def list_session_ids_for_user(
+        self, *, workspace_id: str, user_id: str
+    ) -> set[str]:
         rows = await self._fetch_all(
-            "SELECT session_id FROM sessions WHERE user_id = %s",
-            (user_id,),
+            """
+            SELECT session_id
+            FROM sessions
+            WHERE workspace_id = %s AND user_id = %s
+            """,
+            (workspace_id, user_id),
         )
         return {str(item["session_id"]) for item in rows}
 
@@ -397,6 +417,7 @@ class BetaStore:
                     """
                     CREATE TABLE IF NOT EXISTS sessions (
                         session_id TEXT PRIMARY KEY,
+                        workspace_id TEXT NOT NULL,
                         user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
                         agent_id TEXT NOT NULL,
                         label TEXT,
@@ -407,8 +428,8 @@ class BetaStore:
                 )
                 await cursor.execute(
                     """
-                    CREATE INDEX IF NOT EXISTS idx_sessions_user_id
-                    ON sessions(user_id)
+                    CREATE INDEX IF NOT EXISTS idx_sessions_workspace_user_id
+                    ON sessions(workspace_id, user_id)
                     """
                 )
                 await cursor.execute(

@@ -56,7 +56,6 @@ class BetaConfig:
     token_ttl_seconds: int
     database_url: str
     cors_allowed_origins: tuple[str, ...]
-    workspace_name: str = "marketing_db"
 
     @classmethod
     def from_env(cls) -> "BetaConfig":

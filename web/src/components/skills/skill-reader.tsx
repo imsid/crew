@@ -6,6 +6,7 @@ import { ArrowLeftIcon, BrainCircuitIcon } from "lucide-react";
 import { getSkill } from "@/lib/api";
 import type { SkillDetailResponse } from "@/lib/types";
 import { useAuth } from "@/providers/auth-provider";
+import { useWorkspace } from "@/providers/workspace-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,9 +21,10 @@ export function SkillReader({
   skill?: SkillDetailResponse;
 }>) {
   const { auth } = useAuth();
+  const { workspaceId } = useWorkspace();
   const skillQuery = useQuery({
-    queryKey: ["skill", skillId],
-    queryFn: () => (auth && skillId ? getSkill(auth.token, skillId) : null),
+    queryKey: ["skill", workspaceId, skillId],
+    queryFn: () => (auth && skillId ? getSkill(auth.token, workspaceId, skillId) : null),
     enabled: Boolean(auth && skillId && !skill),
   });
 

@@ -7,6 +7,7 @@ from typing import Any, Callable, List
 
 from mash.tools.base import FunctionTool, Tool
 
+from ..shared.workspace_context import current_workspace_dir
 from .service.context import build_tool_context
 from .service.tool_entrypoints import (
     compile_experiment_analysis_sql,
@@ -16,23 +17,24 @@ from .service.tool_entrypoints import (
 )
 
 
-def _async_tool_executor(
-    func: Callable[[dict[str, Any], Any], Any], context: Any
+def _workspace_tool_executor(
+    func: Callable[[dict[str, Any], Any], Any],
+    workspace_root: Path | None,
 ) -> Callable[[dict[str, Any]], Any]:
     async def _executor(args: dict[str, Any]) -> Any:
-        return func(args, context)
+        root = workspace_root if workspace_root is not None else current_workspace_dir()
+        return func(args, build_tool_context(root))
 
     return _executor
 
 
-def build_experimentation_tools(workspace_root: Path) -> List[Tool]:
-    context = build_tool_context(workspace_root)
+def build_experimentation_tools(workspace_root: Path | None = None) -> List[Tool]:
     return [
         FunctionTool(
             name="list_experiment_configs",
             description="List experimentation config files under the selected workspace.",
             parameters={"type": "object", "properties": {}},
-            _executor=_async_tool_executor(list_experiment_configs_tool, context),
+            _executor=_workspace_tool_executor(list_experiment_configs_tool, workspace_root),
         ),
         FunctionTool(
             name="read_experiment_config",
@@ -47,7 +49,7 @@ def build_experimentation_tools(workspace_root: Path) -> List[Tool]:
                 },
                 "required": ["name"],
             },
-            _executor=_async_tool_executor(read_experiment_config_tool, context),
+            _executor=_workspace_tool_executor(read_experiment_config_tool, workspace_root),
         ),
         FunctionTool(
             name="compile_experiment_analysis_sql",
@@ -62,7 +64,7 @@ def build_experimentation_tools(workspace_root: Path) -> List[Tool]:
                 },
                 "required": ["name"],
             },
-            _executor=_async_tool_executor(compile_experiment_analysis_sql, context),
+            _executor=_workspace_tool_executor(compile_experiment_analysis_sql, workspace_root),
         ),
         FunctionTool(
             name="compute_experiment_analysis",
@@ -85,6 +87,6 @@ def build_experimentation_tools(workspace_root: Path) -> List[Tool]:
                 },
                 "required": ["control_variant", "exposure_counts", "metric_summaries"],
             },
-            _executor=_async_tool_executor(compute_experiment_analysis, context),
+            _executor=_workspace_tool_executor(compute_experiment_analysis, workspace_root),
         ),
     ]

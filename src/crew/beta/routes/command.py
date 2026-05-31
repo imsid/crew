@@ -24,6 +24,8 @@ from ...metrics_layer.service.tool_entrypoints import (
     read_metrics_layer_config,
 )
 from ...shared.runtime_paths import workspace_dir
+from ...shared.workspace_context import bound_workspace, register_workflow_task_workspaces
+from ...shared.workspaces import resolve_workspace
 from ...skill.service import list_skills, read_skill, search_skills
 from ..app import (
     LOGGER,
@@ -49,12 +51,14 @@ router = APIRouter()
 
 @router.post("/command")
 async def run_command(
+    workspace_id: str,
     payload: CommandRequest,
     request: Request,
     current_user: dict[str, Any] = Depends(_require_user),
 ) -> dict[str, Any]:
     del current_user
-    result = await _execute_command(payload, _beta_state(request))
+    _require_workspace(workspace_id)
+    result = await _execute_command(payload, _beta_state(request), workspace_id)
     LOGGER.info(
         "beta command executed",
         extra={"surface": payload.surface, "operation": payload.operation},
@@ -63,7 +67,7 @@ async def run_command(
 
 
 async def _execute_command(
-    payload: CommandRequest, state: BetaAppState
+    payload: CommandRequest, state: BetaAppState, workspace_id: str
 ) -> dict[str, Any]:
     args = dict(payload.args or {})
     if "dataset_id" in args:
@@ -83,12 +87,19 @@ async def _execute_command(
                     message="workflow input must be a JSON object",
                 )
             try:
-                run = await workflow_service.run_workflow(
-                    workflow_id,
-                    dedup_key=_normalize_optional_text(
-                        str(args.get("dedup_key") or "")
-                    ),
-                    workflow_input=workflow_input,
+                with bound_workspace(workspace_id):
+                    run = await workflow_service.run_workflow(
+                        workflow_id,
+                        dedup_key=_normalize_optional_text(
+                            str(args.get("dedup_key") or "")
+                        ),
+                        workflow_input=workflow_input,
+                    )
+                register_workflow_task_workspaces(
+                    workflow_id=workflow_id,
+                    run_id=str(run.run_id),
+                    tasks=await _workflow_tasks(state, workflow_id),
+                    workspace_id=workspace_id,
                 )
             except WorkflowNotFoundError as exc:
                 raise AppError(
@@ -126,7 +137,7 @@ async def _execute_command(
             raise _invalid_operation(payload.surface, payload.operation)
         return _command_success(payload.surface, payload.operation, data)
 
-    workspace_root = workspace_dir("marketing_db", require_exists=True)
+    workspace_root = workspace_dir(workspace_id, require_exists=True)
 
     if payload.surface == "metrics":
         context = build_metrics_context(workspace_root)
@@ -286,6 +297,21 @@ async def _execute_command(
     raise _invalid_operation(payload.surface, payload.operation)
 
 
+async def _workflow_tasks(
+    state: BetaAppState,
+    workflow_id: str,
+) -> list[dict[str, object]]:
+    for workflow in await state.host.get_workflow_service().list_workflows():
+        if not isinstance(workflow, dict):
+            continue
+        if str(workflow.get("workflow_id") or "") != workflow_id:
+            continue
+        tasks = workflow.get("tasks")
+        if isinstance(tasks, list):
+            return [dict(task) for task in tasks if isinstance(task, dict)]
+    return []
+
+
 def _require_command_text(value: Any, field_name: str) -> str:
     text = str(value or "").strip()
     if not text:
@@ -387,3 +413,14 @@ def _command_success(surface: str, operation: str, data: Any) -> dict[str, Any]:
         "ok": True,
         "data": data,
     }
+
+
+def _require_workspace(workspace_id: str) -> None:
+    try:
+        resolve_workspace(workspace_id)
+    except ValueError as exc:
+        raise AppError(
+            status_code=404,
+            code="WORKSPACE_NOT_FOUND",
+            message=str(exc),
+        ) from exc

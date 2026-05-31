@@ -250,6 +250,7 @@ function parseWorkflowRunTail(tail: string):
 
 export async function executeInlineCommand(
   token: string,
+  workspaceId: string,
   command: ParsedSlashCommand,
 ): Promise<InlineCommandResult> {
   if (command.surface === "metrics") {
@@ -257,12 +258,12 @@ export async function executeInlineCommand(
       return {
         surface: "metrics",
         operation: "list",
-        data: await listMetrics(token),
+        data: await listMetrics(token, workspaceId),
       };
     }
 
     if (command.operation === "search") {
-      const data = await listMetrics(token);
+      const data = await listMetrics(token, workspaceId);
       const query = command.query ?? "";
       return {
         surface: "metrics",
@@ -279,7 +280,7 @@ export async function executeInlineCommand(
     }
 
     if (command.operation === "chart") {
-      const visualization = await visualizeMetric(token, {
+      const visualization = await visualizeMetric(token, workspaceId, {
         metric_name: command.target ?? "",
         limit: 30,
       });
@@ -291,17 +292,18 @@ export async function executeInlineCommand(
       };
     }
 
-    const config = (await listMetrics(token)).configs.find(
+    const config = (await listMetrics(token, workspaceId)).configs.find(
       (item) => item.name === (command.target ?? ""),
     );
     const detail = await getMetric(
       token,
+      workspaceId,
       command.target ?? "",
       config?.kind === "source" ? "source" : "metric",
     );
     const compile =
       detail.kind === "metric"
-        ? await compileMetric(token, detail.name, detail.document?.dimensions ?? []).catch(
+        ? await compileMetric(token, workspaceId, detail.name, detail.document?.dimensions ?? []).catch(
             () => null,
           )
         : null;
@@ -318,12 +320,12 @@ export async function executeInlineCommand(
       return {
         surface: "experiments",
         operation: "list",
-        data: await listExperiments(token),
+        data: await listExperiments(token, workspaceId),
       };
     }
 
     if (command.operation === "search") {
-      const data = await listExperiments(token);
+      const data = await listExperiments(token, workspaceId);
       const query = command.query ?? "";
       return {
         surface: "experiments",
@@ -340,7 +342,7 @@ export async function executeInlineCommand(
     }
 
     if (command.operation === "analyze") {
-      const analysis = await analyzeExperiment(token, { name: command.target ?? "" });
+      const analysis = await analyzeExperiment(token, workspaceId, { name: command.target ?? "" });
       return {
         surface: "experiments",
         operation: "analyze",
@@ -349,8 +351,8 @@ export async function executeInlineCommand(
       };
     }
 
-    const detail = await getExperiment(token, command.target ?? "");
-    const plan = await getExperimentPlan(token, detail.name).catch(() => null);
+    const detail = await getExperiment(token, workspaceId, command.target ?? "");
+    const plan = await getExperimentPlan(token, workspaceId, detail.name).catch(() => null);
     return {
       surface: "experiments",
       operation: "show",
@@ -364,13 +366,13 @@ export async function executeInlineCommand(
       return {
         surface: "workflows",
         operation: "list",
-        data: await listWorkflowsCommand(token),
+        data: await listWorkflowsCommand(token, workspaceId),
       };
     }
 
     if (command.operation === "run") {
       const workflowId = command.workflowId ?? command.target ?? "";
-      const run = await runWorkflowCommand(token, {
+      const run = await runWorkflowCommand(token, workspaceId, {
         workflow_id: workflowId,
         dedup_key: command.dedupKey,
         input: command.workflowInput ?? {},
@@ -384,7 +386,7 @@ export async function executeInlineCommand(
     }
 
     const workflowId = command.workflowId ?? command.target ?? "";
-    const status = await getWorkflowRunCommand(token, {
+    const status = await getWorkflowRunCommand(token, workspaceId, {
       workflow_id: workflowId,
       run_id: command.runId ?? "",
     });
@@ -400,7 +402,7 @@ export async function executeInlineCommand(
     return {
       surface: "artifacts",
       operation: "list",
-      data: await listArtifacts(token),
+      data: await listArtifacts(token, workspaceId),
     };
   }
 
@@ -409,7 +411,7 @@ export async function executeInlineCommand(
       surface: "artifacts",
       operation: "search",
       query: command.query ?? "",
-      data: await searchArtifacts(token, command.query ?? ""),
+      data: await searchArtifacts(token, workspaceId, command.query ?? ""),
     };
   }
 
@@ -417,6 +419,6 @@ export async function executeInlineCommand(
     surface: "artifacts",
     operation: "show",
     target: command.target ?? "",
-    data: await getArtifact(token, command.target ?? ""),
+    data: await getArtifact(token, workspaceId, command.target ?? ""),
   };
 }

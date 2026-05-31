@@ -14,7 +14,6 @@ from mash.tools.registry import ToolRegistry
 
 from ...artifacts.tools import build_artifact_tools
 from ...code_index import create_cached_files
-from ...shared.runtime_paths import workspace_dir
 from ...shared.skills import CREW_SKILLS_DIR, register_custom_skills
 from .config import (
     ANTHROPIC_API_KEY,
@@ -51,7 +50,7 @@ class EngineerAgentSpec(AgentSpec):
 
     def build_tools(self) -> ToolRegistry:
         tools = ToolRegistry()
-        for tool in build_artifact_tools(workspace_dir(require_exists=True)):
+        for tool in build_artifact_tools():
             tools.register(tool)
         tools.register(BashTool(working_dir=str(self.repo_path)))
         return tools

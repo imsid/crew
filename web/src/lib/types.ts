@@ -11,7 +11,14 @@ export type AuthState = {
   user: BetaUser;
 };
 
+export type WorkspaceRecord = {
+  workspace_id: string;
+  dataset_id: string;
+  path: string;
+};
+
 export type SessionRecord = {
+  workspace_id: string;
   session_id: string;
   user_id: string;
   agent_id: string;

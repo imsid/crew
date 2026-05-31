@@ -18,7 +18,6 @@ from mash.tools.registry import ToolRegistry
 from ...artifacts.tools import build_artifact_tools
 from ...experimentation.tools import build_experimentation_tools
 from ...metrics_layer.service.constants import METRICS_LAYER_SCHEMA_ROOT
-from ...shared.runtime_paths import workspace_dir
 from ...shared.skills import CREW_SKILLS_DIR, register_custom_skills
 from ...workflow.tools import build_publish_workflow_tool
 from .config import (
@@ -54,14 +53,13 @@ class DataAgentSpec(AgentSpec):
 
     def build_tools(self) -> ToolRegistry:
         tools = ToolRegistry()
-        workspace_root = workspace_dir(require_exists=True)
-        for tool in build_artifact_tools(workspace_root=workspace_root):
+        for tool in build_artifact_tools():
             tools.register(tool)
-        for tool in build_experimentation_tools(workspace_root=workspace_root):
+        for tool in build_experimentation_tools():
             tools.register(tool)
-        for tool in build_steward_tools(workspace_root=workspace_root):
+        for tool in build_steward_tools():
             tools.register(tool)
-        for tool in build_analyst_tools(workspace_root=workspace_root):
+        for tool in build_analyst_tools():
             tools.register(tool)
         tools.register(build_publish_workflow_tool())
         return tools

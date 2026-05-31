@@ -7,6 +7,7 @@ import { AccountMenu } from "@/components/layout/account-menu";
 import { MobileNav } from "@/components/layout/mobile-nav";
 import { SessionList } from "@/components/layout/session-list";
 import { SidebarNav } from "@/components/layout/sidebar-nav";
+import { WorkspaceSwitcher } from "@/components/layout/workspace-switcher";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -106,7 +107,8 @@ export function AppShell({
             </Button>
           </div>
           {!sidebarCollapsed ? (
-            <div className="mt-2">
+            <div className="mt-2 space-y-2">
+              <WorkspaceSwitcher />
               <AccountMenu />
             </div>
           ) : null}
@@ -116,11 +118,6 @@ export function AppShell({
           sidebarCollapsed && "items-center px-1.5",
         )}>
           <div className="space-y-2">
-            <div className={cn("px-1", sidebarCollapsed && "sr-only")}>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                Workspace
-              </p>
-            </div>
             <SidebarNav collapsed={sidebarCollapsed} />
           </div>
           {!sidebarCollapsed ? (

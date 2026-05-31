@@ -8,6 +8,8 @@ from fastapi.responses import StreamingResponse
 from mash.workflows import DuplicateWorkflowRunError, WorkflowNotFoundError
 
 from ...shared.runtime_context import get_runtime_context
+from ...shared.workspace_context import bound_workspace, register_workflow_task_workspaces
+from ...shared.workspaces import resolve_workspace
 from ...workflow.service import (
     WorkflowError,
     WorkflowService,
@@ -30,9 +32,11 @@ router = APIRouter()
 
 @router.get("/workflow")
 async def list_workflows(
+    workspace_id: str,
     request: Request,
     current_user: dict[str, Any] = Depends(_require_user),
 ) -> dict[str, Any]:
+    _require_workspace(workspace_id)
     del current_user
     workflow_service = _beta_state(request).host.get_workflow_service()
     workflows = await workflow_service.list_workflows()
@@ -54,10 +58,12 @@ async def list_workflows(
 
 @router.get("/workflow/{workflow_id}")
 async def get_workflow(
+    workspace_id: str,
     workflow_id: str,
     request: Request,
     current_user: dict[str, Any] = Depends(_require_user),
 ) -> dict[str, Any]:
+    _require_workspace(workspace_id)
     del current_user
     normalized_workflow_id = workflow_id.strip()
     try:
@@ -84,10 +90,12 @@ async def get_workflow(
 
 @router.post("/workflow/validate")
 async def validate_authored_workflow(
+    workspace_id: str,
     payload: dict[str, Any],
     request: Request,
     current_user: dict[str, Any] = Depends(_require_user),
 ) -> dict[str, Any]:
+    _require_workspace(workspace_id)
     del current_user
     try:
         normalized = await _workflow_service(request).validate_definition(
@@ -104,10 +112,12 @@ async def validate_authored_workflow(
 
 @router.post("/workflow")
 async def publish_authored_workflow(
+    workspace_id: str,
     payload: dict[str, Any],
     request: Request,
     current_user: dict[str, Any] = Depends(_require_user),
 ) -> dict[str, Any]:
+    _require_workspace(workspace_id)
     del current_user
     try:
         published = await _workflow_service(request).publish_workflow(
@@ -124,10 +134,12 @@ async def publish_authored_workflow(
 
 @router.post("/workflow/{workflow_id}/disable")
 async def disable_authored_workflow(
+    workspace_id: str,
     workflow_id: str,
     request: Request,
     current_user: dict[str, Any] = Depends(_require_user),
 ) -> dict[str, Any]:
+    _require_workspace(workspace_id)
     del current_user
     try:
         workflow = await _workflow_service(request).disable_workflow(
@@ -144,19 +156,28 @@ async def disable_authored_workflow(
 
 @router.post("/workflow/{workflow_id}/run")
 async def run_workflow(
+    workspace_id: str,
     workflow_id: str,
     payload: WorkflowRunRequest,
     request: Request,
     current_user: dict[str, Any] = Depends(_require_user),
 ) -> dict[str, Any]:
+    _require_workspace(workspace_id)
     del current_user
     workflow_service = _beta_state(request).host.get_workflow_service()
     await _validate_authored_workflow_input(request, workflow_id.strip(), payload.input)
     try:
-        run = await workflow_service.run_workflow(
-            workflow_id.strip(),
-            dedup_key=_normalize_optional_text(payload.dedup_key),
-            workflow_input=payload.input,
+        with bound_workspace(workspace_id):
+            run = await workflow_service.run_workflow(
+                workflow_id.strip(),
+                dedup_key=_normalize_optional_text(payload.dedup_key),
+                workflow_input=payload.input,
+            )
+        register_workflow_task_workspaces(
+            workflow_id=workflow_id.strip(),
+            run_id=str(run.run_id),
+            tasks=await _workflow_tasks(request, workflow_id.strip()),
+            workspace_id=workspace_id,
         )
     except WorkflowNotFoundError as exc:
         raise AppError(
@@ -182,11 +203,13 @@ async def run_workflow(
 
 @router.get("/workflow/{workflow_id}/runs/{run_id}")
 async def get_workflow_run(
+    workspace_id: str,
     workflow_id: str,
     run_id: str,
     request: Request,
     current_user: dict[str, Any] = Depends(_require_user),
 ) -> dict[str, Any]:
+    _require_workspace(workspace_id)
     del current_user
     workflow_service = _beta_state(request).host.get_workflow_service()
     try:
@@ -202,11 +225,13 @@ async def get_workflow_run(
 
 @router.get("/workflow/{workflow_id}/runs")
 async def list_workflow_runs(
+    workspace_id: str,
     workflow_id: str,
     request: Request,
     limit: int | None = Query(default=5, ge=1, le=50),
     current_user: dict[str, Any] = Depends(_require_user),
 ) -> dict[str, Any]:
+    _require_workspace(workspace_id)
     del current_user
     workflow_service = _beta_state(request).host.get_workflow_service()
     try:
@@ -231,11 +256,13 @@ async def list_workflow_runs(
 
 @router.get("/workflow/{workflow_id}/runs/{run_id}/events")
 async def stream_workflow_run_events(
+    workspace_id: str,
     workflow_id: str,
     run_id: str,
     request: Request,
     current_user: dict[str, Any] = Depends(_require_user),
 ) -> StreamingResponse:
+    _require_workspace(workspace_id)
     del current_user
     normalized_workflow_id = workflow_id.strip()
     normalized_run_id = run_id.strip()
@@ -399,3 +426,26 @@ async def _validate_authored_workflow_input(
 def _workflow_service(request: Request) -> WorkflowService:
     del request
     return get_runtime_context().workflow
+
+
+def _require_workspace(workspace_id: str) -> None:
+    try:
+        resolve_workspace(workspace_id)
+    except ValueError as exc:
+        raise AppError(
+            status_code=404,
+            code="WORKSPACE_NOT_FOUND",
+            message=str(exc),
+        ) from exc
+
+
+async def _workflow_tasks(request: Request, workflow_id: str) -> list[dict[str, object]]:
+    for workflow in await _beta_state(request).host.get_workflow_service().list_workflows():
+        if not isinstance(workflow, dict):
+            continue
+        if str(workflow.get("workflow_id") or "") != workflow_id:
+            continue
+        tasks = workflow.get("tasks")
+        if isinstance(tasks, list):
+            return [dict(task) for task in tasks if isinstance(task, dict)]
+    return []
