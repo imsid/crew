@@ -86,6 +86,6 @@
   .thread-prose {
     @apply artifact-prose;
     @apply text-[15px] leading-7 sm:text-[16px];
-    @apply prose-headings:tracking-tight prose-p:my-4 prose-ul:my-4 prose-ol:my-4 prose-pre:my-5;
+    @apply prose-headings:tracking-tight prose-p:my-2.5 prose-ul:my-2.5 prose-ol:my-2.5 prose-pre:my-3;
   }
 }

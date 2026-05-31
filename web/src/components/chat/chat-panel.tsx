@@ -466,7 +466,7 @@ export function ChatPanel({
           >
             {messages.length === 0 ? <ThreadWelcome onPrompt={handleNewMessage} /> : null}
             <InteractionContext.Provider value={interactionContextValue}>
-              <div className="flex flex-col gap-y-8 pb-8 empty:hidden">
+              <div className="flex flex-col gap-y-5 pb-6 empty:hidden">
                 <MessageList />
               </div>
             </InteractionContext.Provider>

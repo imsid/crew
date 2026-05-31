@@ -47,7 +47,7 @@ export function MessageList() {
 function UserMessage() {
   return (
     <MessagePrimitive.Root className="mx-auto grid w-full max-w-4xl grid-cols-[minmax(0,1fr)_auto] px-2">
-      <div className="col-start-2 max-w-[94%] rounded-[1.55rem] bg-primary px-5 py-3.5 text-sm text-primary-foreground shadow-sm sm:max-w-[88%]">
+      <div className="col-start-2 max-w-xl rounded-[1.55rem] bg-primary px-5 py-3.5 text-sm text-primary-foreground shadow-sm sm:max-w-2xl">
         <MessagePrimitive.Parts>
           {({ part }) => {
             if (part.type !== "text") return null;
@@ -65,13 +65,13 @@ function AssistantMessage() {
 
   return (
     <MessagePrimitive.Root className="mx-auto w-full max-w-4xl px-2">
-      <div className="space-y-4">
-        <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
-          <span className="inline-flex size-2 rounded-full bg-primary/55" />
+      <div className="space-y-2">
+        <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/80">
+          <span className="inline-flex size-1.5 rounded-full bg-primary/45" />
           Crew
         </div>
 
-        <div className="space-y-4">
+        <div className="space-y-3">
           <MessagePrimitive.Parts>
             {({ part }) => {
               if (part.type === "text") {
@@ -149,7 +149,7 @@ function AssistantMessage() {
           </MessagePrimitive.Error>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 empty:hidden">
           <ActionBarPrimitive.Root hideWhenRunning autohide="never">
             <ActionBarPrimitive.Copy asChild>
               <Button variant="ghost" size="sm" className="min-h-9 rounded-full px-3 text-xs">
