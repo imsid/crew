@@ -44,6 +44,11 @@ class CommandRequest(BaseModel):
     args: dict[str, Any] = Field(default_factory=dict)
 
 
+class InteractionResponseRequest(BaseModel):
+    interaction_id: str
+    response: Any
+
+
 class WorkflowRunRequest(BaseModel):
     dedup_key: str | None = None
     input: dict[str, Any] = Field(default_factory=dict)

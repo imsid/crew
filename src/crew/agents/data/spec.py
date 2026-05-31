@@ -13,6 +13,7 @@ from mash.core.llm import AnthropicProvider, LLMProvider
 from mash.mcp import MCPServerConfig
 from mash.runtime import AgentSpec, SubAgentMetadata
 from mash.skills.registry import SkillRegistry
+from mash.tools.ask_user import AskUserTool
 from mash.tools.registry import ToolRegistry
 
 from ...artifacts.tools import build_artifact_tools
@@ -62,6 +63,7 @@ class DataAgentSpec(AgentSpec):
         for tool in build_analyst_tools():
             tools.register(tool)
         tools.register(build_publish_workflow_tool())
+        tools.register(AskUserTool())
         return tools
 
     def build_skills(self) -> SkillRegistry:

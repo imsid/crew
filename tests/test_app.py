@@ -13,7 +13,7 @@ def test_build_host_registers_data_primary_and_support_agents(tmp_path):
             "GITHUB_REPOS": str(tmp_path),
             "GITHUB_URL": "https://github.com/org/repo",
             "MASH_DATA_DIR": str(tmp_path / ".mash"),
-            "MASH_DATABASE_URL": "postgresql://test/runtime",
+            "CREW_DATABASE_URL": "postgresql://test/runtime",
             "DBOS_CONDUCTOR_KEY": "test-conductor-key",
         },
         clear=False,
@@ -48,6 +48,7 @@ def test_build_host_requires_runtime_env(monkeypatch, tmp_path):
     monkeypatch.setenv("GITHUB_REPOS", str(tmp_path))
     monkeypatch.setenv("GITHUB_URL", "https://github.com/org/repo")
     monkeypatch.setenv("MASH_DATA_DIR", str(tmp_path / ".mash"))
+    monkeypatch.delenv("CREW_DATABASE_URL", raising=False)
     monkeypatch.delenv("MASH_DATABASE_URL", raising=False)
     monkeypatch.delenv("DBOS_CONDUCTOR_KEY", raising=False)
 
@@ -55,5 +56,4 @@ def test_build_host_requires_runtime_env(monkeypatch, tmp_path):
         build_host()
 
     message = str(excinfo.value)
-    assert "MASH_DATABASE_URL" in message
     assert "DBOS_CONDUCTOR_KEY" in message

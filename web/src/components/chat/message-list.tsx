@@ -10,8 +10,9 @@ import {
 } from "@assistant-ui/react";
 import { AlertTriangleIcon, CopyIcon } from "lucide-react";
 import { ExecutionTrace } from "@/components/chat/execution-trace";
+import { useInteractionContext } from "@/components/chat/chat-panel";
 import { Button } from "@/components/ui/button";
-import type { ExecutionTraceState, InlineCommandResult } from "@/lib/types";
+import type { ExecutionTraceState, InlineCommandResult, InteractionState } from "@/lib/types";
 
 const MarkdownRenderer = dynamic(
   () => import("@/components/chat/markdown-renderer").then((mod) => mod.MarkdownRenderer),
@@ -25,6 +26,10 @@ const CommandResultCard = dynamic(
   {
     loading: () => <CommandLoadingCard label="Loading command result" />,
   },
+);
+
+const InteractionCard = dynamic(
+  () => import("@/components/chat/interaction-card").then((mod) => mod.InteractionCard),
 );
 
 export function MessageList() {
@@ -56,6 +61,7 @@ function UserMessage() {
 
 function AssistantMessage() {
   const isThreadRunning = useAuiState((state) => state.thread.isRunning);
+  const { respondToInteraction } = useInteractionContext();
 
   return (
     <MessagePrimitive.Root className="mx-auto w-full max-w-4xl px-2">
@@ -116,6 +122,15 @@ function AssistantMessage() {
                     ? part.data.message
                     : "Command failed";
                 return <CommandErrorCard message={message} />;
+              }
+
+              if (part.type === "data" && part.name === "interaction") {
+                return (
+                  <InteractionCard
+                    interaction={part.data as InteractionState}
+                    onRespond={respondToInteraction}
+                  />
+                );
               }
 
               return null;

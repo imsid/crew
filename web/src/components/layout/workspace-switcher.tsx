@@ -25,7 +25,7 @@ export function WorkspaceSwitcher({
   }
 
   return (
-    <details className="group relative">
+    <details className="group">
       <summary
         className={cn(
           "flex min-h-10 list-none items-center gap-2 rounded-[0.95rem] border border-border/70 bg-white/75 px-2.5 py-2 text-left shadow-sm transition-colors hover:bg-white [&::-webkit-details-marker]:hidden",
@@ -46,7 +46,7 @@ export function WorkspaceSwitcher({
         <ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
       </summary>
 
-      <div className="absolute left-0 top-full z-40 mt-2 w-full min-w-[210px] rounded-[1rem] border border-border/80 bg-white/98 p-1.5 shadow-[0_18px_40px_rgba(36,29,20,0.12)]">
+      <div className="mt-1.5 rounded-[0.85rem] border border-border/60 bg-white/95 p-1">
         {workspaces.map((workspace) => {
           const isSelected = workspace.workspace_id === workspaceId;
           return (
@@ -54,7 +54,7 @@ export function WorkspaceSwitcher({
               key={workspace.workspace_id}
               type="button"
               className={cn(
-                "flex w-full items-center gap-2 rounded-[0.8rem] px-2.5 py-2 text-left transition-colors",
+                "flex w-full items-center gap-2 rounded-[0.7rem] px-2.5 py-1.5 text-left transition-colors",
                 isSelected ? "bg-primary/[0.08] text-primary" : "text-foreground hover:bg-secondary/80",
               )}
               onClick={(event) => {
@@ -62,19 +62,16 @@ export function WorkspaceSwitcher({
                 event.currentTarget.closest("details")?.removeAttribute("open");
               }}
             >
-              <span className="flex size-6 shrink-0 items-center justify-center rounded-[0.55rem] bg-secondary/80">
+              <span className="flex size-5 shrink-0 items-center justify-center rounded-[0.4rem] bg-secondary/80">
                 {isSelected ? (
-                  <CheckIcon className="size-3.5" />
+                  <CheckIcon className="size-3" />
                 ) : (
-                  <DatabaseIcon className="size-3.5" />
+                  <DatabaseIcon className="size-3" />
                 )}
               </span>
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-semibold">
+                <span className="block truncate text-[13px] font-medium">
                   {workspace.workspace_id}
-                </span>
-                <span className="block truncate text-[11px] text-muted-foreground">
-                  {workspace.dataset_id}
                 </span>
               </span>
             </button>

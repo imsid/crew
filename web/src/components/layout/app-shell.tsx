@@ -107,9 +107,8 @@ export function AppShell({
             </Button>
           </div>
           {!sidebarCollapsed ? (
-            <div className="mt-2 space-y-2">
+            <div className="mt-2">
               <WorkspaceSwitcher />
-              <AccountMenu />
             </div>
           ) : null}
         </div>
@@ -126,6 +125,12 @@ export function AppShell({
               <SessionList />
             </>
           ) : null}
+        </div>
+        <div className={cn(
+          "border-t border-border/50 px-3 py-2",
+          sidebarCollapsed && "px-2",
+        )}>
+          <AccountMenu collapsed={sidebarCollapsed} />
         </div>
       </aside>
 

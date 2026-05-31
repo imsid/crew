@@ -103,6 +103,7 @@ def _build_test_client(tmp_path: Path):
     os.environ["GITHUB_REPOS"] = str(tmp_path)
     os.environ["GITHUB_URL"] = "https://github.com/org/repo"
     os.environ["MASH_DATA_DIR"] = str(tmp_path / ".mash")
+    os.environ["CREW_DATABASE_URL"] = "postgresql://test/runtime"
     os.environ["MASH_DATABASE_URL"] = "postgresql://test/runtime"
     os.environ["DBOS_CONDUCTOR_KEY"] = "test-conductor-key"
 

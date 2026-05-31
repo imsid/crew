@@ -14,6 +14,11 @@ def build_host() -> AgentHost:
     load_project_env()
     load_agent_env("pm")
     load_agent_env("data")
+
+    crew_db = os.environ.get("CREW_DATABASE_URL", "").strip()
+    if crew_db:
+        os.environ.setdefault("MASH_DATABASE_URL", crew_db)
+
     require_host_runtime_env()
     os.environ.setdefault("MASH_DATA_DIR", str(crew_root_dir()))
     pm = PMAgentSpec()

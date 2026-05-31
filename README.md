@@ -48,7 +48,6 @@ Configure the host runtime in a project-level `.env`:
 
 ```bash
 CREW_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/crew_db
-MASH_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/crew_db
 DBOS_CONDUCTOR_KEY=your_dbos_conductor_key
 ```
 
@@ -86,10 +85,9 @@ After that, use either [Crew CLI](#crew-cli) or [Beta Web App](#beta-web-app).
 
 ## Runtime Notes
 
-- `CREW_DATABASE_URL` is the Crew app database used by the beta backend and
-  other Crew-owned persisted state.
-- `MASH_DATABASE_URL` is the Mash runtime database used by the hosted agent
-  runtime.
+- `CREW_DATABASE_URL` is the shared Postgres database used by the beta backend,
+  agent runtime, and all persisted state. It is automatically forwarded to the
+  underlying Mash runtime (`MASH_DATABASE_URL`) at startup.
 - `MASH_DATA_DIR` still defaults to `<repo>/.mash` in a checkout for local
   runtime state unless you override it explicitly.
 - `DBOS_CONDUCTOR_KEY` is required whenever the hosted Mash runtime starts.
@@ -131,25 +129,20 @@ crew workflow status weekly-business-review <run_id>
 
 ### Workspaces
 
-`crew` defaults to `marketing_db`. Override it per command:
+`crew` defaults to `marketing_db`. Manage the active workspace with the
+`workspace` subcommand:
 
 ```bash
-crew --workspace marketing_db metrics list
-crew --workspace my_new_workspace artifact list
+crew workspace list           # list available workspaces (* marks active)
+crew workspace show           # show current workspace and config source
+crew workspace set my_db      # persist as default in ~/.crew/config.json
+crew workspace unset          # clear config, revert to marketing_db default
 ```
 
-Or make a workspace the shell default:
+Resolution order: Beta API route context > request registry >
+`~/.crew/config.json` > default (`marketing_db`).
 
-```bash
-export CREW_WORKSPACE=my_new_workspace
-crew metrics list
-```
-
-Local workspaces resolve under:
-
-```bash
-src/crew/workspace/
-```
+Local workspace content lives under `src/crew/workspace/<name>/`.
 
 ### Artifacts
 

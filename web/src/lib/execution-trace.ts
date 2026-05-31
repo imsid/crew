@@ -68,6 +68,10 @@ export function applyTraceEvent(
     };
   }
 
+  if (event.kind === "interaction-create" || event.kind === "interaction-ack") {
+    return state;
+  }
+
   const step = ensureTraceStep(state.steps, event.step_index, event.step_key);
   const nextResult: ExecutionTraceResult = {
     tool_call_id: event.tool_call_id ?? null,

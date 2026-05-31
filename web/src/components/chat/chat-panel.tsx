@@ -8,7 +8,7 @@ import {
   type ThreadMessageLike,
 } from "@assistant-ui/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { startTransition, useCallback, useEffect, useMemo } from "react";
+import { createContext, startTransition, useCallback, useContext, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowDownIcon } from "lucide-react";
 import {
@@ -16,6 +16,7 @@ import {
   getSession,
   getSessionHistory,
   listSessions,
+  postInteractionResponse,
   sendMessage,
   streamSessionEvents,
   runWorkflowCommand,
@@ -28,6 +29,7 @@ import { truncate } from "@/lib/utils";
 import type {
   ExecutionTraceState,
   InlineCommandResult,
+  InteractionState,
   StreamEvent,
   TraceEventPayload,
 } from "@/lib/types";
@@ -37,6 +39,18 @@ import { MessageComposer } from "@/components/chat/message-composer";
 import { MessageList } from "@/components/chat/message-list";
 import { MobileNav } from "@/components/layout/mobile-nav";
 import { Button } from "@/components/ui/button";
+
+type InteractionContextValue = {
+  respondToInteraction: (interactionId: string, response: unknown) => void;
+};
+
+const InteractionContext = createContext<InteractionContextValue>({
+  respondToInteraction: () => {},
+});
+
+export function useInteractionContext() {
+  return useContext(InteractionContext);
+}
 
 export function ChatPanel({
   sessionId,
@@ -60,6 +74,7 @@ export function ChatPanel({
   const setAbortController = useChatStore((state) => state.setAbortController);
   const moveThread = useChatStore((state) => state.moveThread);
   const setLastSubmitted = useChatStore((state) => state.setLastSubmitted);
+  const setRequestId = useChatStore((state) => state.setRequestId);
 
   useEffect(() => {
     ensureThread(threadKey);
@@ -220,6 +235,7 @@ export function ChatPanel({
 
       try {
         const { request_id } = await sendMessage(auth.token, workspaceId, activeSessionId, text);
+        setRequestId(activeThreadKey, request_id);
         await streamSessionEvents(
           auth.token,
           workspaceId,
@@ -239,6 +255,14 @@ export function ChatPanel({
             updateMessage(activeThreadKey, assistantId, (current) =>
               applyStreamEventToMessage(current, event),
             );
+
+            if (event.event === "request.interaction.create") {
+              setStatusLabel(activeThreadKey, "Waiting for your input");
+            }
+
+            if (event.event === "request.interaction.ack") {
+              setStatusLabel(activeThreadKey, "Resuming execution");
+            }
 
             if (event.event === "request.completed") {
               updateMessage(activeThreadKey, assistantId, (current) => ({
@@ -278,6 +302,7 @@ export function ChatPanel({
         setRunning(activeThreadKey, false);
         setStatusLabel(activeThreadKey, null);
         setAbortController(activeThreadKey, null);
+        setRequestId(activeThreadKey, null);
         queryClient.invalidateQueries({ queryKey: ["sessions", workspaceId] });
         queryClient.invalidateQueries({ queryKey: ["session-records", workspaceId] });
         queryClient.invalidateQueries({ queryKey: ["session-detail", workspaceId, activeSessionId] });
@@ -293,6 +318,7 @@ export function ChatPanel({
       sessionId,
       setAbortController,
       setLastSubmitted,
+      setRequestId,
       setRunning,
       setStatusLabel,
       threadKey,
@@ -329,6 +355,56 @@ export function ChatPanel({
     }
     return 0;
   }, [messages]);
+
+  const respondToInteraction = useCallback(
+    async (interactionId: string, response: unknown) => {
+      if (!auth) return;
+      const currentThread = useChatStore.getState().threads[threadKey];
+      const currentRequestId = currentThread?.requestId;
+      const activeSessionId = sessionId;
+      if (!currentRequestId || !activeSessionId) return;
+
+      for (const msg of currentThread?.messages ?? []) {
+        if (msg.role !== "assistant" || !Array.isArray(msg.content)) continue;
+        updateMessage(threadKey, msg.id!, (current) => {
+          const content = Array.isArray(current.content) ? [...current.content] : [];
+          const idx = content.findIndex(
+            (p) =>
+              typeof p === "object" &&
+              p &&
+              p.type === "data-interaction" &&
+              (p as { data?: InteractionState }).data?.interaction_id === interactionId,
+          );
+          if (idx < 0) return current;
+          const part = content[idx] as { type: string; data: InteractionState };
+          content[idx] = {
+            ...part,
+            data: { ...part.data, status: "responded", response },
+          };
+          return { ...current, content };
+        });
+      }
+
+      try {
+        await postInteractionResponse(
+          auth.token,
+          workspaceId,
+          activeSessionId,
+          currentRequestId,
+          interactionId,
+          response,
+        );
+      } catch (error) {
+        console.error("Failed to send interaction response:", error);
+      }
+    },
+    [auth, sessionId, threadKey, updateMessage, workspaceId],
+  );
+
+  const interactionContextValue = useMemo<InteractionContextValue>(
+    () => ({ respondToInteraction }),
+    [respondToInteraction],
+  );
 
   const threadTitle =
     sessionDetailQuery.data?.session.label || matchingSession?.label || "Analysis session";
@@ -389,9 +465,11 @@ export function ChatPanel({
             } sm:px-4`}
           >
             {messages.length === 0 ? <ThreadWelcome onPrompt={handleNewMessage} /> : null}
-            <div className="flex flex-col gap-y-8 pb-8 empty:hidden">
-              <MessageList />
-            </div>
+            <InteractionContext.Provider value={interactionContextValue}>
+              <div className="flex flex-col gap-y-8 pb-8 empty:hidden">
+                <MessageList />
+              </div>
+            </InteractionContext.Provider>
           </ThreadPrimitive.Viewport>
           <div className="relative z-20 overflow-visible border-t border-border/60 bg-background/92 px-2 pb-2 pt-2 backdrop-blur-sm sm:px-4">
             <ThreadPrimitive.ScrollToBottom asChild>
@@ -564,7 +642,17 @@ function applyStreamEventToMessage(message: ThreadMessageLike, event: StreamEven
   let content = Array.isArray(message.content) ? [...message.content] : [];
   const usage = extractUsageFromEvent(event);
 
-  if (event.data.trace) {
+  if (event.data.trace?.kind === "interaction-create") {
+    content = mergeInteractionCreateIntoContent(
+      content,
+      event.data.trace as Extract<TraceEventPayload, { kind: "interaction-create" }>,
+    );
+  } else if (event.data.trace?.kind === "interaction-ack") {
+    content = mergeInteractionAckIntoContent(
+      content,
+      event.data.trace as Extract<TraceEventPayload, { kind: "interaction-ack" }>,
+    );
+  } else if (event.data.trace) {
     content = mergeTraceEventIntoContent(content, event.data.trace);
   }
 
@@ -841,4 +929,50 @@ function parseWorkflowOutput(raw: string): unknown {
   } catch {
     return raw;
   }
+}
+
+function mergeInteractionCreateIntoContent(
+  content: ThreadMessageLike["content"],
+  trace: Extract<TraceEventPayload, { kind: "interaction-create" }>,
+) {
+  const nextContent = Array.isArray(content) ? [...content] : [];
+  const interaction: InteractionState = {
+    interaction_id: trace.interaction_id,
+    interaction_type: trace.interaction_type,
+    prompt: trace.prompt,
+    schema: trace.schema,
+    timeout_seconds: trace.timeout_seconds,
+    status: "pending",
+  };
+  const textIndex = nextContent.findIndex(
+    (part) => typeof part === "object" && part && part.type === "text",
+  );
+  const insertIndex = textIndex >= 0 ? textIndex : nextContent.length;
+  nextContent.splice(insertIndex, 0, {
+    type: "data-interaction",
+    data: interaction,
+  });
+  return nextContent;
+}
+
+function mergeInteractionAckIntoContent(
+  content: ThreadMessageLike["content"],
+  trace: Extract<TraceEventPayload, { kind: "interaction-ack" }>,
+) {
+  const nextContent = Array.isArray(content) ? [...content] : [];
+  const idx = nextContent.findIndex(
+    (part) =>
+      typeof part === "object" &&
+      part &&
+      part.type === "data-interaction" &&
+      (part as { data?: InteractionState }).data?.interaction_id === trace.interaction_id,
+  );
+  if (idx >= 0) {
+    const existing = nextContent[idx] as { type: string; data: InteractionState };
+    nextContent[idx] = {
+      ...existing,
+      data: { ...existing.data, status: "responded", response: trace.response },
+    };
+  }
+  return nextContent;
 }

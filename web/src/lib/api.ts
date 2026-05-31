@@ -200,6 +200,27 @@ export async function sendMessage(
   });
 }
 
+export async function postInteractionResponse(
+  token: string,
+  workspaceId: string,
+  sessionId: string,
+  requestId: string,
+  interactionId: string,
+  response: unknown,
+): Promise<void> {
+  await apiRequest(
+    workspacePath(
+      workspaceId,
+      `/sessions/${sessionId}/requests/${requestId}/interaction`,
+    ),
+    {
+      method: "POST",
+      token,
+      body: { interaction_id: interactionId, response },
+    },
+  );
+}
+
 export async function streamSessionEvents(
   token: string,
   workspaceId: string,

@@ -20,6 +20,7 @@ from ..app import (
     LOGGER,
     AppError,
     CreateSessionRequest,
+    InteractionResponseRequest,
     SendMessageRequest,
     _beta_state,
     _normalize_optional_text,
@@ -435,6 +436,41 @@ async def stream_request_events(
     )
 
 
+@router.post("/sessions/{session_id}/requests/{request_id}/interaction")
+async def post_interaction_response(
+    workspace_id: str,
+    session_id: str,
+    request_id: str,
+    payload: InteractionResponseRequest,
+    request: Request,
+    current_user: dict[str, Any] = Depends(_require_user),
+) -> dict[str, Any]:
+    _require_workspace(workspace_id)
+    await _owned_session(request, current_user, workspace_id, session_id)
+    state = _beta_state(request)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=state.mash_api_app),
+        base_url="http://mash-internal",
+    ) as client:
+        response = await client.post(
+            f"/api/v1/agent/{quote(DATA_AGENT_ID, safe='')}"
+            f"/request/{quote(request_id.strip(), safe='')}/interaction",
+            json={
+                "interaction_id": payload.interaction_id,
+                "response": payload.response,
+            },
+        )
+    result = response.json()
+    if not response.is_success:
+        error = result.get("error") if isinstance(result, dict) else None
+        raise AppError(
+            status_code=response.status_code,
+            code=str((error or {}).get("code") or "MASH_PROXY_ERROR"),
+            message=str((error or {}).get("message") or "Interaction response failed"),
+        )
+    return {"data": result.get("data") if isinstance(result, dict) else result}
+
+
 def _data_agent(request: Request):
     return _beta_state(request).host.get_agent(DATA_AGENT_ID)
 
@@ -601,6 +637,23 @@ def _build_trace_event(
             "error": payload.get("error"),
         }
 
+    if event_name == "request.interaction.create":
+        return {
+            "kind": "interaction-create",
+            "interaction_id": payload.get("interaction_id"),
+            "interaction_type": payload.get("type"),
+            "prompt": payload.get("prompt"),
+            "schema": payload.get("schema"),
+            "timeout_seconds": payload.get("timeout_seconds"),
+        }
+
+    if event_name == "request.interaction.ack":
+        return {
+            "kind": "interaction-ack",
+            "interaction_id": payload.get("interaction_id"),
+            "response": payload.get("response"),
+        }
+
     event_type = str(payload.get("event_type") or "")
     trace_payload = payload.get("payload")
     if not isinstance(trace_payload, dict):
@@ -713,6 +766,10 @@ def _default_runtime_status(event_name: str) -> str:
         return "started"
     if event_name == "request.accepted":
         return "accepted"
+    if event_name == "request.interaction.create":
+        return "waiting"
+    if event_name == "request.interaction.ack":
+        return "running"
     return "running"
 
 

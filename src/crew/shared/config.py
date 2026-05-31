@@ -10,7 +10,6 @@ from dotenv import load_dotenv
 from .runtime_paths import source_root
 
 _HOST_RUNTIME_ENV_VARS = (
-    "MASH_DATABASE_URL",
     "DBOS_CONDUCTOR_KEY",
 )
 _LOADED_ENV_PATHS: set[Path] = set()

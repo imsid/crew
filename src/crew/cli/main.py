@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
-from typing import Any, Sequence
+from collections.abc import Iterator
+from typing import Any, Sequence, cast
 from urllib.parse import quote
 
 from mash.cli.client import MashHostClient
@@ -124,23 +126,27 @@ def _stream_workflow_run_events(
     client: MashHostClient,
     workflow_id: str,
     run_id: str,
-):
+) -> Iterator[dict[str, Any]]:
     stream_method = getattr(client, "stream_workflow_run_events", None)
     if not callable(stream_method):
         stream_method = getattr(client, "stream_workflow_run", None)
     if callable(stream_method):
-        yield from stream_method(workflow_id, run_id)
+        yield from stream_method(workflow_id, run_id)  # type: ignore[misc]
         return
 
     request_method = getattr(client, "_request", None)
     if not callable(request_method):
         return
-    with request_method(
-        "GET",
-        "/api/v1/workflow/"
-        f"{quote(workflow_id, safe='')}/runs/{quote(run_id, safe='')}/events",
-        stream=True,
-    ) as response:
+    ctx = cast(
+        contextlib.AbstractContextManager[Any],
+        request_method(
+            "GET",
+            "/api/v1/workflow/"
+            f"{quote(workflow_id, safe='')}/runs/{quote(run_id, safe='')}/events",
+            stream=True,
+        ),
+    )
+    with ctx as response:
         event_name: str | None = None
         data_lines: list[str] = []
         for line in response.iter_lines(chunk_size=1, decode_unicode=True):
@@ -847,7 +853,10 @@ def _render_visualization_payload(
         renderer.table(
             [str(column.get("label") or column.get("key") or "") for column in columns],
             [
-                [_format_visualization_cell(row.get(str(column.get("key"))), column) for column in columns]
+                [
+                    _format_visualization_cell(row.get(str(column.get("key"))), column)
+                    for column in columns
+                ]
                 for row in rows
             ],
         )

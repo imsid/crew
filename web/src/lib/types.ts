@@ -88,6 +88,16 @@ export type TraceToolCall = {
   arguments: Record<string, unknown>;
 };
 
+export type InteractionState = {
+  interaction_id: string;
+  interaction_type: "approval" | "info" | "choice";
+  prompt: string;
+  schema: { type: string; options?: string[] };
+  timeout_seconds?: number;
+  status: "pending" | "responded";
+  response?: unknown;
+};
+
 export type TraceEventPayload =
   | {
       kind: "status";
@@ -120,6 +130,19 @@ export type TraceEventPayload =
       duration_ms?: number | null;
       is_error: boolean;
       metadata: Record<string, unknown>;
+    }
+  | {
+      kind: "interaction-create";
+      interaction_id: string;
+      interaction_type: "approval" | "info" | "choice";
+      prompt: string;
+      schema: { type: string; options?: string[] };
+      timeout_seconds?: number;
+    }
+  | {
+      kind: "interaction-ack";
+      interaction_id: string;
+      response: unknown;
     };
 
 export type ExecutionTraceResult = {

@@ -7,30 +7,46 @@ import { useAuth } from "@/providers/auth-provider";
 
 export function AccountMenu({
   className,
+  collapsed = false,
 }: Readonly<{
   className?: string;
+  collapsed?: boolean;
 }>) {
   const router = useRouter();
   const { auth, logout } = useAuth();
 
+  if (collapsed) {
+    return (
+      <button
+        type="button"
+        className="flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+        title="Log out"
+        onClick={() => {
+          logout();
+          router.replace("/login");
+        }}
+      >
+        <LogOutIcon className="size-3.5" />
+      </button>
+    );
+  }
+
   return (
-    <details className={cn("relative", className)}>
-      <summary className="flex min-h-10 list-none cursor-pointer items-center rounded-full border border-border/80 bg-white/78 px-3 py-2 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-white [&::-webkit-details-marker]:hidden">
+    <div className={cn("flex items-center justify-between", className)}>
+      <span className="truncate text-xs text-muted-foreground">
         @{auth?.user.username}
-      </summary>
-      <div className="absolute left-0 top-full z-30 mt-2 min-w-[152px] rounded-[1rem] border border-border/80 bg-white/98 p-1.5 shadow-[0_18px_40px_rgba(36,29,20,0.12)]">
-        <button
-          type="button"
-          className="flex w-full items-center gap-2 rounded-[0.8rem] px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-secondary"
-          onClick={() => {
-            logout();
-            router.replace("/login");
-          }}
-        >
-          <LogOutIcon className="size-4" />
-          Log out
-        </button>
-      </div>
-    </details>
+      </span>
+      <button
+        type="button"
+        className="flex size-7 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+        title="Log out"
+        onClick={() => {
+          logout();
+          router.replace("/login");
+        }}
+      >
+        <LogOutIcon className="size-3.5" />
+      </button>
+    </div>
   );
 }

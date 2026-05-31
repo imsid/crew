@@ -15,6 +15,7 @@ type CrewThreadState = {
   statusLabel: string | null;
   lastSubmitted: SubmitMeta | null;
   abortController: AbortController | null;
+  requestId: string | null;
 };
 
 type ChatStore = {
@@ -35,6 +36,7 @@ type ChatStore = {
     abortController: AbortController | null,
   ) => void;
   setLastSubmitted: (threadKey: string, value: SubmitMeta | null) => void;
+  setRequestId: (threadKey: string, requestId: string | null) => void;
   moveThread: (fromKey: string, toKey: string) => void;
   resetThread: (threadKey: string) => void;
 };
@@ -46,6 +48,7 @@ const createThreadState = (): CrewThreadState => ({
   statusLabel: null,
   lastSubmitted: null,
   abortController: null,
+  requestId: null,
 });
 
 export const useChatStore = create<ChatStore>((set, get) => ({
@@ -158,6 +161,16 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         [threadKey]: {
           ...(state.threads[threadKey] ?? createThreadState()),
           lastSubmitted: value,
+        },
+      },
+    })),
+  setRequestId: (threadKey, requestId) =>
+    set((state) => ({
+      threads: {
+        ...state.threads,
+        [threadKey]: {
+          ...(state.threads[threadKey] ?? createThreadState()),
+          requestId,
         },
       },
     })),
