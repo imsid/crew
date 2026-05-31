@@ -1,0 +1,13 @@
+kind: metric
+version: 1
+id: daily_events
+label: Daily Events
+type: simple
+base_source: user_activity
+expr: event_count
+dimensions:
+  - activity_date
+  - product_surface
+  - activity_type
+  - user_id
+  - org_id

@@ -119,6 +119,10 @@ export async function listWorkspaces(token: string): Promise<{ workspaces: Works
   return apiRequest("/workspace", { token });
 }
 
+export async function getCurrentWorkspace(token: string): Promise<{ workspace_id: string }> {
+  return apiRequest("/workspace/current", { token });
+}
+
 function workspacePath(workspaceId: string, path: string) {
   return `/workspace/${encodeURIComponent(workspaceId)}${path}`;
 }

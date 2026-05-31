@@ -1,0 +1,9 @@
+kind: metric
+version: 1
+id: total_active_orgs
+label: Total Active Orgs
+type: simple
+base_source: orgs
+expr: active_org_count
+dimensions:
+  - org_name

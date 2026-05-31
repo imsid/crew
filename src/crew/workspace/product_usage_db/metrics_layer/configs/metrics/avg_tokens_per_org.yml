@@ -1,0 +1,9 @@
+kind: metric
+version: 1
+id: avg_tokens_per_org
+label: Avg Tokens Per Org
+type: simple
+base_source: orgs
+expr: AVG(tokens_consumed_sum)
+dimensions:
+  - org_name

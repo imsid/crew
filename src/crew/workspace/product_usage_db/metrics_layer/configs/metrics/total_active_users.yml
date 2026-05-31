@@ -1,0 +1,10 @@
+kind: metric
+version: 1
+id: total_active_users
+label: Total Active Users
+type: simple
+base_source: users
+expr: active_user_count
+dimensions:
+  - org_id
+  - user_name

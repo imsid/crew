@@ -1,0 +1,9 @@
+kind: metric
+version: 1
+id: total_returning_users
+label: Total Returning Users
+type: simple
+base_source: users
+expr: returning_user_count
+dimensions:
+  - org_id

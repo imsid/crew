@@ -1,0 +1,9 @@
+kind: metric
+version: 1
+id: total_churned_users
+label: Total Churned Users
+type: simple
+base_source: users
+expr: churned_user_count
+dimensions:
+  - org_id

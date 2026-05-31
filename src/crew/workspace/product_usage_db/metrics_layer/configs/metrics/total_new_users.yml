@@ -1,0 +1,9 @@
+kind: metric
+version: 1
+id: total_new_users
+label: Total New Users
+type: simple
+base_source: users
+expr: new_user_count
+dimensions:
+  - org_id

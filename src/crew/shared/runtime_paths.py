@@ -53,7 +53,7 @@ def default_workspace_name() -> str:
 
 
 def selected_workspace_name(explicit_workspace: str | None = None) -> str:
-    candidate = explicit_workspace or os.environ.get("CREW_WORKSPACE") or DEFAULT_WORKSPACE_NAME
+    candidate = explicit_workspace or DEFAULT_WORKSPACE_NAME
     normalized = candidate.strip() if isinstance(candidate, str) else ""
     if not normalized:
         normalized = DEFAULT_WORKSPACE_NAME

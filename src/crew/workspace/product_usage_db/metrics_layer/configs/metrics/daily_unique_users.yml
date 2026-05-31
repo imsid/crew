@@ -1,0 +1,11 @@
+kind: metric
+version: 1
+id: daily_unique_users
+label: Daily Unique Users
+type: simple
+base_source: user_activity_events
+expr: COUNT(DISTINCT user_id)
+dimensions:
+  - activity_date
+  - org_id
+  - product_surface

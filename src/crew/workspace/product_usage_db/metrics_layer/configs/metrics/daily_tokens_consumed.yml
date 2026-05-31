@@ -1,0 +1,13 @@
+kind: metric
+version: 1
+id: daily_tokens_consumed
+label: Daily Tokens Consumed
+type: simple
+base_source: user_activity_events
+expr: tokens_consumed_sum
+dimensions:
+  - activity_date
+  - user_id
+  - org_id
+  - product_surface
+  - activity_type

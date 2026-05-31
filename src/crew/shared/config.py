@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import os
+from dataclasses import dataclass
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -59,3 +61,45 @@ def require_host_runtime_env() -> None:
             f"Missing required host runtime environment: {joined}. "
             "Set these in the shell or the project .env before starting the hosted runtime."
         )
+
+
+# Workspace configuration
+
+
+@dataclass
+class CrewConfig:
+    """Crew configuration."""
+
+    workspace_id: str | None = None
+
+
+def config_path() -> Path:
+    """Get path to Crew config file."""
+    return Path.home() / ".crew" / "config.json"
+
+
+def load_config() -> CrewConfig | None:
+    """Load config from disk. Returns None if missing or invalid."""
+    path = config_path()
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text())
+        return CrewConfig(workspace_id=data.get("workspace_id"))
+    except Exception:
+        return None  # Graceful degradation
+
+
+def save_config(config: CrewConfig) -> Path:
+    """Save config to disk."""
+    path = config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = {"workspace_id": config.workspace_id}
+    path.write_text(json.dumps(data, indent=2))
+    return path
+
+
+def get_current_workspace() -> str | None:
+    """Get currently configured workspace, or None if not set."""
+    config = load_config()
+    return config.workspace_id if config else None

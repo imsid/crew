@@ -1,0 +1,13 @@
+kind: metric
+version: 1
+id: daily_activities
+label: Daily Activities
+type: simple
+base_source: user_activity
+expr: activity_count_sum
+dimensions:
+  - activity_date
+  - product_surface
+  - activity_type
+  - user_id
+  - org_id

@@ -33,8 +33,6 @@ from ..metrics_layer.service.tool_entrypoints import (
 )
 from ..shared.runtime_paths import (
     crew_root_dir,
-    default_workspace_name,
-    selected_workspace_name,
     workspace_dir,
     workspace_root_dir,
 )
@@ -223,13 +221,29 @@ def build_parser() -> argparse.ArgumentParser:
         prog="crew",
         description="Crew CLI for agents, artifacts, and metrics.",
     )
-    parser.add_argument(
-        "--workspace",
-        default=None,
-        help=f"Workspace name. Defaults to {default_workspace_name()}.",
-    )
     subparsers = parser.add_subparsers(dest="command")
     subparsers.add_parser("version", help="Show crew runtime information")
+
+    # Workspace management
+    workspace = subparsers.add_parser("workspace", help="Manage workspaces")
+    workspace_subparsers = workspace.add_subparsers(
+        dest="workspace_command",
+        required=True,
+    )
+
+    workspace_subparsers.add_parser("list", help="List available workspaces")
+    workspace_subparsers.add_parser("show", help="Show current workspace")
+
+    set_parser = workspace_subparsers.add_parser(
+        "set",
+        help="Set default workspace",
+    )
+    set_parser.add_argument("workspace_id", help="Workspace name to set as default")
+
+    workspace_subparsers.add_parser(
+        "unset",
+        help="Clear workspace configuration",
+    )
 
     common_remote = argparse.ArgumentParser(add_help=False)
     common_remote.add_argument("--api-base-url", default=None, help="Mash host base URL")
@@ -392,6 +406,23 @@ def main(argv: Sequence[str] | None = None) -> int:
     renderer = RichRenderer()
 
     try:
+        if args.command == "workspace":
+            from .workspace_commands import (
+                workspace_list,
+                workspace_set,
+                workspace_show,
+                workspace_unset,
+            )
+
+            if args.workspace_command == "list":
+                return workspace_list(args, renderer)
+            elif args.workspace_command == "show":
+                return workspace_show(args, renderer)
+            elif args.workspace_command == "set":
+                return workspace_set(args, renderer)
+            elif args.workspace_command == "unset":
+                return workspace_unset(args, renderer)
+
         if args.command == "agent":
             return _run_agent_command(args, renderer)
         if args.command == "workflow":
@@ -403,7 +434,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "experiment":
             return _run_experiment_command(args, renderer)
         if args.command == "version":
-            workspace_name = selected_workspace_name(getattr(args, "workspace", None))
+            from ..shared.workspace_context import current_workspace_id
+
+            workspace_name = current_workspace_id()
             renderer.info(f"Version: {crew_version()}")
             renderer.info(f"Workspace Root: {workspace_root_dir()}")
             renderer.info(f"Workspace: {workspace_name}")
@@ -553,9 +586,9 @@ def _run_workflow_command(args: argparse.Namespace, renderer: RichRenderer) -> i
 
 
 def _run_artifact_command(args: argparse.Namespace, renderer: RichRenderer) -> int:
-    context = build_artifact_context(
-        workspace_dir(getattr(args, "workspace", None), require_exists=True)
-    )
+    from ..shared.workspace_context import current_workspace_dir
+
+    context = build_artifact_context(current_workspace_dir())
     if args.artifact_command == "list":
         payload = list_artifacts(context=context, kind_filter=args.kind, limit=args.limit)
         rows = [
@@ -601,9 +634,9 @@ def _run_artifact_command(args: argparse.Namespace, renderer: RichRenderer) -> i
 
 
 def _run_metrics_command(args: argparse.Namespace, renderer: RichRenderer) -> int:
-    context = build_metrics_context(
-        workspace_dir(getattr(args, "workspace", None), require_exists=True)
-    )
+    from ..shared.workspace_context import current_workspace_dir
+
+    context = build_metrics_context(current_workspace_dir())
 
     if args.metrics_command == "list":
         result = list_metrics_layer_configs({}, context)
@@ -690,9 +723,9 @@ def _run_metrics_command(args: argparse.Namespace, renderer: RichRenderer) -> in
 
 
 def _run_experiment_command(args: argparse.Namespace, renderer: RichRenderer) -> int:
-    context = build_experiment_context(
-        workspace_dir(getattr(args, "workspace", None), require_exists=True)
-    )
+    from ..shared.workspace_context import current_workspace_dir
+
+    context = build_experiment_context(current_workspace_dir())
 
     if args.experiment_command == "list":
         result = list_experiment_configs_tool({}, context)

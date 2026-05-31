@@ -1,0 +1,51 @@
+kind: source
+version: 1
+id: user_activity_events
+dataset: product_usage_db
+table: user_activity
+subject:
+  - user_id
+  - org_id
+ts: activity_date
+dimensions:
+  - name: activity_date
+    expr: activity_date
+    data_type: DATE
+  - name: user_id
+    expr: user_id
+    data_type: STRING
+    is_primary_key: true
+  - name: org_id
+    expr: org_id
+    data_type: STRING
+    is_primary_key: true
+  - name: product_surface
+    expr: product_surface
+    data_type: STRING
+  - name: activity_type
+    expr: activity_type
+    data_type: STRING
+measures:
+  - name: activity_count_sum
+    expr: activity_count
+    agg: SUM
+    data_type: INT64
+  - name: tokens_consumed_sum
+    expr: tokens_consumed
+    agg: SUM
+    data_type: INT64
+  - name: event_count
+    expr: "1"
+    agg: COUNT
+    data_type: INT64
+joins:
+  - to_source: users
+    join_type: INNER
+    left_key: user_id
+    right_key: user_id
+    relationship: many_to_one
+  - to_source: orgs
+    join_type: INNER
+    left_key: org_id
+    right_key: org_id
+    relationship: many_to_one
