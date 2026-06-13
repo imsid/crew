@@ -153,6 +153,14 @@ class BetaStore:
             (workspace_id, session_id),
         )
 
+    async def get_workspace_for_session(self, session_id: str) -> str | None:
+        """Resolve a session's workspace by id alone (session ids are unique)."""
+        row = await self._fetch_one(
+            "SELECT workspace_id FROM sessions WHERE session_id = %s",
+            (session_id,),
+        )
+        return str(row["workspace_id"]) if row else None
+
     async def touch_session(self, *, workspace_id: str, session_id: str) -> None:
         now = float(time.time())
         async with self._lock:

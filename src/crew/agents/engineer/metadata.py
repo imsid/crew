@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from mash.runtime import SubAgentMetadata
+from mash.runtime import AgentMetadata
 
 ENGINEER_AGENT_ID = "engineer"
 
 
-def build_engineer_agent_metadata() -> SubAgentMetadata:
-    return SubAgentMetadata(
+def build_engineer_agent_metadata() -> AgentMetadata:
+    return AgentMetadata(
         display_name="Engineering Specialist",
         description=(
             "Handles repository and implementation questions using local code inspection, "

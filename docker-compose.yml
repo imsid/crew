@@ -1,0 +1,58 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: mash_crew
+      POSTGRES_USER: mash
+      POSTGRES_PASSWORD: mash
+    ports:
+      # Published for the local dev loop (`docker compose up -d db` +
+      # `mash host serve` on the host machine); the crew service uses the
+      # internal network either way.
+      - "127.0.0.1:5434:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mash -d mash_crew"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+    restart: unless-stopped
+
+  crew:
+    image: ghcr.io/imsid/crew:latest
+    build: .
+    env_file: .env
+    environment:
+      MASH_DATABASE_URL: postgresql://mash:mash@db:5432/mash_crew
+    ports:
+      - "8000:8000"
+    volumes:
+      - crewdata:/var/lib/crew
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Optional: the beta web BFF, from the same image (CREW_SERVE_MODE=beta).
+  # Opt in with `docker compose --profile beta up`. Set the CREW_BETA_* and
+  # ANTHROPIC/DBOS variables in .env. The Next.js frontend under web/ is
+  # deployed separately and points at this service's URL.
+  beta:
+    image: ghcr.io/imsid/crew:latest
+    build: .
+    profiles: ["beta"]
+    env_file: .env
+    environment:
+      CREW_SERVE_MODE: beta
+      CREW_DATABASE_URL: postgresql://mash:mash@db:5432/mash_crew
+    ports:
+      - "8001:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  crewdata:

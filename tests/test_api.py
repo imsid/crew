@@ -19,7 +19,7 @@ from mash.workflows.service import WorkflowService
 
 from crew.agents.data.spec import DataAgentSpec
 from crew.agents.pm.spec import PMAgentSpec
-from crew.app import build_host
+from crew.app import build_pool
 
 
 class _EchoLLM(LLMProvider):
@@ -120,8 +120,8 @@ def _build_test_client(tmp_path: Path):
         stack.enter_context(
             patch.object(MasherAgentSpec, "build_memory_store", _sqlite_memory_store)
         )
-        host = build_host()
-        app = create_app(host, config=MashHostConfig())
+        pool = build_pool()
+        app = create_app(pool, config=MashHostConfig())
         with TestClient(app) as client:
             yield client
 
@@ -193,7 +193,6 @@ def test_health_lists_data_primary_and_support_agents(tmp_path: Path) -> None:
             health = client.get("/api/v1/health")
             assert health.status_code == 200
             payload = health.json()["data"]
-            assert payload["deployment"]["primary_agent_id"] == "data"
             assert {agent["agent_id"] for agent in payload["deployment"]["agents"]} == {
                 "pm",
                 "data",
@@ -333,14 +332,50 @@ def test_agents_can_be_invoked_via_request_stream(tmp_path: Path) -> None:
             assert data_result["response"]["text"] == "echo:hello data"
 
 
+def _invoke_via_host(
+    client: TestClient,
+    *,
+    host_id: str,
+    primary: str,
+    subagents: list[str],
+    message: str,
+    session_id: str,
+) -> tuple[str, list[dict[str, Any]], dict[str, Any]]:
+    defined = client.put(
+        f"/api/v1/hosts/{host_id}",
+        json={"primary": primary, "subagents": subagents, "workflows": []},
+    )
+    assert defined.status_code == 200
+    accepted = client.post(
+        f"/api/v1/hosts/{host_id}/request",
+        json={"message": message, "session_id": session_id},
+    )
+    assert accepted.status_code == 200
+    body = accepted.json()["data"]
+    request_id = body["request_id"]
+    primary_agent_id = body["agent_id"]
+    events = _collect_sse_events(
+        client,
+        f"/api/v1/agent/{primary_agent_id}/request/{request_id}/events",
+    )
+    assert events
+    terminal = events[-1]
+    assert terminal["event"] == "request.completed"
+    return request_id, events, terminal["data"]
+
+
 def test_pm_can_delegate_to_data_subagent(tmp_path: Path) -> None:
     with patch.object(PMAgentSpec, "build_llm", return_value=_DelegatingLLM()), patch.object(
         DataAgentSpec, "build_llm", return_value=_EchoLLM()
     ), patch.object(DataAgentSpec, "build_mcp_servers", return_value=[]):
         with _build_test_client(tmp_path) as client:
-            _, events, result = _invoke_via_request(
+            # Delegation is wired only when a request is submitted to a host
+            # whose primary is pm and which lists data as a subagent.
+            _, events, result = _invoke_via_host(
                 client,
-                agent_id="pm",
+                host_id="pm-data",
+                primary="pm",
+                subagents=["data"],
                 message="please delegate",
                 session_id="pm-delegate",
             )

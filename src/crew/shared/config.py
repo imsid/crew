@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -9,9 +8,6 @@ from dotenv import load_dotenv
 
 from .runtime_paths import source_root
 
-_HOST_RUNTIME_ENV_VARS = (
-    "DBOS_CONDUCTOR_KEY",
-)
 _LOADED_ENV_PATHS: set[Path] = set()
 
 
@@ -48,23 +44,7 @@ def load_agent_env(agent_id: str) -> Path:
     return env_path
 
 
-def require_host_runtime_env() -> None:
-    missing = [
-        name
-        for name in _HOST_RUNTIME_ENV_VARS
-        if not str(os.environ.get(name, "")).strip()
-    ]
-    if missing:
-        joined = ", ".join(missing)
-        raise RuntimeError(
-            f"Missing required host runtime environment: {joined}. "
-            "Set these in the shell or the project .env before starting the hosted runtime."
-        )
-
-
 # Workspace configuration
-
-
 @dataclass
 class CrewConfig:
     """Crew configuration."""
