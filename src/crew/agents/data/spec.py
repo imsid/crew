@@ -11,7 +11,7 @@ from google.auth.transport.requests import Request
 from mash.core.config import AgentConfig
 from mash.core.llm import AnthropicProvider, LLMProvider
 from mash.mcp import MCPServerConfig
-from mash.runtime import AgentSpec, SubAgentMetadata
+from mash.runtime import AgentMetadata, AgentSpec
 from mash.skills.registry import SkillRegistry
 from mash.tools.ask_user import AskUserTool
 from mash.tools.registry import ToolRegistry
@@ -127,8 +127,8 @@ class DataAgentSpec(AgentSpec):
             )
         ]
 
-    def build_subagent_metadata(self) -> SubAgentMetadata:
-        return SubAgentMetadata(
+    def build_subagent_metadata(self) -> AgentMetadata:
+        return AgentMetadata(
             display_name="Data Analytics Specialist",
             description=(
                 "Handles metrics-layer and BigQuery workflows, including metric definitions, "

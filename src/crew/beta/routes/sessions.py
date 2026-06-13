@@ -15,6 +15,7 @@ from mash.memory.search.types import FusionWeights, RetrievalConfig
 
 from ...shared.workspace_context import bound_workspace, register_request_workspace
 from ...shared.workspaces import resolve_workspace
+from ...app import DEFAULT_HOST_ID
 from ..app import (
     DATA_AGENT_ID,
     LOGGER,
@@ -164,6 +165,16 @@ async def get_session(
     _require_workspace(workspace_id)
     session = await _owned_session(request, current_user, workspace_id, session_id)
     runtime = await _data_agent(request).get_session_info(session_id)
+    # Subagents are a host concept in 0.5.x; surface the datasquad host's
+    # subagents (the composition the BFF routes chat through) so the UI can
+    # show them.
+    try:
+        host = _beta_state(request).host.get_host(DEFAULT_HOST_ID)
+        runtime["primary_agent_id"] = host.primary
+        runtime["subagent_ids"] = list(host.subagents)
+    except Exception:
+        runtime.setdefault("primary_agent_id", DATA_AGENT_ID)
+        runtime["subagent_ids"] = []
     await _beta_state(request).store.touch_session(
         workspace_id=workspace_id,
         session_id=session_id,
@@ -340,10 +351,17 @@ async def send_message(
             code="INVALID_REQUEST",
             message="message is required",
         )
-    client = _data_client(request)
+    pool = _beta_state(request).host
     try:
         with bound_workspace(workspace_id):
-            request_id = await client.post_request(message, session_id=session_id)
+            # Submit to the crew host (not the bare data agent) so the data
+            # primary is wired with the pm subagent for this request.
+            accepted = await pool.submit_host_request(
+                DEFAULT_HOST_ID,
+                message=message,
+                session_id=session_id,
+            )
+        request_id = str(accepted.get("request_id") or "")
         register_request_workspace(request_id, workspace_id)
     except Exception as exc:
         LOGGER.exception(

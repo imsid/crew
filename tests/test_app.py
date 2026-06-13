@@ -1,35 +1,36 @@
 from __future__ import annotations
 
-import pytest
 from unittest.mock import patch
 
-from crew.app import build_host
+from crew.app import DEFAULT_HOST_ID, build_pool, define_default_host
 
 
-def test_build_host_registers_data_primary_and_support_agents(tmp_path):
-    with patch.dict(
-        "os.environ",
-        {
-            "GITHUB_REPOS": str(tmp_path),
-            "GITHUB_URL": "https://github.com/org/repo",
-            "MASH_DATA_DIR": str(tmp_path / ".mash"),
-            "CREW_DATABASE_URL": "postgresql://test/runtime",
-            "DBOS_CONDUCTOR_KEY": "test-conductor-key",
-        },
-        clear=False,
-    ):
-        host = build_host()
+def _crew_env(tmp_path):
+    return {
+        "GITHUB_REPOS": str(tmp_path),
+        "GITHUB_URL": "https://github.com/org/repo",
+        "MASH_DATA_DIR": str(tmp_path / ".mash"),
+        "CREW_DATABASE_URL": "postgresql://test/runtime",
+        "DBOS_CONDUCTOR_KEY": "test-conductor-key",
+    }
 
-        assert host.get_primary_agent_id() == "data"
-        described = {item["agent_id"]: item for item in host.describe_agents()}
+
+def test_build_pool_registers_flat_pool_with_no_hosts(tmp_path):
+    with patch.dict("os.environ", _crew_env(tmp_path), clear=False):
+        pool = build_pool()
+
+        # The pool ships flat: agents are registered, hosts are not.
+        assert pool.list_hosts() == []
+        described = {item["agent_id"]: item for item in pool.describe_agents()}
         assert set(described.keys()) == {"pm", "data"}
-        assert described["data"]["role"] == "primary"
-        assert described["pm"]["role"] == "subagent"
-        assert described["pm"]["metadata"]["display_name"] == "Product Management Specialist"
+        assert (
+            described["pm"]["metadata"]["display_name"]
+            == "Product Management Specialist"
+        )
 
         workflows = {
             workflow.workflow_id: workflow
-            for workflow in host.get_workflow_registry().list()
+            for workflow in pool.get_workflow_registry().list()
         }
         assert set(workflows) >= {
             "masher-trace-digest",
@@ -44,16 +45,12 @@ def test_build_host_registers_data_primary_and_support_agents(tmp_path):
         assert workflows["masher-online-eval-curation"].tasks[0].agent_id == "masher"
 
 
-def test_build_host_requires_runtime_env(monkeypatch, tmp_path):
-    monkeypatch.setenv("GITHUB_REPOS", str(tmp_path))
-    monkeypatch.setenv("GITHUB_URL", "https://github.com/org/repo")
-    monkeypatch.setenv("MASH_DATA_DIR", str(tmp_path / ".mash"))
-    monkeypatch.delenv("CREW_DATABASE_URL", raising=False)
-    monkeypatch.delenv("MASH_DATABASE_URL", raising=False)
-    monkeypatch.delenv("DBOS_CONDUCTOR_KEY", raising=False)
+def test_define_default_host_composes_datasquad(tmp_path):
+    with patch.dict("os.environ", _crew_env(tmp_path), clear=False):
+        pool = build_pool()
+        host = define_default_host(pool)
 
-    with pytest.raises(RuntimeError) as excinfo:
-        build_host()
-
-    message = str(excinfo.value)
-    assert "DBOS_CONDUCTOR_KEY" in message
+        assert host.host_id == DEFAULT_HOST_ID
+        assert host.primary == "data"
+        assert host.subagents == ("pm",)
+        assert [h.host_id for h in pool.list_hosts()] == [DEFAULT_HOST_ID]

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from mash.runtime import AgentHost
+    from mash.runtime import AgentPool
 
     from ..beta.store import BetaStore
     from ..workflow.service import WorkflowService
@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 @dataclass(frozen=True)
 class RuntimeContext:
     store: BetaStore
-    host: AgentHost
+    host: AgentPool
     primary_agent_id: str
     workflow: WorkflowService
 
@@ -24,7 +24,7 @@ _RUNTIME_CONTEXT_HOLDER: dict[str, RuntimeContext | None] = {"value": None}
 def set_runtime_context(
     *,
     store: BetaStore,
-    host: AgentHost,
+    host: AgentPool,
     primary_agent_id: str,
     workflow: WorkflowService,
 ) -> None:

@@ -5,7 +5,7 @@ from typing import Any
 
 from mash.core.config import AgentConfig
 from mash.core.llm import AnthropicProvider, LLMProvider
-from mash.runtime import AgentSpec, SubAgentMetadata
+from mash.runtime import AgentMetadata, AgentSpec
 from mash.skills.registry import SkillRegistry
 from mash.tools.registry import ToolRegistry
 
@@ -57,8 +57,8 @@ class PMAgentSpec(AgentSpec):
             skills_enabled=True,
         )
 
-    def build_subagent_metadata(self) -> SubAgentMetadata:
-        return SubAgentMetadata(
+    def build_subagent_metadata(self) -> AgentMetadata:
+        return AgentMetadata(
             display_name="Product Management Specialist",
             description=(
                 "Handles product framing, prioritization, trade-off analysis, "

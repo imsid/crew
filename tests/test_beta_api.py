@@ -182,6 +182,10 @@ class _FakeBetaStore:
             return None
         return dict(session)
 
+    async def get_workspace_for_session(self, session_id: str) -> str | None:
+        session = self._sessions.get(session_id)
+        return str(session["workspace_id"]) if session else None
+
     async def touch_session(self, *, workspace_id: str, session_id: str) -> None:
         session = self._sessions.get(session_id)
         if session is None or str(session.get("workspace_id")) != str(workspace_id):
@@ -268,6 +272,20 @@ class _HostStub:
 
     def get_primary_agent_id(self) -> str:
         return "data"
+
+    def configure_runtime_database_url(self, _database_url) -> None:
+        return None
+
+    def define_host(self, host):
+        assert host.host_id == "datasquad"
+        return host
+
+    async def submit_host_request(self, host_id, *, message, session_id, structured_output=None):
+        return {"request_id": "req-1", "agent_id": "data", "session_id": session_id}
+
+    def get_host(self, host_id: str):
+        assert host_id == "datasquad"
+        return SimpleNamespace(primary="data", subagents=("pm",), workflows=())
 
     def get_agent(self, agent_id: str):
         assert agent_id == "data"

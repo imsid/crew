@@ -5,7 +5,6 @@ import logging
 import os
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from types import SimpleNamespace
 from typing import Any, Literal
 
 from fastapi import FastAPI, Header, Request
@@ -13,10 +12,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from mash.api import MashHostConfig
 from mash.api import create_app as create_mash_api_app
-from mash.runtime import AgentHost
+from mash.api.logging import PostgresAPIEventStore
+from mash.api.routes.common import AppRuntimeState
+from mash.runtime import AgentPool
 from pydantic import BaseModel, Field
 
-from ..app import build_host
+from ..app import build_pool, define_default_host
+from ..shared.workspace_context import register_request_workspace
 from ..shared.runtime_context import clear_runtime_context, set_runtime_context
 from .auth import TokenError, verify_token
 from .store import BetaStore
@@ -78,7 +80,7 @@ class BetaConfig:
 
 @dataclass
 class BetaAppState:
-    host: AgentHost
+    host: AgentPool
     store: BetaStore
     config: BetaConfig
     mash_api_app: FastAPI
@@ -102,27 +104,63 @@ class AppError(RuntimeError):
 
 def create_beta_app(
     *,
-    host: AgentHost | None = None,
+    host: AgentPool | None = None,
     config: BetaConfig | None = None,
 ) -> FastAPI:
-    resolved_host = host or build_host()
+    resolved_host = host or build_pool()
     resolved_config = config or BetaConfig.from_env()
+
+    # The mash host API is built once and mounted at /host (below) so the CLI
+    # and stock mash tooling reach the same in-process host the BFF uses. It is
+    # also driven internally over ASGITransport for the proxy routes.
+    mash_api_config = MashHostConfig()
+    mash_api_app = create_mash_api_app(resolved_host, config=mash_api_config)
 
     @asynccontextmanager
     async def _lifespan(application: FastAPI):
         store = BetaStore(resolved_config.database_url)
         await store.open()
+        resolved_host.configure_runtime_database_url(
+            mash_api_config.resolved_runtime_database_url()
+        )
         await resolved_host.start()
-        mash_api_config = MashHostConfig()
-        mash_api_app = create_mash_api_app(resolved_host, config=mash_api_config)
-        mash_api_app.state.runtime_state = SimpleNamespace(
-            host=resolved_host,
+        # Bind each request to its session's workspace. Requests arrive both
+        # from the BFF's own routes and from the CLI shell driving the mounted
+        # /host API; both execute in this process, so wrapping the pool's
+        # submit registers request_id -> workspace from the session's row,
+        # keeping the data agent's tools scoped to the right workspace.
+        _original_submit = resolved_host.submit_host_request
+
+        async def _submit_host_request(host_id, *, message, session_id, structured_output=None):
+            accepted = await _original_submit(
+                host_id,
+                message=message,
+                session_id=session_id,
+                structured_output=structured_output,
+            )
+            request_id = accepted.get("request_id") if isinstance(accepted, dict) else None
+            workspace = await store.get_workspace_for_session(session_id)
+            if request_id and workspace:
+                register_request_workspace(str(request_id), workspace)
+            return accepted
+
+        resolved_host.submit_host_request = _submit_host_request  # type: ignore[method-assign]
+        # Mounted sub-app lifespans do not run, so populate runtime_state the
+        # way create_app's own lifespan would. api_key stays None: the mash API
+        # is exposed only on the BFF's port for local CLI use.
+        api_event_store = PostgresAPIEventStore(
+            mash_api_config.resolved_runtime_database_url() or ""
+        )
+        await api_event_store.open()
+        mash_api_app.state.runtime_state = AppRuntimeState(
+            pool=resolved_host,
+            api_event_store=api_event_store,
             api_key=None,
             observability_enabled=mash_api_config.enable_observability,
             default_events_limit=max(1, int(mash_api_config.default_events_limit)),
             default_search_limit=max(1, int(mash_api_config.default_search_limit)),
         )
-        primary_agent_id = resolved_host.get_primary_agent_id()
+        primary_agent_id = define_default_host(resolved_host).primary
         workflow = WorkflowService(
             store=store,
             host=resolved_host,
@@ -149,6 +187,7 @@ def create_beta_app(
                 state = getattr(application.state, "beta", None)
                 if state is not None:
                     await state.store.close()
+                await api_event_store.close()
                 await resolved_host.close()
             finally:
                 clear_runtime_context()
@@ -162,6 +201,11 @@ def create_beta_app(
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Expose the shared mash host API (and telemetry UI) on the BFF's port so
+    # the CLI and stock mash tooling drive the same host: the mash API lives
+    # under /host (e.g. /host/api/v1/..., /host/telemetry).
+    app.mount("/host", mash_api_app)
 
     @app.exception_handler(AppError)
     async def _app_error_handler(_: Request, exc: AppError) -> JSONResponse:

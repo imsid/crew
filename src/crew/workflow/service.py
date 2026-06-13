@@ -4,7 +4,7 @@ import re
 import time
 from typing import TYPE_CHECKING, Any
 
-from mash.runtime import AgentHost
+from mash.runtime import AgentPool
 from mash.skills.base import Skill
 from mash.workflows import TaskSpec, WorkflowSpec, WorkflowTaskMessageSpec
 
@@ -24,7 +24,7 @@ class WorkflowService:
         self,
         *,
         store: "BetaStore",
-        host: AgentHost,
+        host: AgentPool,
         primary_agent_id: str,
     ) -> None:
         self._store = store

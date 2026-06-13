@@ -71,6 +71,7 @@ class _TestRuntimeStore:
     def __init__(self, _database_url: str) -> None:
         self._events: list[RuntimeEvent] = []
         self._events_by_request: dict[str, list[RuntimeEvent]] = {}
+        self._request_waiters: dict[str, set[asyncio.Event]] = {}
         self._lock = asyncio.Lock()
 
     async def open(self) -> None:
@@ -111,7 +112,23 @@ class _TestRuntimeStore:
             self._events.append(stored)
             if request_events is not None:
                 request_events.append(stored)
+            for waiter in self._request_waiters.get(event.request_id, ()):
+                waiter.set()
             return stored
+
+    def register_request_waiter(self, request_id: str) -> asyncio.Event:
+        event = asyncio.Event()
+        self._request_waiters.setdefault(request_id, set()).add(event)
+        return event
+
+    def unregister_request_waiter(
+        self, request_id: str, waiter: asyncio.Event
+    ) -> None:
+        waiters = self._request_waiters.get(request_id)
+        if waiters is not None:
+            waiters.discard(waiter)
+            if not waiters:
+                del self._request_waiters[request_id]
 
     async def list_request_events(
         self,
@@ -133,6 +150,7 @@ class _TestRuntimeStore:
         *,
         session_id: str | None = None,
         trace_id: str | None = None,
+        host_id: str | None = None,
         after_event_id: int = 0,
         limit: int | None = None,
     ) -> list[RuntimeEvent]:
@@ -359,6 +377,24 @@ class _MasherTestLLM(LLMProvider):
         del trace_id
 
 
+class _TestSharedMemoryStore:
+    """No-op stand-in for the pool's shared PostgresStore (mash >= 0.5).
+
+    The pool always builds a shared memory store and opens it on start; in
+    tests every spec overrides build_memory_store with a SQLite store, so this
+    shared instance is opened/closed but never queried.
+    """
+
+    def __init__(self, _database_url: str) -> None:
+        self._database_url = _database_url
+
+    async def open(self) -> None:
+        return None
+
+    async def close(self) -> None:
+        return None
+
+
 @pytest.fixture(autouse=True, scope="session")
 def _patch_hosted_runtime_for_tests():
     from _pytest.monkeypatch import MonkeyPatch
@@ -368,7 +404,10 @@ def _patch_hosted_runtime_for_tests():
     patcher.setenv("CREW_DATABASE_URL", "postgresql://test/runtime")
     patcher.setenv("MASH_DATABASE_URL", "postgresql://test/runtime")
     patcher.setenv("DBOS_CONDUCTOR_KEY", "test-conductor-key")
-    patcher.setattr("mash.runtime.service.PostgresRuntimeStore", _TestRuntimeStore)
+    # mash >= 0.5 builds the runtime + shared memory stores inside the pool
+    # (mash.runtime.host.host), not in mash.runtime.service.
+    patcher.setattr("mash.runtime.host.host.PostgresRuntimeStore", _TestRuntimeStore)
+    patcher.setattr("mash.runtime.host.host.PostgresStore", _TestSharedMemoryStore)
     patcher.setattr("mash.runtime.service.DBOSRequestEngine", _TestDBOSRequestEngine)
     patcher.setattr(
         "mash.agents.masher.spec.MasherAgentSpec.build_llm",

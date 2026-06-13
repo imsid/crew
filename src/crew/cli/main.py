@@ -13,6 +13,8 @@ from mash.cli.config import load_config
 from mash.cli.render import RichRenderer
 from mash.cli.shell import MashRemoteShell, ShellTarget
 
+from . import auth_store, beta_client
+
 from ..artifacts.service.context import build_tool_context as build_artifact_context
 from ..artifacts.service.repo import list_artifacts, read_artifact, search_artifacts
 from ..beta.visualizations import (
@@ -35,41 +37,97 @@ from ..metrics_layer.service.tool_entrypoints import (
 )
 from ..shared.runtime_paths import (
     crew_root_dir,
+    selected_workspace_name,
     workspace_dir,
     workspace_root_dir,
 )
 from ..shared.version import crew_version
+from .hosts_store import DEFAULT_HOST_ID, hosts_file_path, load_hosts, record_host
+
+DEFAULT_BFF_BASE_URL = "http://127.0.0.1:8000"
 
 
-def _resolve_connection(args: argparse.Namespace) -> tuple[str, str | None, str | None]:
+def _bff_base_url(args: argparse.Namespace) -> str:
+    """Resolve the BFF base URL (the single crew host process)."""
     saved = load_config()
+    auth = auth_store.load_auth()
     base_url = (
         getattr(args, "api_base_url", None)
-        or os.environ.get("MASH_API_BASE_URL")
-        or (saved.api_base_url if saved else "")
+        or os.environ.get("CREW_API_BASE_URL")
+        or (auth.get("api_base_url") if auth else None)
+        or (saved.api_base_url if saved else None)
+        or DEFAULT_BFF_BASE_URL
     ).strip()
-    api_key = (
-        getattr(args, "api_key", None)
-        or os.environ.get("MASH_API_KEY")
-        or (saved.api_key if saved else None)
-    )
-    agent_id = getattr(args, "agent", None) or (saved.agent_id if saved else None)
-    if not base_url:
-        raise ValueError(
-            "API base URL is required. Use --api-base-url or `mash connect`."
+    return base_url.rstrip("/")
+
+
+def _mash_client(args: argparse.Namespace) -> MashHostClient:
+    """Client for the Mash host API the BFF exposes under /host."""
+    api_key = getattr(args, "api_key", None) or os.environ.get("MASH_API_KEY")
+    return MashHostClient(_bff_base_url(args) + "/host", api_key=api_key)
+
+
+def _require_auth(args: argparse.Namespace) -> dict[str, Any]:
+    """Return stored auth, or raise telling the user to log in."""
+    auth = auth_store.load_auth()
+    if not auth:
+        raise ValueError("not logged in. Run `crew login <username>` first.")
+    # An explicit --api-base-url overrides the stored base for this call.
+    explicit = getattr(args, "api_base_url", None)
+    if explicit:
+        auth = {**auth, "api_base_url": explicit.rstrip("/")}
+    return auth
+
+
+def _split_ids(raw: str | None) -> list[str]:
+    if not raw:
+        return []
+    return [part.strip() for part in raw.split(",") if part.strip()]
+
+
+def _agent_listing_rows(agents: list[dict[str, Any]]) -> list[list[str]]:
+    rows: list[list[str]] = []
+    for agent in sorted(agents, key=lambda a: str(a.get("agent_id") or "")):
+        metadata = agent.get("metadata") or {}
+        if not isinstance(metadata, dict):
+            metadata = {}
+        rows.append(
+            [
+                str(agent.get("agent_id") or ""),
+                str(metadata.get("display_name") or ""),
+                str(metadata.get("description") or ""),
+            ]
         )
-    return base_url, api_key, agent_id
+    return rows
 
 
-def _resolve_agent(client: MashHostClient, explicit_agent: str | None) -> str:
-    if explicit_agent:
-        return explicit_agent
-    health = client.health()
-    deployment = health.get("deployment") or {}
-    agent_id = deployment.get("primary_agent_id")
-    if not isinstance(agent_id, str) or not agent_id.strip():
-        raise ValueError("could not resolve default agent id from deployment")
-    return agent_id.strip()
+def _workflow_rows(workflows: list[dict[str, Any]]) -> list[list[str]]:
+    rows: list[list[str]] = []
+    for workflow in sorted(workflows, key=lambda w: str(w.get("workflow_id") or "")):
+        rendered_tasks = []
+        for task in workflow.get("tasks") or []:
+            if isinstance(task, dict):
+                rendered_tasks.append(
+                    f"{task.get('task_id') or ''} -> {task.get('agent_id') or ''}"
+                )
+        rows.append([str(workflow.get("workflow_id") or ""), ", ".join(rendered_tasks)])
+    return rows
+
+
+def _render_configured_hosts(renderer: RichRenderer) -> None:
+    rows = [
+        [
+            host_id,
+            entry["primary"],
+            ", ".join(entry["subagents"]),
+            ", ".join(entry["workflows"]),
+        ]
+        for host_id, entry in sorted(load_hosts().items())
+    ]
+    if rows:
+        renderer.table(["Host", "Primary", "Subagents", "Workflows"], rows)
+    else:
+        renderer.info("(no hosts configured)")
 
 
 def _parse_order_by(values: list[str] | None) -> list[dict[str, str]]:
@@ -81,9 +139,7 @@ def _parse_order_by(values: list[str] | None) -> list[dict[str, str]]:
         normalized_direction = direction.strip().upper()
         if normalized_direction not in {"ASC", "DESC"}:
             raise ValueError("--order-by direction must be ASC or DESC")
-        order_by.append(
-            {"field": field.strip(), "direction": normalized_direction}
-        )
+        order_by.append({"field": field.strip(), "direction": normalized_direction})
     return order_by
 
 
@@ -94,32 +150,6 @@ def _extract_response_text(payload: object) -> str:
             return str(response_payload.get("text") or "")
         return str(payload.get("text") or "")
     return ""
-
-
-def _await_request_completion(
-    client: MashHostClient,
-    *,
-    agent_id: str,
-    message: str,
-    session_id: str,
-) -> dict[str, object]:
-    request_id = client.submit_request(
-        agent_id,
-        message=message,
-        session_id=session_id,
-    )
-    for event in client.stream_request(agent_id, request_id):
-        event_name = str(event.get("event") or "")
-        payload = event.get("data")
-        if event_name == "request.completed":
-            if not isinstance(payload, dict):
-                raise RuntimeError("request completed without a response payload")
-            return payload
-        if event_name == "request.error":
-            if isinstance(payload, dict):
-                raise RuntimeError(str(payload.get("error") or "remote request failed"))
-            raise RuntimeError("remote request failed")
-    raise RuntimeError("request stream ended without a terminal event")
 
 
 def _stream_workflow_run_events(
@@ -183,7 +213,11 @@ def _render_workflow_stream_event(
     payload = event.get("data")
     data = payload if isinstance(payload, dict) else {}
 
-    if event_name in {"workflow.task.started", "workflow.task.completed", "workflow.task.error"}:
+    if event_name in {
+        "workflow.task.started",
+        "workflow.task.completed",
+        "workflow.task.error",
+    }:
         task_id = str(data.get("task_id") or data.get("task") or "").strip()
         status = str(data.get("status") or "").strip() or event_name.rsplit(".", 1)[-1]
         message = f"Task {status}"
@@ -201,7 +235,9 @@ def _render_workflow_stream_event(
         runtime_event = data.get("runtime_event")
         if isinstance(runtime_event, dict):
             runtime_label = str(runtime_event.get("label") or "").strip()
-        event_type = str(data.get("event_type") or runtime_label or "agent.trace").strip()
+        event_type = str(
+            data.get("event_type") or runtime_label or "agent.trace"
+        ).strip()
         renderer.print(f"Trace: {event_type}")
         return False
 
@@ -226,6 +262,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="crew",
         description="Crew CLI for agents, artifacts, and metrics.",
+    )
+    parser.add_argument(
+        "--workspace",
+        default=None,
+        help="Workspace to use for this command (overrides the saved default)",
     )
     subparsers = parser.add_subparsers(dest="command")
     subparsers.add_parser("version", help="Show crew runtime information")
@@ -252,31 +293,59 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     common_remote = argparse.ArgumentParser(add_help=False)
-    common_remote.add_argument("--api-base-url", default=None, help="Mash host base URL")
+    common_remote.add_argument(
+        "--api-base-url", default=None, help="Crew BFF base URL"
+    )
     common_remote.add_argument("--api-key", default=None, help="Bearer API key")
     common_remote.add_argument("--agent", default=None, help="Target agent id")
 
-    agent = subparsers.add_parser("agent", help="Interact with crew agents")
-    agent_subparsers = agent.add_subparsers(dest="agent_command")
-
-    agent_invoke = agent_subparsers.add_parser(
-        "invoke", parents=[common_remote], help="Invoke a remote agent"
+    login = subparsers.add_parser(
+        "login", help="Authenticate with the crew BFF as a user"
     )
-    agent_invoke.add_argument("message", help="Prompt to send to the remote agent")
-    agent_invoke.add_argument("--session-id", default=None, help="Remote session id")
+    login.add_argument("username", help="Username (must be in CREW_BETA_ALLOWED_USERS)")
+    login.add_argument("--api-base-url", default=None, help="Crew BFF base URL")
 
-    agent_history = agent_subparsers.add_parser(
-        "history", parents=[common_remote], help="Show remote session history"
+    subparsers.add_parser("logout", help="Clear the saved auth token")
+
+    sessions = subparsers.add_parser(
+        "sessions", help="List your sessions (shared with the web UI)"
     )
-    agent_history.add_argument("--session-id", required=True, help="Remote session id")
-    agent_history.add_argument("--limit", type=int, default=None, help="Optional turn limit")
+    sessions.add_argument("--api-base-url", default=None, help="Crew BFF base URL")
 
-    agent_repl = agent_subparsers.add_parser(
-        "repl", parents=[common_remote], help="Start an interactive remote REPL"
+    subparsers.add_parser(
+        "browse",
+        parents=[common_remote],
+        help="Browse the agent pool, workflows, and your configured hosts",
     )
-    agent_repl.add_argument("--session-id", default=None, help="Remote session id")
 
-    workflow = subparsers.add_parser("workflow", help="List, run, and inspect workflows")
+    compose = subparsers.add_parser(
+        "compose",
+        parents=[common_remote],
+        help="Compose agents into a host (define-or-replace)",
+    )
+    compose.add_argument("host_id", help="Id for the composition")
+    compose.add_argument("--primary", required=True, help="Primary agent id")
+    compose.add_argument(
+        "--subagents", default=None, help="Comma-separated subagent ids"
+    )
+    compose.add_argument(
+        "--workflows", default=None, help="Comma-separated workflow ids"
+    )
+
+    subparsers.add_parser("hosts", help="List the hosts in your config file")
+
+    repl = subparsers.add_parser(
+        "repl", help="Chat in an authenticated session (shared with the web UI)"
+    )
+    repl.add_argument("--api-base-url", default=None, help="Crew BFF base URL")
+    repl.add_argument(
+        "--session-id", default=None, help="Resume an existing session id"
+    )
+    repl.add_argument("--label", default=None, help="Label for a new session")
+
+    workflow = subparsers.add_parser(
+        "workflow", help="List, run, and inspect workflows"
+    )
     workflow_subparsers = workflow.add_subparsers(dest="workflow_command")
 
     workflow_subparsers.add_parser(
@@ -309,10 +378,16 @@ def build_parser() -> argparse.ArgumentParser:
     artifact_subparsers = artifact.add_subparsers(dest="artifact_command")
 
     artifact_list = artifact_subparsers.add_parser("list", help="List artifact files")
-    artifact_list.add_argument("--kind", default=None, help="Optional artifact kind filter")
-    artifact_list.add_argument("--limit", type=int, default=None, help="Optional row limit")
+    artifact_list.add_argument(
+        "--kind", default=None, help="Optional artifact kind filter"
+    )
+    artifact_list.add_argument(
+        "--limit", type=int, default=None, help="Optional row limit"
+    )
 
-    artifact_show = artifact_subparsers.add_parser("show", help="Render one artifact file")
+    artifact_show = artifact_subparsers.add_parser(
+        "show", help="Render one artifact file"
+    )
     artifact_show.add_argument("artifact_id", help="Artifact identifier")
 
     artifact_search = artifact_subparsers.add_parser("search", help="Search artifacts")
@@ -328,7 +403,9 @@ def build_parser() -> argparse.ArgumentParser:
     metrics_show.add_argument("--kind", required=True, choices=["source", "metric"])
     metrics_show.add_argument("--name", required=True, help="Config name")
 
-    metrics_compile = metrics_subparsers.add_parser("compile", help="Compile metric configs to SQL")
+    metrics_compile = metrics_subparsers.add_parser(
+        "compile", help="Compile metric configs to SQL"
+    )
     metrics_compile.add_argument(
         "--metric", action="append", required=True, help="Metric name (repeatable)"
     )
@@ -336,7 +413,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--dimension", action="append", default=None, help="Dimension (repeatable)"
     )
     metrics_compile.add_argument(
-        "--filter", action="append", default=None, help="SQL WHERE clause fragment (repeatable)"
+        "--filter",
+        action="append",
+        default=None,
+        help="SQL WHERE clause fragment (repeatable)",
     )
     metrics_compile.add_argument(
         "--order-by",
@@ -345,15 +425,25 @@ def build_parser() -> argparse.ArgumentParser:
         help="Order expression as FIELD:DIRECTION (repeatable)",
     )
     metrics_compile.add_argument("--limit", type=int, default=None, help="Row limit")
-    metrics_compile.add_argument("--date-dimension", default=None, help="Date dimension name")
-    metrics_compile.add_argument("--start", default=None, help="Date range start YYYY-MM-DD")
-    metrics_compile.add_argument("--end", default=None, help="Date range end YYYY-MM-DD")
+    metrics_compile.add_argument(
+        "--date-dimension", default=None, help="Date dimension name"
+    )
+    metrics_compile.add_argument(
+        "--start", default=None, help="Date range start YYYY-MM-DD"
+    )
+    metrics_compile.add_argument(
+        "--end", default=None, help="Date range end YYYY-MM-DD"
+    )
     metrics_chart = metrics_subparsers.add_parser(
         "chart", help="Execute a metric visualization query"
     )
     metrics_chart.add_argument("--metric", required=True, help="Metric name")
-    metrics_chart.add_argument("--group-by", default=None, help="Optional grouping dimension")
-    metrics_chart.add_argument("--date-dimension", default=None, help="Date dimension name")
+    metrics_chart.add_argument(
+        "--group-by", default=None, help="Optional grouping dimension"
+    )
+    metrics_chart.add_argument(
+        "--date-dimension", default=None, help="Date dimension name"
+    )
     metrics_chart.add_argument(
         "--grain",
         default=None,
@@ -361,10 +451,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional date grain",
     )
     metrics_chart.add_argument(
-        "--filter", action="append", default=None, help="SQL WHERE clause fragment (repeatable)"
+        "--filter",
+        action="append",
+        default=None,
+        help="SQL WHERE clause fragment (repeatable)",
     )
     metrics_chart.add_argument("--limit", type=int, default=None, help="Row limit")
-    metrics_chart.add_argument("--start", default=None, help="Date range start YYYY-MM-DD")
+    metrics_chart.add_argument(
+        "--start", default=None, help="Date range start YYYY-MM-DD"
+    )
     metrics_chart.add_argument("--end", default=None, help="Date range end YYYY-MM-DD")
     metrics_chart.add_argument(
         "--show-sql",
@@ -391,7 +486,9 @@ def build_parser() -> argparse.ArgumentParser:
     experiment_analyze = experiment_subparsers.add_parser(
         "analyze", help="Execute an experiment analysis query"
     )
-    experiment_analyze.add_argument("--name", required=True, help="Experiment config name")
+    experiment_analyze.add_argument(
+        "--name", required=True, help="Experiment config name"
+    )
     experiment_analyze.add_argument(
         "--metric-id",
         default=None,
@@ -412,101 +509,230 @@ def main(argv: Sequence[str] | None = None) -> int:
     renderer = RichRenderer()
 
     try:
-        if args.command == "workspace":
-            from .workspace_commands import (
-                workspace_list,
-                workspace_set,
-                workspace_show,
-                workspace_unset,
-            )
+        workspace_override = getattr(args, "workspace", None)
+        if workspace_override:
+            from ..shared.workspace_context import bound_workspace
 
-            if args.workspace_command == "list":
-                return workspace_list(args, renderer)
-            elif args.workspace_command == "show":
-                return workspace_show(args, renderer)
-            elif args.workspace_command == "set":
-                return workspace_set(args, renderer)
-            elif args.workspace_command == "unset":
-                return workspace_unset(args, renderer)
-
-        if args.command == "agent":
-            return _run_agent_command(args, renderer)
-        if args.command == "workflow":
-            return _run_workflow_command(args, renderer)
-        if args.command == "artifact":
-            return _run_artifact_command(args, renderer)
-        if args.command == "metrics":
-            return _run_metrics_command(args, renderer)
-        if args.command == "experiment":
-            return _run_experiment_command(args, renderer)
-        if args.command == "version":
-            from ..shared.workspace_context import current_workspace_id
-
-            workspace_name = current_workspace_id()
-            renderer.info(f"Version: {crew_version()}")
-            renderer.info(f"Workspace Root: {workspace_root_dir()}")
-            renderer.info(f"Workspace: {workspace_name}")
-            renderer.info(f"Workspace Path: {workspace_dir(workspace_name)}")
-            renderer.info(f"State: {crew_root_dir()}")
-            return 0
+            with bound_workspace(workspace_override):
+                result = _dispatch(args, renderer)
+        else:
+            result = _dispatch(args, renderer)
     except Exception as exc:
         renderer.error(str(exc))
         return 1
 
-    parser.print_help()
+    if result is None:
+        parser.print_help()
+        return 0
+    return result
+
+
+def _dispatch(args: argparse.Namespace, renderer: RichRenderer) -> int | None:
+    if args.command == "workspace":
+        from .workspace_commands import (
+            workspace_list,
+            workspace_set,
+            workspace_show,
+            workspace_unset,
+        )
+
+        if args.workspace_command == "list":
+            return workspace_list(args, renderer)
+        elif args.workspace_command == "show":
+            return workspace_show(args, renderer)
+        elif args.workspace_command == "set":
+            return workspace_set(args, renderer)
+        elif args.workspace_command == "unset":
+            return workspace_unset(args, renderer)
+
+    if args.command == "login":
+        return _run_login_command(args, renderer)
+    if args.command == "logout":
+        return _run_logout_command(renderer)
+    if args.command == "sessions":
+        return _run_sessions_command(args, renderer)
+    if args.command == "browse":
+        return _run_browse_command(args, renderer)
+    if args.command == "compose":
+        return _run_compose_command(args, renderer)
+    if args.command == "hosts":
+        _render_configured_hosts(renderer)
+        renderer.info(
+            "Compose or replace one with `crew compose`. "
+            "(`crew repl` chats in your authenticated datasquad session.)"
+        )
+        return 0
+    if args.command == "repl":
+        return _run_repl_command(args, renderer)
+    if args.command == "workflow":
+        return _run_workflow_command(args, renderer)
+    if args.command == "artifact":
+        return _run_artifact_command(args, renderer)
+    if args.command == "metrics":
+        return _run_metrics_command(args, renderer)
+    if args.command == "experiment":
+        return _run_experiment_command(args, renderer)
+    if args.command == "version":
+        workspace_name = selected_workspace_name(getattr(args, "workspace", None))
+        renderer.info(f"Version: {crew_version()}")
+        renderer.info(f"Workspace Root: {workspace_root_dir()}")
+        renderer.info(f"Workspace: {workspace_name}")
+        renderer.info(f"Workspace Path: {workspace_dir(workspace_name)}")
+        renderer.info(f"State: {crew_root_dir()}")
+        return 0
+    return None
+
+
+def _run_login_command(args: argparse.Namespace, renderer: RichRenderer) -> int:
+    base_url = _bff_base_url(args)
+    username = str(args.username or "").strip()
+    if not username:
+        raise ValueError("a username is required: `crew login <username>`")
+    data = beta_client.login(base_url, username)
+    token = str(data.get("token") or "")
+    user = data.get("user") or {}
+    if not token or not isinstance(user, dict):
+        raise ValueError("login did not return a token")
+    auth_store.save_auth(
+        api_base_url=base_url,
+        token=token,
+        username=str(user.get("username") or username),
+        user_id=str(user.get("id") or ""),
+    )
+    renderer.info(f"Logged in as {user.get('username') or username} at {base_url}")
+    renderer.info(f"Saved to {auth_store.auth_file_path()}")
     return 0
 
 
-def _run_agent_command(args: argparse.Namespace, renderer: RichRenderer) -> int:
-    base_url, api_key, configured_agent = _resolve_connection(args)
-    client = MashHostClient(base_url, api_key=api_key)
+def _run_logout_command(renderer: RichRenderer) -> int:
+    if auth_store.clear_auth():
+        renderer.info("Logged out.")
+    else:
+        renderer.info("Not logged in.")
+    return 0
+
+
+def _current_workspace() -> str:
+    from ..shared.workspace_context import current_workspace_id
+
+    return current_workspace_id()
+
+
+def _run_sessions_command(args: argparse.Namespace, renderer: RichRenderer) -> int:
+    auth = _require_auth(args)
+    client = beta_client.BetaClient(auth["api_base_url"], auth["token"])
+    workspace = _current_workspace()
+    sessions = client.list_sessions(workspace)
+    if not sessions:
+        renderer.info(f"(no sessions in workspace '{workspace}')")
+        return 0
+    rows = [
+        [
+            str(s.get("session_id") or ""),
+            str(s.get("label") or ""),
+            str(s.get("turn_count") if s.get("turn_count") is not None else ""),
+            str(s.get("preview_text") or "")[:60],
+        ]
+        for s in sessions
+    ]
+    renderer.table(["Session", "Label", "Turns", "Preview"], rows)
+    return 0
+
+
+def _run_repl_command(args: argparse.Namespace, renderer: RichRenderer) -> int:
+    auth = _require_auth(args)
+    workspace = _current_workspace()
+
+    # Create (or resume) the session through the BFF so it is owned by the
+    # logged-in user and shared with the web UI.
+    beta = beta_client.BetaClient(auth["api_base_url"], auth["token"])
+    session_id = str(getattr(args, "session_id", None) or "").strip()
+    if not session_id:
+        created = beta.create_session(workspace, label=getattr(args, "label", None))
+        session_id = str(created.get("session_id") or "")
+        if not session_id:
+            raise ValueError("failed to create a session")
+        renderer.info(f"New session {session_id} (workspace {workspace})")
+    else:
+        renderer.info(f"Resuming session {session_id}")
+
+    # Drive the full mash shell (slash commands, live rendering, interactions)
+    # against the Mash host API the BFF mounts at /host, pinned to the same
+    # session so turns stay unified with the UI.
+    mash_base = auth["api_base_url"].rstrip("/") + "/host"
+    client = MashHostClient(mash_base, api_key=getattr(args, "api_key", None) or None)
     try:
-        agent_id = _resolve_agent(client, getattr(args, "agent", None) or configured_agent)
-
-        if args.agent_command == "invoke":
-            session_id = args.session_id or MashRemoteShell.new_session_id()
-            with renderer.status("Invoking remote agent..."):
-                result = _await_request_completion(
-                    client,
-                    agent_id=agent_id,
-                    message=args.message,
-                    session_id=session_id,
-                )
-            text = _extract_response_text(result)
-            renderer.info(f"Agent: {agent_id}")
-            renderer.info(f"Session: {result.get('session_id') or session_id}")
-            if text:
-                renderer.markdown(text)
-            return 0
-
-        if args.agent_command == "history":
-            turns = client.get_history(agent_id, args.session_id, limit=args.limit)
-            if not turns:
-                renderer.warn("No conversation history.")
-                return 0
-            for index, turn in enumerate(turns, 1):
-                renderer.info(f"Turn {index}")
-                renderer.print(f"User: {turn['user_message']}")
-                renderer.print(f"Agent: {turn['agent_response']}")
-            return 0
-
-        if args.agent_command == "repl":
-            target = ShellTarget(
-                api_base_url=base_url,
-                agent_id=agent_id,
-                session_id=args.session_id or MashRemoteShell.new_session_id(),
-            )
-            MashRemoteShell(client, target).run()
-            return 0
+        described = client.get_host(DEFAULT_HOST_ID)
+        primary = described.get("primary") if isinstance(described, dict) else None
+        agent_id = (
+            primary.get("agent_id") if isinstance(primary, dict) else None
+        ) or "data"
+        target = ShellTarget(
+            api_base_url=mash_base,
+            agent_id=agent_id,
+            session_id=session_id,
+            host_id=DEFAULT_HOST_ID,
+        )
+        MashRemoteShell(client, target).run()
+        return 0
     finally:
         client.close()
 
-    raise ValueError("agent command is required")
+
+def _run_browse_command(args: argparse.Namespace, renderer: RichRenderer) -> int:
+    client = _mash_client(args)
+    try:
+        renderer.info("Agent pool")
+        renderer.table(
+            ["Agent", "Listing", "Description"],
+            _agent_listing_rows(client.list_agents()),
+        )
+        renderer.info("Workflows (attach with `crew compose ... --workflows <id>`)")
+        workflow_rows = _workflow_rows(client.list_workflows())
+        if workflow_rows:
+            renderer.table(["Workflow", "Tasks"], workflow_rows)
+        else:
+            renderer.info("(none registered)")
+        renderer.info(f"Configured hosts ({hosts_file_path()})")
+        _render_configured_hosts(renderer)
+        renderer.info(
+            "Compose a host with `crew compose <host-id> --primary <agent> "
+            "--subagents a,b`, then enter it with `crew agent repl --host <host-id>`."
+        )
+        return 0
+    finally:
+        client.close()
+
+
+def _run_compose_command(args: argparse.Namespace, renderer: RichRenderer) -> int:
+    client = _mash_client(args)
+    try:
+        subagents = _split_ids(args.subagents)
+        workflows = _split_ids(args.workflows)
+        client.define_host(
+            args.host_id,
+            primary=args.primary,
+            subagents=subagents,
+            workflows=workflows,
+        )
+        record_host(
+            args.host_id,
+            primary=args.primary,
+            subagents=subagents,
+            workflows=workflows,
+        )
+        renderer.info(
+            f"Composed host '{args.host_id}' (primary {args.primary}, "
+            f"{len(subagents)} subagent(s)). Saved to {hosts_file_path()}."
+        )
+        renderer.info(f"Enter it with `crew agent repl --host {args.host_id}`.")
+        return 0
+    finally:
+        client.close()
 
 
 def _run_workflow_command(args: argparse.Namespace, renderer: RichRenderer) -> int:
-    base_url, api_key, _configured_agent = _resolve_connection(args)
-    client = MashHostClient(base_url, api_key=api_key)
+    client = _mash_client(args)
     try:
         if args.workflow_command == "list":
             workflows = client.list_workflows()
@@ -539,7 +765,9 @@ def _run_workflow_command(args: argparse.Namespace, renderer: RichRenderer) -> i
                 try:
                     decoded_input = json.loads(args.input)
                 except json.JSONDecodeError as exc:
-                    raise ValueError(f"workflow input must be valid JSON: {exc.msg}") from exc
+                    raise ValueError(
+                        f"workflow input must be valid JSON: {exc.msg}"
+                    ) from exc
                 if not isinstance(decoded_input, dict):
                     raise ValueError("workflow input must be a JSON object")
                 workflow_input = decoded_input
@@ -596,7 +824,9 @@ def _run_artifact_command(args: argparse.Namespace, renderer: RichRenderer) -> i
 
     context = build_artifact_context(current_workspace_dir())
     if args.artifact_command == "list":
-        payload = list_artifacts(context=context, kind_filter=args.kind, limit=args.limit)
+        payload = list_artifacts(
+            context=context, kind_filter=args.kind, limit=args.limit
+        )
         rows = [
             [
                 item["artifact_id"],
@@ -695,9 +925,7 @@ def _run_metrics_command(args: argparse.Namespace, renderer: RichRenderer) -> in
         if result.is_error:
             raise ValueError(result.content)
         payload = json.loads(result.content)
-        renderer.info(
-            f"Dataset: {payload['dataset_id']} | Plans: {payload['count']}"
-        )
+        renderer.info(f"Dataset: {payload['dataset_id']} | Plans: {payload['count']}")
         for plan in payload["plans"]:
             renderer.info(
                 f"Metric: {plan['metric_name']} | Source: {plan['source_id']}"
@@ -790,7 +1018,9 @@ def _run_experiment_command(args: argparse.Namespace, renderer: RichRenderer) ->
     raise ValueError("experiment command is required")
 
 
-def _build_date_range_args(*, start: str | None, end: str | None) -> dict[str, str] | None:
+def _build_date_range_args(
+    *, start: str | None, end: str | None
+) -> dict[str, str] | None:
     if not start and not end:
         return None
     payload: dict[str, str] = {}
@@ -847,8 +1077,8 @@ def _render_visualization_payload(
     for warning in summary.get("warnings") or []:
         renderer.warn(f"Warning: {warning}")
 
-    columns = ((payload.get("table") or {}).get("columns") or [])
-    rows = ((payload.get("table") or {}).get("rows") or [])
+    columns = (payload.get("table") or {}).get("columns") or []
+    rows = (payload.get("table") or {}).get("rows") or []
     if rows:
         renderer.table(
             [str(column.get("label") or column.get("key") or "") for column in columns],
@@ -864,7 +1094,7 @@ def _render_visualization_payload(
         renderer.warn("No rows returned for this view.")
 
     if show_sql:
-        for query_plan in ((payload.get("lineage") or {}).get("queries") or []):
+        for query_plan in (payload.get("lineage") or {}).get("queries") or []:
             label = str(query_plan.get("label") or "SQL")
             renderer.info(label)
             renderer.markdown(f"```sql\n{query_plan.get('sql') or ''}\n```")
@@ -877,7 +1107,11 @@ def _format_visualization_cell(value: Any, column: dict[str, Any]) -> str:
     column_type = str(column.get("type") or "")
     column_format = str(column.get("format") or "")
 
-    if column_type == "number" and isinstance(value, (int, float)) and not isinstance(value, bool):
+    if (
+        column_type == "number"
+        and isinstance(value, (int, float))
+        and not isinstance(value, bool)
+    ):
         if column_format == "percent":
             return f"{float(value):.2%}"
         if column_format == "currency":

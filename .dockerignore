@@ -1,0 +1,15 @@
+.venv
+.git
+.github
+dist
+build
+*.egg-info
+__pycache__
+**/__pycache__
+*.pyc
+.env
+.mash
+web/node_modules
+web/.next
+docs
+tests

@@ -577,124 +577,119 @@ def test_version_cli_reports_workspace_and_state(monkeypatch, tmp_path: Path, ca
     assert "state" in output
 
 
-def test_agent_repl_delegates_to_mash_remote_shell(monkeypatch) -> None:
-    class FakeClient:
-        def __init__(self, base_url: str, *, api_key: str | None = None) -> None:
+def test_login_saves_token(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("CREW_HOME", str(tmp_path))
+    from crew.cli import auth_store
+
+    monkeypatch.setattr(
+        "crew.cli.main.beta_client.login",
+        lambda base, username: {
+            "token": "tok-123",
+            "user": {"id": "u1", "username": username},
+        },
+    )
+
+    assert main(["login", "alice", "--api-base-url", "http://127.0.0.1:8000"]) == 0
+    auth = auth_store.load_auth()
+    assert auth["token"] == "tok-123"
+    assert auth["username"] == "alice"
+    assert auth["api_base_url"] == "http://127.0.0.1:8000"
+
+
+def test_repl_requires_login(monkeypatch, tmp_path, capsys) -> None:
+    monkeypatch.setenv("CREW_HOME", str(tmp_path))
+    assert main(["repl"]) == 1
+    output = _normalize_output(capsys.readouterr().out)
+    assert "login" in output
+
+
+class _FakeBetaClient:
+    instances: list["_FakeBetaClient"] = []
+
+    def __init__(self, api_base_url: str, token: str, **kwargs) -> None:
+        self.api_base_url = api_base_url
+        self.token = token
+        self.created: list[str | None] = []
+        self.messages: list[str] = []
+        _FakeBetaClient.instances.append(self)
+
+    def create_session(self, workspace_id, *, label=None):
+        self.created.append(label)
+        return {"session_id": "data_abc"}
+
+    def list_sessions(self, workspace_id):
+        return [
+            {"session_id": "data_abc", "label": "demo", "turn_count": 2,
+             "preview_text": "hello"}
+        ]
+
+    def send_message(self, workspace_id, session_id, message):
+        self.messages.append(message)
+        return "req-1"
+
+    def stream_events(self, workspace_id, session_id, request_id):
+        yield ("request.completed", {"response": {"text": "final answer"}})
+
+
+def _login(tmp_path):
+    from crew.cli import auth_store
+
+    auth_store.save_auth(
+        api_base_url="http://127.0.0.1:8000",
+        token="tok",
+        username="alice",
+        user_id="u1",
+    )
+
+
+def test_repl_creates_session_and_enters_shell(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("CREW_HOME", str(tmp_path))
+    _login(tmp_path)
+    _FakeBetaClient.instances = []
+    monkeypatch.setattr("crew.cli.main.beta_client.BetaClient", _FakeBetaClient)
+
+    class FakeMashClient:
+        def __init__(self, base_url, *, api_key=None) -> None:
             self.base_url = base_url
-            self.api_key = api_key
-            self.closed = False
+
+        def get_host(self, host_id):
+            assert host_id == "datasquad"
+            return {"host_id": host_id, "primary": {"agent_id": "data"}}
 
         def close(self) -> None:
-            self.closed = True
+            pass
 
     captured: dict[str, object] = {}
 
     class FakeShell:
         def __init__(self, client, target) -> None:
-            captured["client"] = client
+            captured["base_url"] = client.base_url
             captured["target"] = target
 
         def run(self) -> None:
             captured["ran"] = True
 
-        @staticmethod
-        def new_session_id() -> str:
-            return "session-123"
-
-    monkeypatch.setattr("crew.cli.main.MashHostClient", FakeClient)
+    monkeypatch.setattr("crew.cli.main.MashHostClient", FakeMashClient)
     monkeypatch.setattr("crew.cli.main.MashRemoteShell", FakeShell)
 
-    assert (
-        main(
-            [
-                "agent",
-                "repl",
-                "--api-base-url",
-                "http://127.0.0.1:8000",
-                "--agent",
-                "pm",
-            ]
-        )
-        == 0
-    )
+    assert main(["repl"]) == 0
+    beta = _FakeBetaClient.instances[-1]
+    assert beta.created == [None]  # a session was created through the BFF
     assert captured["ran"] is True
-    assert captured["target"].agent_id == "pm"
-    assert captured["target"].session_id == "session-123"
+    assert str(captured["base_url"]).endswith("/host")
+    assert captured["target"].host_id == "datasquad"
+    assert captured["target"].agent_id == "data"
+    assert captured["target"].session_id == "data_abc"
 
 
-def test_agent_invoke_uses_request_stream(monkeypatch, capsys) -> None:
-    captured: dict[str, object] = {}
+def test_sessions_lists_user_sessions(monkeypatch, tmp_path, capsys) -> None:
+    monkeypatch.setenv("CREW_HOME", str(tmp_path))
+    _login(tmp_path)
+    monkeypatch.setattr("crew.cli.main.beta_client.BetaClient", _FakeBetaClient)
 
-    class FakeClient:
-        def __init__(self, base_url: str, *, api_key: str | None = None) -> None:
-            self.base_url = base_url
-            self.api_key = api_key
-            self.closed = False
-
-        def submit_request(self, agent_id: str, *, message: str, session_id: str) -> str:
-            captured["submit"] = {
-                "agent_id": agent_id,
-                "message": message,
-                "session_id": session_id,
-            }
-            return "req-123"
-
-        def stream_request(self, agent_id: str, request_id: str):
-            captured["stream"] = {"agent_id": agent_id, "request_id": request_id}
-            yield {
-                "event": "request.accepted",
-                "data": {
-                    "request_id": request_id,
-                    "agent_id": agent_id,
-                    "session_id": "session-123",
-                    "status": "accepted",
-                },
-            }
-            yield {
-                "event": "request.completed",
-                "data": {
-                    "request_id": request_id,
-                    "session_id": "session-123",
-                    "response": {"text": "final response"},
-                },
-            }
-
-        def close(self) -> None:
-            self.closed = True
-
-    class FakeShell:
-        @staticmethod
-        def new_session_id() -> str:
-            return "session-123"
-
-    monkeypatch.setattr("crew.cli.main.MashHostClient", FakeClient)
-    monkeypatch.setattr("crew.cli.main.MashRemoteShell", FakeShell)
-
-    assert (
-        main(
-            [
-                "agent",
-                "invoke",
-                "--api-base-url",
-                "http://127.0.0.1:8000",
-                "--agent",
-                "data",
-                "what changed?",
-            ]
-        )
-        == 0
-    )
-
+    assert main(["sessions"]) == 0
     output = _normalize_output(capsys.readouterr().out)
-    assert captured["submit"] == {
-        "agent_id": "data",
-        "message": "what changed?",
-        "session_id": "session-123",
-    }
-    assert captured["stream"] == {"agent_id": "data", "request_id": "req-123"}
-    assert "Agent: data" in output
-    assert "Session: session-123" in output
-    assert "final response" in output
+    assert "data_abc" in output
 
 
 def test_workflow_list_uses_mash_client(monkeypatch, capsys) -> None:

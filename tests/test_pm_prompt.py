@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from mash.runtime import SubAgentMetadata
+from mash.runtime import AgentMetadata
 
 from crew.agents.pm.spec import PMAgentSpec
 
@@ -41,7 +41,7 @@ def test_pm_system_prompt_supports_delegated_specialist_mode() -> None:
 def test_pm_builds_subagent_metadata() -> None:
     metadata = PMAgentSpec().build_subagent_metadata()
 
-    assert isinstance(metadata, SubAgentMetadata)
+    assert isinstance(metadata, AgentMetadata)
     assert metadata.display_name == "Product Management Specialist"
     assert "prioritization" in metadata.description
     assert "trade-off evaluation" in metadata.capabilities
