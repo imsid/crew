@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import ExitStack, contextmanager
 import json
 import os
+import re
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Optional
@@ -13,7 +14,6 @@ from mash.agents.masher.spec import MasherAgentSpec
 from mash.core.context import ToolCall
 from mash.core.llm import LLMProvider
 from mash.core.llm.types import LLMContentBlock, LLMRequest, LLMResponse, LLMTokenUsage
-from mash.memory.store import SQLiteStore
 from mash.workflows.service import (
     DuplicateWorkflowRunError,
     WorkflowNotFoundError,
@@ -27,6 +27,7 @@ from crew.agents.pm.spec import PMAgentSpec
 from crew.beta.app import build_beta_app, create_beta_app
 from crew.beta.routes.sessions import _normalize_stream_payload
 from crew.shared.runtime_context import get_runtime_context
+from tests.memory_fakes import InMemoryMemoryStore
 
 
 class _EchoLLM(LLMProvider):
@@ -319,19 +320,19 @@ def _build_test_client(tmp_path: Path):
     os.environ["CREW_BETA_ALLOWED_USERS"] = "alice,bob"
     _FakeBetaStore.last_created = None
 
-    def _sqlite_memory_store(self):
-        return SQLiteStore(Path(os.environ["MASH_DATA_DIR"]) / self.get_agent_id() / "state.db")
+    def _memory_store(self):
+        return InMemoryMemoryStore()
 
     with ExitStack() as stack:
         stack.enter_context(patch("crew.beta.app.BetaStore", _FakeBetaStore))
         stack.enter_context(
-            patch.object(DataAgentSpec, "build_memory_store", _sqlite_memory_store)
+            patch.object(DataAgentSpec, "build_memory_store", _memory_store)
         )
         stack.enter_context(
-            patch.object(PMAgentSpec, "build_memory_store", _sqlite_memory_store)
+            patch.object(PMAgentSpec, "build_memory_store", _memory_store)
         )
         stack.enter_context(
-            patch.object(MasherAgentSpec, "build_memory_store", _sqlite_memory_store)
+            patch.object(MasherAgentSpec, "build_memory_store", _memory_store)
         )
         app = build_beta_app()
         with TestClient(app) as client:
@@ -591,6 +592,39 @@ def test_beta_app_opens_and_closes_store(monkeypatch) -> None:
         with pytest.raises(RuntimeError, match="runtime context"):
             get_runtime_context()
         assert host.closed is True
+
+
+def test_admin_dashboard_is_served_at_root(monkeypatch) -> None:
+    from mash.api.admin_ui import admin_assets_available
+
+    if not admin_assets_available():
+        pytest.skip("packaged mash admin UI assets are not available")
+
+    monkeypatch.setenv("CREW_DATABASE_URL", "postgresql://beta:test@127.0.0.1:5432/crew_beta")
+    monkeypatch.setenv("CREW_BETA_ALLOWED_USERS", "alice")
+    monkeypatch.setenv("CREW_BETA_AUTH_SECRET", "beta-secret")
+
+    _FakeBetaStore.last_created = None
+    host = _HostStub()
+    with patch("crew.beta.app.BetaStore", _FakeBetaStore):
+        app = create_beta_app(host=host)
+        with TestClient(app) as client:
+            # The mash admin SPA bundle uses absolute paths (/admin/assets,
+            # /api/v1, /telemetry), so it must be reachable at root rather than
+            # nested under /host to load.
+            index = client.get("/admin")
+            assert index.status_code == 200
+            assert "/admin/assets/" in index.text
+
+            asset_match = re.search(r'/admin/assets/[^"]+\.js', index.text)
+            assert asset_match is not None
+            # The bundle's absolute asset path resolves at root, so the SPA's
+            # other absolute calls (/api/v1, /telemetry) — served by the same
+            # root mount — load too.
+            assert client.get(asset_match.group(0)).status_code == 200
+
+            # The CLI's /host mount of the same mash app is unaffected.
+            assert client.get("/host/admin").status_code == 200
 
 
 def test_login_and_me_enforce_allowed_handles(tmp_path: Path) -> None:
@@ -891,9 +925,12 @@ def test_workflow_endpoints_are_authenticated_and_use_host_service(
                 workflow["workflow_id"]: workflow
                 for workflow in workflows.json()["data"]["workflows"]
             }
-            assert listed["masher-trace-digest"]["tasks"] == [
-                {"task_id": "digest-traces", "agent_id": "masher"}
-            ]
+            # mash >= 0.11 attaches a structured_output schema to these tasks;
+            # assert the routing fields and ignore the schema payload.
+            assert [
+                {"task_id": task["task_id"], "agent_id": task["agent_id"]}
+                for task in listed["masher-trace-digest"]["tasks"]
+            ] == [{"task_id": "digest-traces", "agent_id": "masher"}]
 
             unauthorized = client.get("/workspace/marketing_db/workflow")
             assert unauthorized.status_code == 401
@@ -1154,9 +1191,12 @@ def test_workflow_command_surface_dispatches_host_service(tmp_path: Path) -> Non
                 workflow["workflow_id"]: workflow
                 for workflow in listed.json()["data"]["workflows"]
             }
-            assert workflows["masher-trace-digest"]["tasks"] == [
-                {"task_id": "digest-traces", "agent_id": "masher"}
-            ]
+            # mash >= 0.11 attaches a structured_output schema to these tasks;
+            # assert the routing fields and ignore the schema payload.
+            assert [
+                {"task_id": task["task_id"], "agent_id": task["agent_id"]}
+                for task in workflows["masher-trace-digest"]["tasks"]
+            ] == [{"task_id": "digest-traces", "agent_id": "masher"}]
 
             started = client.post(
                 "/workspace/marketing_db/command",
@@ -1696,6 +1736,65 @@ def test_normalize_stream_payload_adds_structured_trace_step() -> None:
             "total_tokens": 422,
         },
         "duration_ms": 1378,
+    }
+
+
+def test_normalize_stream_payload_surfaces_prompt_cache_tokens() -> None:
+    # mash >= 0.7 reports prompt-cache hits on the per-step token_usage using
+    # the cache_read/cache_write keys; the trace step should expose them.
+    payload = _normalize_stream_payload(
+        event_name="agent.trace",
+        payload={
+            "event_type": "runtime.llm.think.completed",
+            "trace_id": "trace-123",
+            "loop_index": 1,
+            "step_key": "llm.think.1",
+            "payload": {
+                "action_type": "response",
+                "assistant_text": "Done.",
+                "token_usage": {
+                    "input": 1200,
+                    "output": 64,
+                    "cache_read": 980,
+                    "cache_write": 0,
+                },
+                "duration_ms": 510,
+            },
+        },
+        sequence=3,
+    )
+
+    assert payload["trace"]["token_usage"] == {
+        "input_tokens": 1200,
+        "output_tokens": 64,
+        "total_tokens": 1264,
+        "cache_read_tokens": 980,
+        "cache_write_tokens": 0,
+    }
+
+
+def test_normalize_stream_payload_omits_cache_tokens_when_absent() -> None:
+    payload = _normalize_stream_payload(
+        event_name="agent.trace",
+        payload={
+            "event_type": "runtime.llm.think.completed",
+            "trace_id": "trace-123",
+            "loop_index": 1,
+            "step_key": "llm.think.1",
+            "payload": {
+                "action_type": "response",
+                "assistant_text": "Done.",
+                "token_usage": {"input": 10, "output": 5},
+                "duration_ms": 7,
+            },
+        },
+        sequence=3,
+    )
+
+    assert payload["trace"]["token_usage"] == {
+        "input_tokens": 10,
+        "output_tokens": 5,
+        "total_tokens": 15,
     }
 
 

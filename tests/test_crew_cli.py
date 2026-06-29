@@ -3,7 +3,12 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from crew.cli.main import _stream_workflow_run_events, build_parser, main
+from crew.cli.main import (
+    _response_blocks,
+    _stream_workflow_run_events,
+    build_parser,
+    main,
+)
 
 
 def _workspace_root(root: Path) -> Path:
@@ -994,3 +999,34 @@ def test_workflow_status_uses_mash_client(monkeypatch, capsys) -> None:
     output = _normalize_output(capsys.readouterr().out)
     assert "success" in output
     assert "digest-traces" in output
+
+
+def test_response_blocks_renders_thinking_then_text_in_order() -> None:
+    blocks = _response_blocks(
+        {
+            "response": {
+                "text": "The activation rate is 12%.",
+                "assistant_blocks": [
+                    {"type": "thinking", "thinking": "Checking the metric."},
+                    {"type": "text", "text": "The activation rate is 12%."},
+                ],
+            }
+        }
+    )
+
+    assert blocks == [
+        ("thinking", "Checking the metric."),
+        ("text", "The activation rate is 12%."),
+    ]
+
+
+def test_response_blocks_falls_back_to_text_without_blocks() -> None:
+    assert _response_blocks({"response": {"text": "Plain answer."}}) == [
+        ("text", "Plain answer.")
+    ]
+    # Payloads may carry the text at the top level rather than under response.
+    assert _response_blocks({"text": "Top-level answer."}) == [
+        ("text", "Top-level answer.")
+    ]
+    assert _response_blocks({"response": {"text": ""}}) == []
+    assert _response_blocks("not-a-dict") == []

@@ -27,8 +27,8 @@ docker compose up -d db              # Postgres only, published on 127.0.0.1:543
 cp .env.example .env
 ```
 
-In `.env`, set `ANTHROPIC_API_KEY` and `DBOS_CONDUCTOR_KEY`. The
-`CREW_DATABASE_URL` line already points at the compose Postgres
+In `.env`, set `ANTHROPIC_API_KEY` (`DBOS_CONDUCTOR_KEY` is optional — see
+below). The `CREW_DATABASE_URL` line already points at the compose Postgres
 (`postgresql://mash:mash@127.0.0.1:5434/mash_crew`). It is forwarded to the
 Mash runtime as `MASH_DATABASE_URL` at startup.
 
@@ -65,13 +65,11 @@ Then, in another terminal, log in and chat:
 
 ```bash
 crew login alice --api-base-url http://127.0.0.1:8003
-crew repl        # session is shared with the web UI; `crew sessions` lists them
-crew browse      # host composition uses the Mash API the BFF mounts at /host
+crew browse      # browse available agents in the pool
+crew workspace <list|show|set|unset> # manage available workspaces
+crew --workspace <workspace_name> repl  # enter the repl for a workspace. session is shared with the web UI; 
+crew --workspace <workspace_name> sessions # list all active sessions in the workspace
 ```
-
-A bare `mash host serve --host-app crew.app:build_pool` still works for
-stock `mash` tooling, but it has no auth, web UI, or `/host` mount, so the
-`crew login`/`repl`/`browse` commands won't drive it.
 
 ### Tests
 
@@ -117,9 +115,11 @@ provided (`MASH_DATABASE_URL` or `CREW_DATABASE_URL`) in
 
 The entrypoint keeps `MASH_DATABASE_URL` (read by the runtime) and
 `CREW_DATABASE_URL` (read by the beta BFF) in sync, so you only need to set
-one. Either server still needs `ANTHROPIC_API_KEY` and `DBOS_CONDUCTOR_KEY`
-in the environment (via `env_file: .env`); the runtime fails to start without
-them. The beta server additionally reads the `CREW_BETA_*` variables.
+one. Either server still needs `ANTHROPIC_API_KEY` in the environment (via
+`env_file: .env`); the runtime fails to start without it. `DBOS_CONDUCTOR_KEY`
+is optional — the durable runtime self-hosts against Postgres and starts fine
+without it; set it only to connect to DBOS Conductor for cloud observability.
+The beta server additionally reads the `CREW_BETA_*` variables.
 
 `docker compose up -d` runs the host in external-database mode locally: one
 Postgres container plus the crew host built from source (`cp .env.example
@@ -135,7 +135,7 @@ To run the beta server standalone from the image:
 ```bash
 docker run -d --name crew-beta -p 8001:8000 \
   -e CREW_SERVE_MODE=beta \
-  -e ANTHROPIC_API_KEY=sk-ant-... -e DBOS_CONDUCTOR_KEY=... \
+  -e ANTHROPIC_API_KEY=sk-ant-... \
   -e CREW_BETA_ALLOWED_USERS=alice -e CREW_BETA_AUTH_SECRET=... \
   -v crew-data:/var/lib/crew \
   ghcr.io/imsid/crew:latest

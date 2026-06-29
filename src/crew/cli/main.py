@@ -143,13 +143,38 @@ def _parse_order_by(values: list[str] | None) -> list[dict[str, str]]:
     return order_by
 
 
-def _extract_response_text(payload: object) -> str:
-    if isinstance(payload, dict):
-        response_payload = payload.get("response")
-        if isinstance(response_payload, dict):
-            return str(response_payload.get("text") or "")
-        return str(payload.get("text") or "")
-    return ""
+def _response_blocks(payload: object) -> list[tuple[str, str]]:
+    """Return the assistant's final turn as ordered (kind, content) blocks.
+
+    Mirrors mash's shell rendering (mash >= 0.11): prefer ``assistant_blocks``
+    so reasoning ("thinking") and text render distinctly, falling back to the
+    flat ``text`` field when a payload carries no blocks.
+    """
+    if not isinstance(payload, dict):
+        return []
+    response_payload = payload.get("response")
+    source = response_payload if isinstance(response_payload, dict) else payload
+
+    blocks: list[tuple[str, str]] = []
+    assistant_blocks = source.get("assistant_blocks")
+    if isinstance(assistant_blocks, list) and assistant_blocks:
+        for block in assistant_blocks:
+            if not isinstance(block, dict):
+                continue
+            block_type = block.get("type")
+            if block_type == "thinking":
+                content = str(block.get("thinking") or "").strip()
+                if content:
+                    blocks.append(("thinking", content))
+            elif block_type == "text":
+                content = str(block.get("text") or "").strip()
+                if content:
+                    blocks.append(("text", content))
+        if blocks:
+            return blocks
+
+    text = str(source.get("text") or "").strip()
+    return [("text", text)] if text else []
 
 
 def _stream_workflow_run_events(
@@ -245,10 +270,14 @@ def _render_workflow_stream_event(
         return False
 
     if event_name == "request.completed":
-        text = _extract_response_text(data)
-        if text and text not in rendered_responses:
-            rendered_responses.add(text)
-            renderer.markdown(text)
+        for kind, content in _response_blocks(data):
+            if content in rendered_responses:
+                continue
+            rendered_responses.add(content)
+            if kind == "thinking":
+                renderer.thinking(content)
+            else:
+                renderer.markdown(content)
         return False
 
     if event_name in {"request.error", "workflow.error"}:

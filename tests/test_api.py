@@ -14,12 +14,12 @@ from mash.api import MashHostConfig, create_app
 from mash.core.context import ToolCall
 from mash.core.llm import LLMProvider
 from mash.core.llm.types import LLMContentBlock, LLMRequest, LLMResponse, LLMTokenUsage
-from mash.memory.store import SQLiteStore
 from mash.workflows.service import WorkflowService
 
 from crew.agents.data.spec import DataAgentSpec
 from crew.agents.pm.spec import PMAgentSpec
 from crew.app import build_pool
+from tests.memory_fakes import InMemoryMemoryStore
 
 
 class _EchoLLM(LLMProvider):
@@ -107,18 +107,18 @@ def _build_test_client(tmp_path: Path):
     os.environ["MASH_DATABASE_URL"] = "postgresql://test/runtime"
     os.environ["DBOS_CONDUCTOR_KEY"] = "test-conductor-key"
 
-    def _sqlite_memory_store(self):
-        return SQLiteStore(Path(os.environ["MASH_DATA_DIR"]) / self.get_agent_id() / "state.db")
+    def _memory_store(self):
+        return InMemoryMemoryStore()
 
     with ExitStack() as stack:
         stack.enter_context(
-            patch.object(DataAgentSpec, "build_memory_store", _sqlite_memory_store)
+            patch.object(DataAgentSpec, "build_memory_store", _memory_store)
         )
         stack.enter_context(
-            patch.object(PMAgentSpec, "build_memory_store", _sqlite_memory_store)
+            patch.object(PMAgentSpec, "build_memory_store", _memory_store)
         )
         stack.enter_context(
-            patch.object(MasherAgentSpec, "build_memory_store", _sqlite_memory_store)
+            patch.object(MasherAgentSpec, "build_memory_store", _memory_store)
         )
         pool = build_pool()
         app = create_app(pool, config=MashHostConfig())
@@ -214,12 +214,16 @@ def test_workflows_list_includes_masher_workflows(tmp_path: Path) -> None:
                 "masher-trace-digest",
                 "masher-online-eval-curation",
             } <= set(workflows)
-            assert workflows["masher-trace-digest"]["tasks"] == [
-                {"task_id": "digest-traces", "agent_id": "masher"}
-            ]
-            assert workflows["masher-online-eval-curation"]["tasks"] == [
-                {"task_id": "curate-online-evals", "agent_id": "masher"}
-            ]
+            # mash >= 0.11 attaches a structured_output schema to these tasks;
+            # assert the routing fields and ignore the schema payload.
+            assert [
+                {"task_id": task["task_id"], "agent_id": task["agent_id"]}
+                for task in workflows["masher-trace-digest"]["tasks"]
+            ] == [{"task_id": "digest-traces", "agent_id": "masher"}]
+            assert [
+                {"task_id": task["task_id"], "agent_id": task["agent_id"]}
+                for task in workflows["masher-online-eval-curation"]["tasks"]
+            ] == [{"task_id": "curate-online-evals", "agent_id": "masher"}]
 
 
 def test_workflow_run_and_status_are_exposed(tmp_path: Path) -> None:
@@ -231,8 +235,9 @@ def test_workflow_run_and_status_are_exposed(tmp_path: Path) -> None:
         *,
         dedup_key: str | None = None,
         workflow_input: dict[str, Any] | None = None,
+        session_id: str | None = None,
     ):
-        del self
+        del self, session_id
         captured["run"] = {
             "workflow_id": workflow_id,
             "dedup_key": dedup_key,
