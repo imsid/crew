@@ -27,7 +27,6 @@ approval, and durable interactions are handled by the Mash runtime.
 docker run -d --name crew -p 8000:8000 \
   -e CREW_SERVE_MODE=beta \
   -e ANTHROPIC_API_KEY=sk-ant-... \
-  -e DBOS_CONDUCTOR_KEY=... \
   -e CREW_BETA_ALLOWED_USERS=alice \
   -e CREW_BETA_AUTH_SECRET=change-me \
   -v crew-data:/var/lib/crew \
@@ -43,8 +42,10 @@ The CLI and the web UI are clients of the **same** crew process, authenticated
 as the same user, so a session you start in the CLI shows up in the UI and
 vice versa (`crew sessions` lists them).
 
-`ANTHROPIC_API_KEY` and `DBOS_CONDUCTOR_KEY` are required — the host refuses
-to start without them. BigQuery is optional: set `BIGQUERY_PROJECT_ID` /
+`ANTHROPIC_API_KEY` is required — the host refuses to start without it.
+`DBOS_CONDUCTOR_KEY` is optional: the durable runtime self-hosts against
+Postgres and starts fine without it; set it only to connect to DBOS Conductor
+for cloud observability. BigQuery is optional: set `BIGQUERY_PROJECT_ID` /
 `BIGQUERY_MCP_URL` (and mount a service-account JSON via
 `GOOGLE_APPLICATION_CREDENTIALS`) to light up the data agent's BigQuery
 tools; without them the agent still runs and explains what to configure. The

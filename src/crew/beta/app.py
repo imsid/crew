@@ -224,6 +224,16 @@ def create_beta_app(
 
     include_routes(app)
 
+    # The packaged Mash admin dashboard (create_app mounts it at /admin) is a
+    # SPA built for a root mount: it loads assets from /admin/assets and calls
+    # the API at absolute /api/v1 and /telemetry. Mount the same mash app at
+    # root — in addition to /host, which the CLI drives — so http://<bff>/admin
+    # works without rebuilding the bundle. Registered after the BFF's own
+    # routes so those win; the BFF defines no /admin, /api/v1, or /telemetry
+    # paths, and the mash API is already exposed (unauthenticated) under /host,
+    # so this adds paths, not surface.
+    app.mount("/", mash_api_app)
+
     return app
 
 

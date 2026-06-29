@@ -12,8 +12,9 @@
 # CREW_DATABASE_URL while the runtime reads MASH_DATABASE_URL, so the two are
 # kept in sync below.
 #
-# The crew server also requires DBOS_CONDUCTOR_KEY and ANTHROPIC_API_KEY in
-# the environment; build_pool() fails with a clear error if they are missing.
+# The crew server also requires ANTHROPIC_API_KEY in the environment;
+# build_pool() fails with a clear error if it is missing. DBOS_CONDUCTOR_KEY
+# is optional (DBOS Conductor cloud observability) and not needed to start.
 set -e
 
 if [ -z "${MASH_DATABASE_URL:-}" ] && [ -z "${CREW_DATABASE_URL:-}" ]; then

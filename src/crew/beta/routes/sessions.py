@@ -121,9 +121,11 @@ async def search_sessions(
         ) from exc
     ranked_results: dict[tuple[str, str], dict[str, Any]] = {}
     for item in raw_results:
-        key = (item.turn_id, item.session_id)
+        # mash's one-trace-per-turn model identifies turns by trace_id; the beta
+        # API continues to expose it to the frontend as turn_id.
+        key = (item.trace_id, item.session_id)
         payload = {
-            "turn_id": item.turn_id,
+            "turn_id": item.trace_id,
             "session_id": item.session_id,
             "similarity_score": item.similarity_score,
             "preview": item.preview,
@@ -860,15 +862,29 @@ def _coerce_usage_map(value: Any) -> dict[str, int] | None:
     except (TypeError, ValueError):
         return None
 
-    return {
+    usage = {
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
         "total_tokens": total_tokens,
     }
+    # mash >= 0.7 reports prompt-cache hits. Per-step trace payloads key them
+    # cache_read/cache_write; trace/session aggregates use the *_tokens form.
+    # Surface them only when present so plain turns keep their existing shape.
+    cache_read = _coerce_int(value.get("cache_read_tokens", value.get("cache_read")))
+    cache_write = _coerce_int(value.get("cache_write_tokens", value.get("cache_write")))
+    if cache_read is not None:
+        usage["cache_read_tokens"] = cache_read
+    if cache_write is not None:
+        usage["cache_write_tokens"] = cache_write
+    return usage
 
 
 def _normalize_history_turn(turn: dict[str, Any]) -> dict[str, Any]:
     normalized = dict(turn)
+    # mash's one-trace-per-turn model keys turns by trace_id; the beta API and
+    # frontend address turns by turn_id (the value the trace endpoint expects).
+    if "turn_id" not in normalized and normalized.get("trace_id") is not None:
+        normalized["turn_id"] = normalized["trace_id"]
     metadata = normalized.get("metadata")
     usage = None
     if isinstance(metadata, dict):
