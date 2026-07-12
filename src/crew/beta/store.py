@@ -153,14 +153,6 @@ class BetaStore:
             (workspace_id, session_id),
         )
 
-    async def get_workspace_for_session(self, session_id: str) -> str | None:
-        """Resolve a session's workspace by id alone (session ids are unique)."""
-        row = await self._fetch_one(
-            "SELECT workspace_id FROM sessions WHERE session_id = %s",
-            (session_id,),
-        )
-        return str(row["workspace_id"]) if row else None
-
     async def touch_session(self, *, workspace_id: str, session_id: str) -> None:
         now = float(time.time())
         async with self._lock:
@@ -174,6 +166,29 @@ class BetaStore:
                     """,
                     (now, workspace_id, session_id),
                 )
+
+    async def record_session_request(
+        self, *, request_id: str, session_id: str
+    ) -> None:
+        async with self._lock:
+            conn = self._get_conn()
+            async with conn.cursor() as cursor:
+                await cursor.execute(
+                    """INSERT INTO session_requests
+                    (request_id, session_id, created_at) VALUES (%s, %s, %s)
+                    ON CONFLICT (request_id) DO NOTHING""",
+                    (request_id, session_id, float(time.time())),
+                )
+
+    async def request_belongs_to_session(
+        self, *, request_id: str, session_id: str
+    ) -> bool:
+        row = await self._fetch_one(
+            """SELECT request_id FROM session_requests
+            WHERE request_id = %s AND session_id = %s""",
+            (request_id, session_id),
+        )
+        return row is not None
 
     async def list_sessions_for_user(
         self, *, workspace_id: str, user_id: str
@@ -208,18 +223,29 @@ class BetaStore:
             async with conn.cursor() as cursor:
                 await cursor.execute(
                     """
-                    CREATE TABLE IF NOT EXISTS users (
+                    CREATE TABLE IF NOT EXISTS crew_schema_migrations (
+                        version INTEGER PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        applied_at DOUBLE PRECISION NOT NULL
+                    )
+                    """
+                )
+                await cursor.execute("SELECT version FROM crew_schema_migrations")
+                rows = await cursor.fetchall()
+                applied = {int(row["version"]) for row in rows}
+                migrations = (
+                    (
+                        1,
+                        "create_application_tables",
+                        (
+                            """CREATE TABLE IF NOT EXISTS users (
                         id TEXT PRIMARY KEY,
                         username TEXT NOT NULL UNIQUE,
                         display_name TEXT,
                         status TEXT NOT NULL,
                         created_at DOUBLE PRECISION NOT NULL
-                    )
-                    """
-                )
-                await cursor.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS sessions (
+                    )""",
+                            """CREATE TABLE IF NOT EXISTS sessions (
                         session_id TEXT PRIMARY KEY,
                         workspace_id TEXT NOT NULL,
                         user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -227,27 +253,48 @@ class BetaStore:
                         label TEXT,
                         created_at DOUBLE PRECISION NOT NULL,
                         last_opened_at DOUBLE PRECISION NOT NULL
+                    )""",
+                            """CREATE INDEX IF NOT EXISTS idx_sessions_workspace_user_id
+                    ON sessions(workspace_id, user_id)""",
+                            """CREATE INDEX IF NOT EXISTS idx_sessions_last_opened_at
+                    ON sessions(last_opened_at DESC)""",
+                        ),
+                    ),
+                    (
+                        2,
+                        "remove_authored_workflow_tables",
+                        (
+                            "DROP TABLE IF EXISTS workflow_tasks",
+                            "DROP TABLE IF EXISTS workflows",
+                            "DROP TABLE IF EXISTS skills",
+                        ),
+                    ),
+                    (
+                        3,
+                        "create_session_request_ownership",
+                        (
+                            """CREATE TABLE IF NOT EXISTS session_requests (
+                            request_id TEXT PRIMARY KEY,
+                            session_id TEXT NOT NULL REFERENCES sessions(session_id)
+                                ON DELETE CASCADE,
+                            created_at DOUBLE PRECISION NOT NULL
+                            )""",
+                            """CREATE INDEX IF NOT EXISTS
+                            idx_session_requests_session_id
+                            ON session_requests(session_id)""",
+                        ),
+                    ),
+                )
+                for version, name, statements in migrations:
+                    if version in applied:
+                        continue
+                    for statement in statements:
+                        await cursor.execute(statement)
+                    await cursor.execute(
+                        """INSERT INTO crew_schema_migrations
+                        (version, name, applied_at) VALUES (%s, %s, %s)""",
+                        (version, name, float(time.time())),
                     )
-                    """
-                )
-                await cursor.execute(
-                    """
-                    CREATE INDEX IF NOT EXISTS idx_sessions_workspace_user_id
-                    ON sessions(workspace_id, user_id)
-                    """
-                )
-                await cursor.execute(
-                    """
-                    CREATE INDEX IF NOT EXISTS idx_sessions_last_opened_at
-                    ON sessions(last_opened_at DESC)
-                    """
-                )
-                # UX-authored workflows were removed in the mashpy 0.17.0
-                # cutover; workflows are code-shipped and run history lives in
-                # the mash runtime's own workflow tables.
-                await cursor.execute("DROP TABLE IF EXISTS workflow_tasks")
-                await cursor.execute("DROP TABLE IF EXISTS workflows")
-                await cursor.execute("DROP TABLE IF EXISTS skills")
 
     async def _fetch_one(
         self,

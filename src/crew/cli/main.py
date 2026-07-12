@@ -8,7 +8,6 @@ from typing import Any, Sequence
 from mash.cli.client import MashHostClient
 from mash.cli.config import load_config
 from mash.cli.render import RichRenderer
-from mash.cli.shell import MashRemoteShell, ShellTarget
 
 from . import auth_store, beta_client
 
@@ -41,11 +40,11 @@ from ..shared.runtime_paths import (
 from ..shared.version import crew_version
 from .hosts_store import DEFAULT_HOST_ID, hosts_file_path, load_hosts, record_host
 
-DEFAULT_BFF_BASE_URL = "http://127.0.0.1:8003"
+DEFAULT_CREW_API_BASE_URL = "http://127.0.0.1:8003"
 
 
 def _bff_base_url(args: argparse.Namespace) -> str:
-    """Resolve the BFF base URL (the single crew host process)."""
+    """Resolve the public crew-api base URL."""
     saved = load_config()
     auth = auth_store.load_auth()
     base_url = (
@@ -53,14 +52,24 @@ def _bff_base_url(args: argparse.Namespace) -> str:
         or os.environ.get("CREW_API_BASE_URL")
         or (auth.get("api_base_url") if auth else None)
         or (saved.api_base_url if saved else None)
-        or DEFAULT_BFF_BASE_URL
+        or DEFAULT_CREW_API_BASE_URL
     ).strip()
     return base_url.rstrip("/")
 
 
 def _mash_client(args: argparse.Namespace) -> MashHostClient:
-    """Client for the Mash host API the BFF exposes under /host."""
-    api_key = getattr(args, "api_key", None) or os.environ.get("MASH_API_KEY")
+    """Client for the Mash host API crew-api forwards under /host.
+
+    Every mount of the mash API sits behind crew token auth, so the client
+    sends the logged-in user's token as the bearer key (an explicit --api-key
+    overrides it).
+    """
+    api_key = getattr(args, "api_key", None)
+    if not api_key:
+        auth = auth_store.load_auth()
+        if not auth:
+            raise ValueError("not logged in. Run `crew login <username>` first.")
+        api_key = auth["token"]
     return MashHostClient(_bff_base_url(args) + "/host", api_key=api_key)
 
 
@@ -234,23 +243,23 @@ def build_parser() -> argparse.ArgumentParser:
 
     common_remote = argparse.ArgumentParser(add_help=False)
     common_remote.add_argument(
-        "--api-base-url", default=None, help="Crew BFF base URL"
+        "--api-base-url", default=None, help="Crew API base URL"
     )
     common_remote.add_argument("--api-key", default=None, help="Bearer API key")
     common_remote.add_argument("--agent", default=None, help="Target agent id")
 
     login = subparsers.add_parser(
-        "login", help="Authenticate with the crew BFF as a user"
+        "login", help="Authenticate with crew-api as a user"
     )
     login.add_argument("username", help="Username (must be in CREW_BETA_ALLOWED_USERS)")
-    login.add_argument("--api-base-url", default=None, help="Crew BFF base URL")
+    login.add_argument("--api-base-url", default=None, help="Crew API base URL")
 
     subparsers.add_parser("logout", help="Clear the saved auth token")
 
     sessions = subparsers.add_parser(
         "sessions", help="List your sessions (shared with the web UI)"
     )
-    sessions.add_argument("--api-base-url", default=None, help="Crew BFF base URL")
+    sessions.add_argument("--api-base-url", default=None, help="Crew API base URL")
 
     subparsers.add_parser(
         "browse",
@@ -277,7 +286,7 @@ def build_parser() -> argparse.ArgumentParser:
     repl = subparsers.add_parser(
         "repl", help="Chat in an authenticated session (shared with the web UI)"
     )
-    repl.add_argument("--api-base-url", default=None, help="Crew BFF base URL")
+    repl.add_argument("--api-base-url", default=None, help="Crew API base URL")
     repl.add_argument(
         "--session-id", default=None, help="Resume an existing session id"
     )
@@ -583,7 +592,7 @@ def _run_repl_command(args: argparse.Namespace, renderer: RichRenderer) -> int:
     auth = _require_auth(args)
     workspace = _current_workspace()
 
-    # Create (or resume) the session through the BFF so it is owned by the
+    # Create (or resume) the session through crew-api so it is owned by the
     # logged-in user and shared with the web UI.
     beta = beta_client.BetaClient(auth["api_base_url"], auth["token"])
     session_id = str(getattr(args, "session_id", None) or "").strip()
@@ -596,27 +605,8 @@ def _run_repl_command(args: argparse.Namespace, renderer: RichRenderer) -> int:
     else:
         renderer.info(f"Resuming session {session_id}")
 
-    # Drive the full mash shell (slash commands, live rendering, interactions)
-    # against the Mash host API the BFF mounts at /host, pinned to the same
-    # session so turns stay unified with the UI.
-    mash_base = auth["api_base_url"].rstrip("/") + "/host"
-    client = MashHostClient(mash_base, api_key=getattr(args, "api_key", None) or None)
-    try:
-        described = client.get_host(DEFAULT_HOST_ID)
-        primary = described.get("primary") if isinstance(described, dict) else None
-        agent_id = (
-            primary.get("agent_id") if isinstance(primary, dict) else None
-        ) or "data"
-        target = ShellTarget(
-            api_base_url=mash_base,
-            agent_id=agent_id,
-            session_id=session_id,
-            host_id=DEFAULT_HOST_ID,
-        )
-        MashRemoteShell(client, target).run()
-        return 0
-    finally:
-        client.close()
+    beta_client.CrewRemoteShell(beta, workspace, session_id, renderer).run()
+    return 0
 
 
 def _run_browse_command(args: argparse.Namespace, renderer: RichRenderer) -> int:

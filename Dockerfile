@@ -15,7 +15,5 @@ RUN mkdir -p /var/lib/mash
 
 EXPOSE 8000
 
-# The crew process: the FastAPI BFF hosting the agents in-process, serving
-# the web/CLI API, and mounting the Mash host API at /host. Requires
-# CREW_DATABASE_URL (and ANTHROPIC_API_KEY) in the environment.
+# Default to crew-api. Compose overrides this command for crew-host.
 CMD ["python", "-m", "uvicorn", "crew.beta:build_beta_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]

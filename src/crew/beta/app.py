@@ -3,30 +3,26 @@ from __future__ import annotations
 import json
 import logging
 import os
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from fastapi import FastAPI, Header, Request
+import httpx
+from fastapi import Depends, FastAPI, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from mash.agents.masher.spec import EVAL_AGENT_ID
-from mash.api import MashHostConfig
-from mash.api import create_app as create_mash_api_app
-from mash.api.logging import PostgresAPIEventStore
-from mash.api.routes.common import AppRuntimeState
-from mash.evals import EvalService, PostgresEvalStore
-from mash.runtime import AgentPool
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
+from starlette.background import BackgroundTask
 
-from ..app import build_pool, define_default_host
-from ..shared.workspace_context import register_request_workspace
-from ..shared.runtime_context import clear_runtime_context, set_runtime_context
 from .auth import TokenError, verify_token
+from .host_client import MashHostClient, MashHostError
 from .store import BetaStore
 
 LOGGER = logging.getLogger(__name__)
 DATA_AGENT_ID = "data"
+# Login also sets the token in this cookie so browser navigations that cannot
+# attach an Authorization header (the mash admin SPA at /admin) pass the mash
+# mount auth below.
 
 
 class LoginHandleRequest(BaseModel):
@@ -52,17 +48,14 @@ class InteractionResponseRequest(BaseModel):
     response: Any
 
 
-class WorkflowRunRequest(BaseModel):
-    dedup_key: str | None = None
-    input: dict[str, Any] = Field(default_factory=dict)
-
-
 @dataclass(frozen=True)
 class BetaConfig:
     allowed_users: set[str]
     auth_secret: str
     token_ttl_seconds: int
     database_url: str
+    host_url: str
+    host_api_key: str
     cors_allowed_origins: tuple[str, ...]
 
     @classmethod
@@ -75,16 +68,17 @@ class BetaConfig:
                 int(os.getenv("CREW_BETA_TOKEN_TTL_SECONDS", "604800")),
             ),
             database_url=_resolve_database_url(),
+            host_url=_require_env("CREW_HOST_URL"),
+            host_api_key=_require_env("MASH_API_KEY"),
             cors_allowed_origins=_resolve_cors_allowed_origins(),
         )
 
 
 @dataclass
 class BetaAppState:
-    host: AgentPool
     store: BetaStore
     config: BetaConfig
-    mash_api_app: FastAPI
+    host_client: MashHostClient
 
 
 class AppError(RuntimeError):
@@ -105,96 +99,41 @@ class AppError(RuntimeError):
 
 def create_beta_app(
     *,
-    host: AgentPool | None = None,
     config: BetaConfig | None = None,
+    host_transport: httpx.AsyncBaseTransport | None = None,
+    host_app: FastAPI | None = None,
 ) -> FastAPI:
-    resolved_host = host or build_pool()
     resolved_config = config or BetaConfig.from_env()
-
-    # The mash host API is built once and mounted at /host (below) so the CLI
-    # and stock mash tooling reach the same in-process host the BFF uses. It is
-    # also driven internally over ASGITransport for the proxy routes.
-    mash_api_config = MashHostConfig()
-    mash_api_app = create_mash_api_app(resolved_host, config=mash_api_config)
+    resolved_transport = host_transport
+    if host_app is not None and resolved_transport is None:
+        resolved_transport = httpx.ASGITransport(app=host_app)
 
     @asynccontextmanager
     async def _lifespan(application: FastAPI):
         store = BetaStore(resolved_config.database_url)
-        await store.open()
-        resolved_host.configure_runtime_database_url(
-            mash_api_config.resolved_runtime_database_url()
+        host_client = MashHostClient(
+            resolved_config.host_url,
+            resolved_config.host_api_key,
+            transport=resolved_transport,
         )
-        await resolved_host.start()
-        # Bind each request to its session's workspace. Requests arrive both
-        # from the BFF's own routes and from the CLI shell driving the mounted
-        # /host API; both execute in this process, so wrapping the pool's
-        # submit registers request_id -> workspace from the session's row,
-        # keeping the data agent's tools scoped to the right workspace.
-        _original_submit = resolved_host.submit_host_request
-
-        async def _submit_host_request(host_id, *, message, session_id, structured_output=None):
-            accepted = await _original_submit(
-                host_id,
-                message=message,
-                session_id=session_id,
-                structured_output=structured_output,
+        async with AsyncExitStack() as stack:
+            if host_app is not None:
+                await stack.enter_async_context(
+                    host_app.router.lifespan_context(host_app)
+                )
+            await store.open()
+            await host_client.open()
+            application.state.beta = BetaAppState(
+                store=store,
+                config=resolved_config,
+                host_client=host_client,
             )
-            request_id = accepted.get("request_id") if isinstance(accepted, dict) else None
-            workspace = await store.get_workspace_for_session(session_id)
-            if request_id and workspace:
-                register_request_workspace(str(request_id), workspace)
-            return accepted
-
-        resolved_host.submit_host_request = _submit_host_request  # type: ignore[method-assign]
-        # Mounted sub-app lifespans do not run, so populate runtime_state the
-        # way create_app's own lifespan would. api_key stays None: the mash API
-        # is exposed only on the BFF's port for local CLI use.
-        database_url = mash_api_config.resolved_runtime_database_url() or ""
-        api_event_store = PostgresAPIEventStore(database_url)
-        await api_event_store.open()
-        eval_service = None
-        if database_url:
-            eval_store = PostgresEvalStore(database_url)
-            await eval_store.open()
-            eval_service = EvalService(eval_store)
-            eval_agent_spec = resolved_host.get_registered_agent_spec(EVAL_AGENT_ID)
-            if eval_agent_spec is not None and hasattr(eval_agent_spec, "runtime_context"):
-                eval_agent_spec.runtime_context.bind_eval_service(eval_service)
-        mash_api_app.state.runtime_state = AppRuntimeState(
-            pool=resolved_host,
-            api_event_store=api_event_store,
-            eval_service=eval_service,
-            api_key=None,
-            observability_enabled=mash_api_config.enable_observability,
-            default_events_limit=max(1, int(mash_api_config.default_events_limit)),
-            default_search_limit=max(1, int(mash_api_config.default_search_limit)),
-        )
-        primary_agent_id = define_default_host(resolved_host).primary
-        set_runtime_context(
-            store=store,
-            host=resolved_host,
-            primary_agent_id=primary_agent_id,
-        )
-        application.state.beta = BetaAppState(
-            host=resolved_host,
-            store=store,
-            config=resolved_config,
-            mash_api_app=mash_api_app,
-        )
-        try:
-            yield
-        finally:
             try:
-                state = getattr(application.state, "beta", None)
-                if state is not None:
-                    await state.store.close()
-                if eval_service is not None:
-                    await eval_service._store.close()
-                await api_event_store.close()
-                await resolved_host.close()
+                yield
             finally:
-                clear_runtime_context()
                 application.state.beta = None
+                await host_client.close()
+                await store.close()
 
     app = FastAPI(title="Crew Beta BFF", version="0.1.0", lifespan=_lifespan)
     app.add_middleware(
@@ -205,13 +144,23 @@ def create_beta_app(
         allow_headers=["*"],
     )
 
-    # Expose the shared mash host API (and telemetry UI) on the BFF's port so
-    # the CLI and stock mash tooling drive the same host: the mash API lives
-    # under /host (e.g. /host/api/v1/..., /host/telemetry).
-    app.mount("/host", mash_api_app)
-
     @app.exception_handler(AppError)
     async def _app_error_handler(_: Request, exc: AppError) -> JSONResponse:
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={
+                "error": {
+                    "code": exc.code,
+                    "message": exc.message,
+                    "details": exc.details,
+                }
+            },
+        )
+
+    @app.exception_handler(MashHostError)
+    async def _mash_host_error_handler(
+        _: Request, exc: MashHostError
+    ) -> JSONResponse:
         return JSONResponse(
             status_code=exc.status_code,
             content={
@@ -227,15 +176,82 @@ def create_beta_app(
 
     include_routes(app)
 
-    # The packaged Mash admin dashboard (create_app mounts it at /admin) is a
-    # SPA built for a root mount: it loads assets from /admin/assets and calls
-    # the API at absolute /api/v1 and /telemetry. Mount the same mash app at
-    # root — in addition to /host, which the CLI drives — so http://<bff>/admin
-    # works without rebuilding the bundle. Registered after the BFF's own
-    # routes so those win; the BFF defines no /admin, /api/v1, or /telemetry
-    # paths, and the mash API is already exposed (unauthenticated) under /host,
-    # so this adds paths, not surface.
-    app.mount("/", mash_api_app)
+    @app.api_route(
+        "/host/{path:path}",
+        methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
+    )
+    async def host_passthrough(
+        path: str,
+        request: Request,
+        current_user: dict[str, Any] = Depends(_require_user),
+    ):
+        del current_user
+        normalized_path = path.lstrip("/")
+        allowed = (
+            "api/v1/agent",
+            "api/v1/hosts",
+            "api/v1/workflow",
+            "api/v1/tools",
+            "api/v1/skills",
+        )
+        if not any(
+            normalized_path == prefix or normalized_path.startswith(prefix + "/")
+            for prefix in allowed
+        ):
+            raise AppError(
+                status_code=404,
+                code="HOST_PATH_NOT_ALLOWED",
+                message="Mash host path is not exposed by crew-api",
+            )
+        state = _beta_state(request)
+        body = await request.body()
+        excluded = {
+            "authorization",
+            "cookie",
+            "host",
+            "content-length",
+            "connection",
+            "transfer-encoding",
+            "keep-alive",
+            "proxy-authenticate",
+            "proxy-authorization",
+            "te",
+            "trailer",
+            "upgrade",
+        }
+        headers = {
+            key: value
+            for key, value in request.headers.items()
+            if key.lower() not in excluded
+        }
+        upstream_request = state.host_client.client.build_request(
+            request.method,
+            f"/{normalized_path}",
+            params=request.query_params,
+            content=body,
+            headers=headers,
+        )
+        try:
+            upstream = await state.host_client.client.send(
+                upstream_request, stream=True
+            )
+        except httpx.HTTPError as exc:
+            raise AppError(
+                status_code=502,
+                code="MASH_PROXY_ERROR",
+                message=f"Mash host request failed: {exc}",
+            ) from exc
+        response_headers = {
+            key: value
+            for key, value in upstream.headers.items()
+            if key.lower() not in excluded
+        }
+        return StreamingResponse(
+            upstream.aiter_raw(),
+            status_code=upstream.status_code,
+            headers=response_headers,
+            background=BackgroundTask(upstream.aclose),
+        )
 
     return app
 
@@ -311,6 +327,13 @@ def _resolve_database_url() -> str:
     raise RuntimeError("CREW_DATABASE_URL must be set for the beta backend")
 
 
+def _require_env(name: str) -> str:
+    configured = str(os.getenv(name) or "").strip()
+    if configured:
+        return configured
+    raise RuntimeError(f"{name} must be set for the beta backend")
+
+
 def _resolve_cors_allowed_origins() -> tuple[str, ...]:
     configured = str(os.getenv("CREW_BETA_CORS_ALLOWED_ORIGINS") or "").strip()
     if configured:
@@ -336,27 +359,30 @@ def _resolve_cors_allowed_origins() -> tuple[str, ...]:
     )
 
 
+async def _resolve_active_user(
+    state: BetaAppState, token: str
+) -> dict[str, Any] | None:
+    try:
+        payload = verify_token(secret=state.config.auth_secret, token=token)
+    except TokenError:
+        return None
+    user = await state.store.get_user_by_id(payload.user_id)
+    if user is None or str(user["status"]) != "active":
+        return None
+    return user
+
+
 async def _require_user(
     request: Request,
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
     token = _extract_bearer_token(authorization)
-    state = _beta_state(request)
-    try:
-        payload = verify_token(secret=state.config.auth_secret, token=token)
-    except TokenError as exc:
+    user = await _resolve_active_user(_beta_state(request), token)
+    if user is None:
         raise AppError(
             status_code=401,
             code="UNAUTHORIZED",
-            message=str(exc),
-        ) from exc
-
-    user = await state.store.get_user_by_id(payload.user_id)
-    if user is None or str(user["status"]) != "active":
-        raise AppError(
-            status_code=401,
-            code="UNAUTHORIZED",
-            message="user is not active",
+            message="a valid crew token is required",
         )
     return user
 

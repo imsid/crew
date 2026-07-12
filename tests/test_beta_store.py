@@ -39,7 +39,9 @@ class _FakeAsyncConnection:
         self.users: dict[str, dict[str, object]] = {}
         self.users_by_username: dict[str, str] = {}
         self.sessions: dict[str, dict[str, object]] = {}
+        self.session_requests: dict[str, dict[str, object]] = {}
         self.dropped_tables: list[str] = []
+        self.migrations: dict[int, dict[str, object]] = {}
 
     async def set_autocommit(self, value: bool) -> None:
         self.autocommit = value
@@ -51,13 +53,29 @@ class _FakeAsyncConnection:
         self.closed = True
 
     def execute(self, query: str, params: tuple[object, ...]) -> list[dict[str, object]]:
+        if query.startswith("CREATE TABLE IF NOT EXISTS crew_schema_migrations"):
+            return []
+        if query.startswith("SELECT version FROM crew_schema_migrations"):
+            return [dict(item) for item in self.migrations.values()]
+        if query.startswith("INSERT INTO crew_schema_migrations"):
+            version, name, applied_at = params
+            self.migrations[int(version)] = {
+                "version": int(version),
+                "name": str(name),
+                "applied_at": float(applied_at),
+            }
+            return []
         if query.startswith("CREATE TABLE IF NOT EXISTS users"):
             return []
         if query.startswith("CREATE TABLE IF NOT EXISTS sessions"):
             return []
+        if query.startswith("CREATE TABLE IF NOT EXISTS session_requests"):
+            return []
         if query.startswith("CREATE INDEX IF NOT EXISTS idx_sessions_workspace_user_id"):
             return []
         if query.startswith("CREATE INDEX IF NOT EXISTS idx_sessions_last_opened_at"):
+            return []
+        if query.startswith("CREATE INDEX IF NOT EXISTS idx_session_requests_session_id"):
             return []
         if query.startswith("DROP TABLE IF EXISTS "):
             self.dropped_tables.append(query.removeprefix("DROP TABLE IF EXISTS "))
@@ -97,6 +115,20 @@ class _FakeAsyncConnection:
             }
             self.sessions[str(session_id)] = payload
             return []
+        if query.startswith("INSERT INTO session_requests"):
+            request_id, session_id, created_at = params
+            self.session_requests[str(request_id)] = {
+                "request_id": str(request_id),
+                "session_id": str(session_id),
+                "created_at": float(created_at),
+            }
+            return []
+        if query.startswith("SELECT request_id FROM session_requests"):
+            request_id, session_id = params
+            item = self.session_requests.get(str(request_id))
+            if item is None or item["session_id"] != str(session_id):
+                return []
+            return [{"request_id": str(request_id)}]
         if query.startswith("SELECT workspace_id, session_id, user_id, agent_id, label"):
             if "WHERE workspace_id = %s AND session_id = %s" in query:
                 workspace_id, session_id = params

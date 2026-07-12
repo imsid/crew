@@ -651,38 +651,27 @@ def test_repl_creates_session_and_enters_shell(monkeypatch, tmp_path) -> None:
     _FakeBetaClient.instances = []
     monkeypatch.setattr("crew.cli.main.beta_client.BetaClient", _FakeBetaClient)
 
-    class FakeMashClient:
-        def __init__(self, base_url, *, api_key=None) -> None:
-            self.base_url = base_url
-
-        def get_host(self, host_id):
-            assert host_id == "datasquad"
-            return {"host_id": host_id, "primary": {"agent_id": "data"}}
-
-        def close(self) -> None:
-            pass
-
     captured: dict[str, object] = {}
 
     class FakeShell:
-        def __init__(self, client, target) -> None:
-            captured["base_url"] = client.base_url
-            captured["target"] = target
+        def __init__(self, client, workspace_id, session_id, renderer) -> None:
+            del renderer
+            captured["client"] = client
+            captured["workspace_id"] = workspace_id
+            captured["session_id"] = session_id
 
         def run(self) -> None:
             captured["ran"] = True
 
-    monkeypatch.setattr("crew.cli.main.MashHostClient", FakeMashClient)
-    monkeypatch.setattr("crew.cli.main.MashRemoteShell", FakeShell)
+    monkeypatch.setattr("crew.cli.main.beta_client.CrewRemoteShell", FakeShell)
 
     assert main(["repl"]) == 0
     beta = _FakeBetaClient.instances[-1]
     assert beta.created == [None]  # a session was created through the BFF
     assert captured["ran"] is True
-    assert str(captured["base_url"]).endswith("/host")
-    assert captured["target"].host_id == "datasquad"
-    assert captured["target"].agent_id == "data"
-    assert captured["target"].session_id == "data_abc"
+    assert captured["client"] is beta
+    assert captured["workspace_id"] == "marketing_db"
+    assert captured["session_id"] == "data_abc"
 
 
 def test_sessions_lists_user_sessions(monkeypatch, tmp_path, capsys) -> None:
@@ -695,11 +684,18 @@ def test_sessions_lists_user_sessions(monkeypatch, tmp_path, capsys) -> None:
     assert "data_abc" in output
 
 
-def test_workflow_list_uses_mash_client(monkeypatch, capsys) -> None:
+def test_workflow_list_uses_mash_client(monkeypatch, tmp_path, capsys) -> None:
+    # The mash mounts require the crew token, so mash-client commands need
+    # stored login state and send its token as the bearer key.
+    monkeypatch.setenv("CREW_HOME", str(tmp_path))
+    _login(tmp_path)
+    captured_client: dict[str, object] = {}
+
     class FakeClient:
         def __init__(self, base_url: str, *, api_key: str | None = None) -> None:
             self.base_url = base_url
             self.api_key = api_key
+            captured_client["api_key"] = api_key
 
         def list_workflows(self):
             return [
@@ -734,9 +730,12 @@ def test_workflow_list_uses_mash_client(monkeypatch, capsys) -> None:
     output = _normalize_output(capsys.readouterr().out)
     assert "masher-trace-digest" in output
     assert "list-traces (code) -> digest-traces (code) -> append-digests (code)" in output
+    assert captured_client["api_key"] == "tok"
 
 
-def test_workflow_run_uses_mash_client(monkeypatch, capsys) -> None:
+def test_workflow_run_uses_mash_client(monkeypatch, tmp_path, capsys) -> None:
+    monkeypatch.setenv("CREW_HOME", str(tmp_path))
+    _login(tmp_path)
     captured: dict[str, object] = {}
 
     class FakeClient:
@@ -809,7 +808,11 @@ def test_workflow_run_uses_mash_client(monkeypatch, capsys) -> None:
     assert "Status: queued" in output
 
 
-def test_workflow_run_streams_progress_and_terminal_response(monkeypatch, capsys) -> None:
+def test_workflow_run_streams_progress_and_terminal_response(
+    monkeypatch, tmp_path, capsys
+) -> None:
+    monkeypatch.setenv("CREW_HOME", str(tmp_path))
+    _login(tmp_path)
     class FakeClient:
         def __init__(self, base_url: str, *, api_key: str | None = None) -> None:
             self.base_url = base_url
@@ -886,7 +889,11 @@ def test_workflow_run_streams_progress_and_terminal_response(monkeypatch, capsys
     assert "Workflow completed" in output
 
 
-def test_workflow_run_returns_error_for_streamed_failure(monkeypatch, capsys) -> None:
+def test_workflow_run_returns_error_for_streamed_failure(
+    monkeypatch, tmp_path, capsys
+) -> None:
+    monkeypatch.setenv("CREW_HOME", str(tmp_path))
+    _login(tmp_path)
     class FakeClient:
         def __init__(self, base_url: str, *, api_key: str | None = None) -> None:
             self.base_url = base_url
@@ -935,7 +942,9 @@ def test_workflow_run_returns_error_for_streamed_failure(monkeypatch, capsys) ->
     assert "workflow failed" in output
 
 
-def test_workflow_status_uses_mash_client(monkeypatch, capsys) -> None:
+def test_workflow_status_uses_mash_client(monkeypatch, tmp_path, capsys) -> None:
+    monkeypatch.setenv("CREW_HOME", str(tmp_path))
+    _login(tmp_path)
     captured: dict[str, object] = {}
 
     class FakeClient:

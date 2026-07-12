@@ -12,6 +12,20 @@ def crew_home(tmp_path, monkeypatch):
     return tmp_path
 
 
+@pytest.fixture
+def logged_in(crew_home):
+    # The mash mounts require the crew token, so mash-client commands need
+    # stored login state.
+    from crew.cli import auth_store
+
+    auth_store.save_auth(
+        api_base_url="http://127.0.0.1:8000",
+        token="tok",
+        username="alice",
+        user_id="u1",
+    )
+
+
 class _FakeClient:
     """Minimal stand-in for MashHostClient covering the host control API."""
 
@@ -69,7 +83,7 @@ def test_publish_hosts_puts_each_configured_host(crew_home):
     assert ("datasquad", "data", ["pm"], []) in client.defined
 
 
-def test_compose_command_defines_and_records(crew_home, monkeypatch):
+def test_compose_command_defines_and_records(crew_home, logged_in, monkeypatch):
     client = _FakeClient()
     monkeypatch.setattr(cli_main, "MashHostClient", lambda *a, **k: client)
     rc = cli_main.main(
@@ -89,7 +103,7 @@ def test_compose_command_defines_and_records(crew_home, monkeypatch):
     assert hosts_store.load_hosts()["money"]["primary"] == "data"
 
 
-def test_browse_command_runs(crew_home, monkeypatch):
+def test_browse_command_runs(crew_home, logged_in, monkeypatch):
     client = _FakeClient()
     monkeypatch.setattr(cli_main, "MashHostClient", lambda *a, **k: client)
     rc = cli_main.main(["browse", "--api-base-url", "http://x"])

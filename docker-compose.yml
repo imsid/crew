@@ -1,50 +1,36 @@
-# The full crew stack: `docker compose up -d --build` brings up Postgres, the
-# crew process (the beta BFF — web/CLI API, agents in-process, Mash host API
-# mounted at /host), and the Next.js web UI.
-#
-#   db    127.0.0.1:5434  Postgres
-#   crew  127.0.0.1:8003  BFF API — `crew login <user> --api-base-url http://127.0.0.1:8003`
-#   web   127.0.0.1:3000  Web UI
-#
-# The ports match the source dev loop (.env CREW_API_BASE_URL and
-# web/.env.local both point at 8003), so the CLI and browser work the same
-# whether the stack runs from compose or from source — run one or the other,
-# not both at once.
-#
-# Configuration comes from .env (`cp .env.example .env`): ANTHROPIC_API_KEY is
-# required, plus the CREW_BETA_* access-control variables. For the source dev
-# loop, start only the database: `docker compose up -d db`.
+# Crew Beta: one public crew-api and one private stock Mash crew-host.
 services:
   db:
     image: postgres:17-alpine
     environment:
-      POSTGRES_DB: mash_crew
+      POSTGRES_DB: postgres
       POSTGRES_USER: mash
       POSTGRES_PASSWORD: mash
     ports:
-      # Published for the source dev loop (`docker compose up -d db` + uvicorn
-      # on the host machine); the crew service uses the internal network.
       - "127.0.0.1:5434:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./docker/postgres/init-databases.sql:/docker-entrypoint-initdb.d/10-databases.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U mash -d mash_crew"]
+      test: ["CMD-SHELL", "pg_isready -U mash -d postgres"]
       interval: 2s
       timeout: 3s
       retries: 15
     restart: unless-stopped
 
-  crew:
+  crew-host:
     image: ghcr.io/imsid/crew:latest
     build: .
+    command: ["python", "-m", "crew.host"]
     env_file: .env
     environment:
-      # Override the .env database URL (which points at the published 5434
-      # port) with the internal network address. The app seeds
-      # MASH_DATABASE_URL from it for the Mash runtime.
-      CREW_DATABASE_URL: postgresql://mash:mash@db:5432/mash_crew
-    ports:
-      - "127.0.0.1:8003:8000"
+      MASH_DATABASE_URL: postgresql://mash_host:mash_host@db:5432/mash_runtime
+      MASH_API_KEY: ${MASH_API_KEY:-replace_me_for_local_service}
+      MASH_API_HOST: 0.0.0.0
+      MASH_API_PORT: "8000"
+      CREW_WORKSPACE_ROOT: /var/lib/crew/workspaces
+    volumes:
+      - ./src/crew/workspace:/var/lib/crew/workspaces
     depends_on:
       db:
         condition: service_healthy
@@ -54,7 +40,7 @@ services:
           "CMD",
           "python",
           "-c",
-          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)",
+          "import os,urllib.request; r=urllib.request.Request('http://127.0.0.1:8000/api/v1/health',headers={'Authorization':'Bearer '+os.environ['MASH_API_KEY']}); urllib.request.urlopen(r,timeout=3)",
         ]
       interval: 5s
       timeout: 5s
@@ -62,17 +48,47 @@ services:
       start_period: 20s
     restart: unless-stopped
 
+  crew-api:
+    image: ghcr.io/imsid/crew:latest
+    build: .
+    env_file: .env
+    environment:
+      CREW_DATABASE_URL: postgresql://crew_api:crew_api@db:5432/crew_app
+      CREW_HOST_URL: http://crew-host:8000
+      MASH_API_KEY: ${MASH_API_KEY:-replace_me_for_local_service}
+      CREW_WORKSPACE_ROOT: /var/lib/crew/workspaces
+    volumes:
+      - ./src/crew/workspace:/var/lib/crew/workspaces:ro
+    ports:
+      - "127.0.0.1:8003:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      crew-host:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health',timeout=3)",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    restart: unless-stopped
+
   web:
     build:
       context: web
       args:
-        # Baked into the browser bundle at build time: the BFF origin as
-        # reachable from the user's browser (the published crew port above).
         NEXT_PUBLIC_CREW_API_BASE_URL: http://127.0.0.1:8003
     ports:
       - "127.0.0.1:3000:3000"
     depends_on:
-      crew:
+      crew-api:
         condition: service_healthy
     restart: unless-stopped
 

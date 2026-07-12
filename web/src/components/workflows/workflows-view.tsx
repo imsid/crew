@@ -43,7 +43,6 @@ import {
 } from "@/lib/workflow";
 import { cn, formatDateTime } from "@/lib/utils";
 import { useAuth } from "@/providers/auth-provider";
-import { useWorkspace } from "@/providers/workspace-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -62,7 +61,6 @@ const LIVE_POLL_MS = 2500;
 
 export function WorkflowsView() {
   const { auth } = useAuth();
-  const { workspaceId } = useWorkspace();
   const queryClient = useQueryClient();
   const [query, setQuery] = useState("");
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(null);
@@ -72,8 +70,8 @@ export function WorkflowsView() {
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
 
   const workflowsQuery = useQuery({
-    queryKey: ["workflows", workspaceId],
-    queryFn: () => (auth ? listWorkflows(auth.token, workspaceId) : null),
+    queryKey: ["workflows"],
+    queryFn: () => (auth ? listWorkflows(auth.token) : null),
     enabled: Boolean(auth),
   });
 
@@ -92,20 +90,20 @@ export function WorkflowsView() {
   }, [query, workflows]);
 
   const definitionQuery = useQuery({
-    queryKey: ["workflow-definition", workspaceId, selectedWorkflowId],
+    queryKey: ["workflow-definition", selectedWorkflowId],
     queryFn: () =>
       auth && selectedWorkflowId
-        ? getWorkflowDefinition(auth.token, workspaceId, selectedWorkflowId)
+        ? getWorkflowDefinition(auth.token, selectedWorkflowId)
         : null,
     enabled: Boolean(auth && selectedWorkflowId),
     staleTime: 300_000,
   });
 
   const runsQuery = useQuery({
-    queryKey: ["workflow-runs", workspaceId, selectedWorkflowId],
+    queryKey: ["workflow-runs", selectedWorkflowId],
     queryFn: () =>
       auth && selectedWorkflowId
-        ? listWorkflowRuns(auth.token, workspaceId, selectedWorkflowId, RUNS_LIMIT)
+        ? listWorkflowRuns(auth.token, selectedWorkflowId, RUNS_LIMIT)
         : null,
     enabled: Boolean(auth && selectedWorkflowId),
   });
@@ -113,10 +111,10 @@ export function WorkflowsView() {
   const runs = useMemo(() => runsQuery.data?.runs ?? [], [runsQuery.data]);
 
   const runDetailQuery = useQuery({
-    queryKey: ["workflow-run", workspaceId, selectedWorkflowId, selectedRunId],
+    queryKey: ["workflow-run", selectedWorkflowId, selectedRunId],
     queryFn: () =>
       auth && selectedWorkflowId && selectedRunId
-        ? getWorkflowRun(auth.token, workspaceId, selectedWorkflowId, selectedRunId)
+        ? getWorkflowRun(auth.token, selectedWorkflowId, selectedRunId)
         : null,
     enabled: Boolean(auth && selectedWorkflowId && selectedRunId),
     refetchInterval: (query) =>
@@ -126,10 +124,10 @@ export function WorkflowsView() {
   });
 
   const stepEventsQuery = useQuery({
-    queryKey: ["workflow-step-events", workspaceId, selectedWorkflowId, selectedRunId],
+    queryKey: ["workflow-step-events", selectedWorkflowId, selectedRunId],
     queryFn: () =>
       auth && selectedWorkflowId && selectedRunId
-        ? listWorkflowStepEvents(auth.token, workspaceId, selectedWorkflowId, selectedRunId)
+        ? listWorkflowStepEvents(auth.token, selectedWorkflowId, selectedRunId)
         : null,
     enabled: Boolean(auth && selectedWorkflowId && selectedRunId),
     refetchInterval: () =>
@@ -146,18 +144,17 @@ export function WorkflowsView() {
   useEffect(() => {
     if (!auth || !selectedWorkflowId || !selectedRunId || !runIsLive) return;
     const controller = new AbortController();
-    const workflowKey = ["workflow-run", workspaceId, selectedWorkflowId, selectedRunId];
-    const eventsKey = ["workflow-step-events", workspaceId, selectedWorkflowId, selectedRunId];
+    const workflowKey = ["workflow-run", selectedWorkflowId, selectedRunId];
+    const eventsKey = ["workflow-step-events", selectedWorkflowId, selectedRunId];
     streamWorkflowEvents(
       auth.token,
-      workspaceId,
       selectedWorkflowId,
       selectedRunId,
       () => {
         void queryClient.invalidateQueries({ queryKey: workflowKey });
         void queryClient.invalidateQueries({ queryKey: eventsKey });
         void queryClient.invalidateQueries({
-          queryKey: ["workflow-runs", workspaceId, selectedWorkflowId],
+          queryKey: ["workflow-runs", selectedWorkflowId],
         });
       },
       controller.signal,
@@ -165,7 +162,7 @@ export function WorkflowsView() {
       // Stream interruptions are recovered by the poll interval.
     });
     return () => controller.abort();
-  }, [auth, workspaceId, selectedWorkflowId, selectedRunId, runIsLive, queryClient]);
+  }, [auth, selectedWorkflowId, selectedRunId, runIsLive, queryClient]);
 
   const runWorkflowMutation = useMutation({
     mutationFn: ({
@@ -180,7 +177,7 @@ export function WorkflowsView() {
       if (!auth) {
         throw new Error("You must be signed in to start a workflow run.");
       }
-      return runWorkflow(auth.token, workspaceId, workflowId, {
+      return runWorkflow(auth.token, workflowId, {
         input,
         dedup_key: dedupKey,
       });
@@ -198,7 +195,7 @@ export function WorkflowsView() {
       if (!auth) {
         throw new Error("You must be signed in to resume a workflow run.");
       }
-      return resumeWorkflowRun(auth.token, workspaceId, workflowId, runId);
+      return resumeWorkflowRun(auth.token, workflowId, runId);
     },
     onSuccess: async () => {
       await Promise.all([runDetailQuery.refetch(), stepEventsQuery.refetch()]);

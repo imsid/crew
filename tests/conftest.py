@@ -478,8 +478,9 @@ def _patch_hosted_runtime_for_tests():
     patcher.setattr("mash.runtime.host.host.PostgresRuntimeStore", _TestRuntimeStore)
     patcher.setattr("mash.runtime.host.host.PostgresStore", _TestSharedMemoryStore)
     patcher.setattr("mash.runtime.host.host.WorkflowStore", _TestWorkflowStore)
+    # The beta app runs the mash app's own lifespan, so patching mash's eval
+    # store covers both.
     patcher.setattr("mash.api.app.PostgresEvalStore", _TestEvalStore)
-    patcher.setattr("crew.beta.app.PostgresEvalStore", _TestEvalStore)
     patcher.setattr("mash.runtime.service.DBOSRequestEngine", _TestDBOSRequestEngine)
     patcher.setattr(
         "mash.agents.masher.spec.EvalAgentSpec.build_llm",

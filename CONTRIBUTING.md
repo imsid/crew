@@ -28,8 +28,8 @@ cp .env.example .env                 # then set ANTHROPIC_API_KEY + CREW_BETA_*
 
 ## Run
 
-One command builds and deploys everything — Postgres, the crew process, and
-the web UI. Rerun it after making changes; `--build` picks them up.
+One command builds and deploys Postgres, crew-host, crew-api, and the web UI.
+Rerun it after making changes; `--build` picks them up.
 
 ```bash
 docker compose up -d --build
@@ -38,7 +38,8 @@ docker compose up -d --build
 | Service | Port | What |
 | --- | --- | --- |
 | `db` | `127.0.0.1:5434` | Postgres |
-| `crew` | `127.0.0.1:8003` | The BFF: web/CLI API, agents, Mash host API at `/host` |
+| `crew-api` | `127.0.0.1:8003` | Public web/CLI API and authenticated Mash passthrough |
+| `crew-host` | private only | Stock Mash host, agents, workflows, and operator UIs |
 | `web` | `127.0.0.1:3000` | The Next.js web UI |
 
 Open [http://127.0.0.1:3000](http://127.0.0.1:3000) and log in as a username
@@ -60,7 +61,8 @@ Configuration notes:
   `GOOGLE_APPLICATION_CREDENTIALS`, `BIGQUERY_PROJECT_ID`, and
   `BIGQUERY_MCP_URL`. Without them the data agent still runs and reports
   itself unconfigured.
-- Probes: `GET /health` (BFF) and `GET /host/api/v1/health` (Mash API).
+- Probes: crew-api `GET /health`; crew-host `GET /api/v1/health` with the
+  service key.
 
 ## Tests
 
@@ -104,23 +106,24 @@ Crew is a Mash application: a flat agent pool with hosts composed
 dynamically over it (`crew compose` — see the README).
 
 - `src/crew/app.py` — `build_pool()` registers the `data` and `pm` agents;
-  `define_default_host()` composes the default `datasquad` host, which the
-  BFF ensures exists at startup because chat auto-routes to it.
+  `define_default_host()` composes the default `datasquad` host at crew-host
+  startup.
 - `src/crew/agents/` — agent specs, prompts, skills, and metadata.
 - `src/crew/metrics_layer/`, `experimentation/`, `artifacts/` — the domain
   services the data agent's tools and the CLI's command mode call.
-- `src/crew/cli/` — the CLI, a client of the BFF: `repl`/`sessions` use the
+- `src/crew/cli/` — the CLI, a client of crew-api: `repl`/`sessions` use the
   authenticated API (`beta_client.py`, token in `~/.crew/auth.json`);
-  `browse`/`compose`/`hosts`/`workflow` use the Mash API mounted at `/host`;
+  `browse`/`compose`/`hosts`/`workflow` use the Mash API forwarded at `/host`,
+  sending the same stored token as the bearer key;
   `metrics`/`experiment`/`artifact`/`workspace` are local inspection. Host
   compositions live in `~/.crew/hosts.json` (`hosts_store.py`).
-- `src/crew/beta/` — the FastAPI BFF: the single server process. It builds
-  the pool, serves the user-scoped session/workflow API, and mounts the Mash
-  host API at `/host` so the CLI and stock `mash` tooling share the same
-  in-process host.
+- `src/crew/beta/` — crew-api: auth, users, sessions, workspaces, commands,
+  product event shaping, and the restricted `/host` reverse proxy.
+- `src/crew/host.py` — crew-host entrypoint: builds `datasquad` and runs
+  Mash's stock API with the internal service key.
 - `src/crew/workspace/` — packaged workspaces such as `marketing_db`.
 - `web/` — the Next.js frontend.
 
-The CLI and the web UI are both clients of the BFF, authenticated as the
+The CLI and the web UI are both clients of crew-api, authenticated as the
 same user, so sessions live once and show up in both. See the
 [mashpy docs](https://github.com/imsid/mashpy) for framework details.

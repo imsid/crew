@@ -3,17 +3,11 @@ from __future__ import annotations
 import json
 import time
 import uuid
-from typing import Any, AsyncIterator, cast
+from typing import Any, AsyncIterator
 from urllib.parse import quote
 
-import httpx
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
-from mash.logging import EventLogger
-from mash.memory.search.service import MemorySearchService
-from mash.memory.search.types import FusionWeights, RetrievalConfig
-
-from ...shared.workspace_context import bound_workspace, register_request_workspace
 from ...shared.workspaces import resolve_workspace
 from ...app import DEFAULT_HOST_ID
 from ..app import (
@@ -43,9 +37,8 @@ async def list_user_sessions(
         workspace_id=workspace_id,
         user_id=str(current_user["id"]),
     )
-    agent = _data_agent(request)
     enriched_sessions = [
-        await _enrich_session_record(agent, session) for session in sessions
+        await _enrich_session_record(request, session) for session in sessions
     ]
     return {"data": {"sessions": enriched_sessions}}
 
@@ -95,8 +88,6 @@ async def search_sessions(
         workspace_id=workspace_id,
         user_id=str(current_user["id"]),
     )
-    agent = _data_agent(request)
-    search_service = _build_memory_search_service(agent)
     internal_limit = min(max(limit * 10, 100), 500)
     search_queries = (
         [query]
@@ -106,14 +97,18 @@ async def search_sessions(
     raw_results = []
     try:
         for search_query in search_queries:
-            raw_results.extend(
-                await search_service.search(
-                    search_query,
-                    app_id=DATA_AGENT_ID,
-                    limit=internal_limit,
-                )
+            result = await _beta_state(request).host_client.data(
+                "GET",
+                "/api/v1/telemetry/memory/search",
+                params={
+                    "q": search_query,
+                    "app_id": DATA_AGENT_ID,
+                    "limit": min(internal_limit, 50),
+                },
             )
-    except ValueError as exc:
+            if isinstance(result, dict):
+                raw_results.extend(result.get("results") or [])
+    except Exception as exc:
         raise AppError(
             status_code=400,
             code="INVALID_REQUEST",
@@ -123,12 +118,14 @@ async def search_sessions(
     for item in raw_results:
         # mash's one-trace-per-turn model identifies turns by trace_id; the beta
         # API continues to expose it to the frontend as turn_id.
-        key = (item.trace_id, item.session_id)
+        if not isinstance(item, dict):
+            continue
+        key = (str(item.get("trace_id") or ""), str(item.get("session_id") or ""))
         payload = {
-            "turn_id": item.trace_id,
-            "session_id": item.session_id,
-            "similarity_score": item.similarity_score,
-            "preview": item.preview,
+            "turn_id": str(item.get("trace_id") or ""),
+            "session_id": str(item.get("session_id") or ""),
+            "similarity_score": float(item.get("similarity_score") or 0.0),
+            "preview": item.get("preview"),
         }
         current = ranked_results.get(key)
         if current is None or float(payload["similarity_score"]) > float(
@@ -166,14 +163,23 @@ async def get_session(
 ) -> dict[str, Any]:
     _require_workspace(workspace_id)
     session = await _owned_session(request, current_user, workspace_id, session_id)
-    runtime = await _data_agent(request).get_session_info(session_id)
-    # Subagents are a host concept in 0.5.x; surface the datasquad host's
-    # subagents (the composition the BFF routes chat through) so the UI can
-    # show them.
+    runtime = await _beta_state(request).host_client.data(
+        "GET", f"/api/v1/agent/{quote(DATA_AGENT_ID, safe='')}/sessions/{quote(session_id, safe='')}"
+    )
+    runtime = dict(runtime or {})
     try:
-        host = _beta_state(request).host.get_host(DEFAULT_HOST_ID)
-        runtime["primary_agent_id"] = host.primary
-        runtime["subagent_ids"] = list(host.subagents)
+        host = await _beta_state(request).host_client.data(
+            "GET", f"/api/v1/hosts/{quote(DEFAULT_HOST_ID, safe='')}"
+        )
+        primary = host.get("primary") if isinstance(host, dict) else None
+        runtime["primary_agent_id"] = (
+            primary.get("agent_id") if isinstance(primary, dict) else DATA_AGENT_ID
+        )
+        runtime["subagent_ids"] = [
+            str(item.get("agent_id"))
+            for item in (host.get("subagents") or [])
+            if isinstance(item, dict) and item.get("agent_id")
+        ] if isinstance(host, dict) else []
     except Exception:
         runtime.setdefault("primary_agent_id", DATA_AGENT_ID)
         runtime["subagent_ids"] = []
@@ -194,7 +200,12 @@ async def get_session_history(
 ) -> dict[str, Any]:
     _require_workspace(workspace_id)
     await _owned_session(request, current_user, workspace_id, session_id)
-    turns = await _data_agent(request).get_history_turns(session_id, limit=limit)
+    data = await _beta_state(request).host_client.data(
+        "GET",
+        f"/api/v1/agent/{quote(DATA_AGENT_ID, safe='')}/sessions/{quote(session_id, safe='')}/history",
+        params={"limit": limit} if limit is not None else None,
+    )
+    turns = data.get("turns") if isinstance(data, dict) else []
     await _beta_state(request).store.touch_session(
         workspace_id=workspace_id,
         session_id=session_id,
@@ -217,18 +228,17 @@ async def get_session_signals(
 ) -> dict[str, Any]:
     _require_workspace(workspace_id)
     await _owned_session(request, current_user, workspace_id, session_id)
-    agent = _data_agent(request)
+    data = await _beta_state(request).host_client.data(
+        "GET",
+        f"/api/v1/agent/{quote(DATA_AGENT_ID, safe='')}/sessions/{quote(session_id, safe='')}/signals",
+        params={"limit": limit} if limit is not None else None,
+    )
     await _beta_state(request).store.touch_session(
         workspace_id=workspace_id,
         session_id=session_id,
     )
     return {
-        "data": {
-            "agent_id": agent.app_id,
-            "session_id": session_id,
-            "definitions": agent.get_signal_definitions(),
-            "turns": await agent.get_session_signals(session_id, limit=limit),
-        }
+        "data": data,
     }
 
 
@@ -252,22 +262,14 @@ async def get_turn_trace(
             message="turn_id is required",
         )
 
-    agent_id = (
-        await _resolve_workflow_trace_agent_id(request, session_id)
-        if is_workflow_session
-        else DATA_AGENT_ID
+    agent_id = DATA_AGENT_ID
+    response = await _beta_state(request).host_client.request(
+        "GET",
+        "/api/v1/agent/"
+        f"{quote(agent_id, safe='')}/session/"
+        f"{quote(session_id, safe='')}/trace/"
+        f"{quote(normalized_turn_id, safe='')}/reasoning",
     )
-    app = _beta_state(request).mash_api_app
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app),
-        base_url="http://mash-internal",
-    ) as client:
-        response = await client.get(
-            "/api/v1/agent/"
-            f"{quote(agent_id, safe='')}/session/"
-            f"{quote(session_id, safe='')}/trace/"
-            f"{quote(normalized_turn_id, safe='')}/reasoning",
-        )
     payload = response.json()
     if not response.is_success:
         error = payload.get("error") if isinstance(payload, dict) else None
@@ -306,36 +308,6 @@ async def get_turn_trace(
     }
 
 
-async def _resolve_workflow_trace_agent_id(request: Request, session_id: str) -> str:
-    parts = session_id.split(":")
-    if len(parts) < 6 or parts[0] != "workflow" or parts[2] != "task":
-        return DATA_AGENT_ID
-    workflow_id = parts[1]
-    task_id = parts[3]
-    try:
-        workflows = await _beta_state(request).host.get_workflow_service().list_workflows()
-    except Exception:
-        LOGGER.exception(
-            "failed to resolve workflow trace agent",
-            extra={"workflow_id": workflow_id, "task_id": task_id},
-        )
-        return DATA_AGENT_ID
-    for workflow in workflows:
-        if not isinstance(workflow, dict):
-            continue
-        if str(workflow.get("workflow_id") or "") != workflow_id:
-            continue
-        tasks = workflow.get("tasks")
-        if not isinstance(tasks, list):
-            return DATA_AGENT_ID
-        for task in tasks:
-            if not isinstance(task, dict):
-                continue
-            if str(task.get("task_id") or "") == task_id:
-                return str(task.get("agent_id") or DATA_AGENT_ID)
-    return DATA_AGENT_ID
-
-
 @router.post("/sessions/{session_id}/messages")
 async def send_message(
     workspace_id: str,
@@ -353,18 +325,27 @@ async def send_message(
             code="INVALID_REQUEST",
             message="message is required",
         )
-    pool = _beta_state(request).host
     try:
-        with bound_workspace(workspace_id):
-            # Submit to the crew host (not the bare data agent) so the data
-            # primary is wired with the pm subagent for this request.
-            accepted = await pool.submit_host_request(
-                DEFAULT_HOST_ID,
-                message=message,
-                session_id=session_id,
-            )
-        request_id = str(accepted.get("request_id") or "")
-        register_request_workspace(request_id, workspace_id)
+        # Submit to the crew host (not the bare data agent) so the data
+        # primary is wired with the pm subagent for this request. Workspace is
+        # trusted caller metadata, invisible to the model and inherited by
+        # delegated subagent requests in Mash >= 0.18.
+        accepted = await _beta_state(request).host_client.data(
+            "POST",
+            f"/api/v1/hosts/{quote(DEFAULT_HOST_ID, safe='')}/request",
+            json={
+                "message": message,
+                "session_id": session_id,
+                "metadata": {"workspace": workspace_id},
+            },
+        )
+        request_id = str((accepted or {}).get("request_id") or "")
+        if not request_id:
+            raise ValueError("Mash host response missing request_id")
+        await _beta_state(request).store.record_session_request(
+            request_id=request_id,
+            session_id=session_id,
+        )
     except Exception as exc:
         LOGGER.exception(
             "beta message proxy failed",
@@ -400,16 +381,15 @@ async def stream_request_events(
 ) -> StreamingResponse:
     _require_workspace(workspace_id)
     await _owned_session(request, current_user, workspace_id, session_id)
-    client = _data_client(request)
-
+    await _require_request_session(request, request_id, session_id)
     async def _generate():
         sequence = 0
         try:
-            stream = cast(
-                AsyncIterator[dict[str, Any]],
-                client.stream_response(request_id.strip()),
-            )
-            async for event in stream:
+            async for event in _iter_host_sse(
+                request,
+                f"/api/v1/agent/{quote(DATA_AGENT_ID, safe='')}"
+                f"/request/{quote(request_id.strip(), safe='')}/events",
+            ):
                 sequence += 1
                 event_name = str(event.get("event") or "message")
                 payload = event.get("data")
@@ -467,36 +447,17 @@ async def post_interaction_response(
 ) -> dict[str, Any]:
     _require_workspace(workspace_id)
     await _owned_session(request, current_user, workspace_id, session_id)
-    state = _beta_state(request)
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=state.mash_api_app),
-        base_url="http://mash-internal",
-    ) as client:
-        response = await client.post(
-            f"/api/v1/agent/{quote(DATA_AGENT_ID, safe='')}"
-            f"/request/{quote(request_id.strip(), safe='')}/interaction",
-            json={
-                "interaction_id": payload.interaction_id,
-                "response": payload.response,
-            },
-        )
-    result = response.json()
-    if not response.is_success:
-        error = result.get("error") if isinstance(result, dict) else None
-        raise AppError(
-            status_code=response.status_code,
-            code=str((error or {}).get("code") or "MASH_PROXY_ERROR"),
-            message=str((error or {}).get("message") or "Interaction response failed"),
-        )
-    return {"data": result.get("data") if isinstance(result, dict) else result}
-
-
-def _data_agent(request: Request):
-    return _beta_state(request).host.get_agent(DATA_AGENT_ID)
-
-
-def _data_client(request: Request):
-    return _beta_state(request).host.get_client(DATA_AGENT_ID)
+    await _require_request_session(request, request_id, session_id)
+    result = await _beta_state(request).host_client.data(
+        "POST",
+        f"/api/v1/agent/{quote(DATA_AGENT_ID, safe='')}"
+        f"/request/{quote(request_id.strip(), safe='')}/interaction",
+        json={
+            "interaction_id": payload.interaction_id,
+            "response": payload.response,
+        },
+    )
+    return {"data": result}
 
 
 async def _owned_session(
@@ -531,6 +492,21 @@ async def _owned_session(
     return session
 
 
+async def _require_request_session(
+    request: Request, request_id: str, session_id: str
+) -> None:
+    belongs = await _beta_state(request).store.request_belongs_to_session(
+        request_id=request_id.strip(),
+        session_id=session_id,
+    )
+    if not belongs:
+        raise AppError(
+            status_code=403,
+            code="FORBIDDEN",
+            message="request does not belong to the session",
+        )
+
+
 def _require_workspace(workspace_id: str) -> None:
     try:
         resolve_workspace(workspace_id)
@@ -542,13 +518,45 @@ def _require_workspace(workspace_id: str) -> None:
         ) from exc
 
 
-def _build_memory_search_service(agent: Any) -> MemorySearchService:
-    return MemorySearchService(
-        agent.memory_store,
-        event_logger=EventLogger(agent.runtime_store),
-        retrieval_config=RetrievalConfig(enable_keyword=True, enable_semantic=False),
-        fusion_weights=FusionWeights(keyword_weight=1.0, semantic_weight=0.0),
-    )
+async def _iter_host_sse(
+    request: Request, path: str
+) -> AsyncIterator[dict[str, Any]]:
+    async with _beta_state(request).host_client.stream("GET", path) as response:
+        if not response.is_success:
+            await response.aread()
+            try:
+                payload = response.json()
+            except ValueError:
+                payload = {}
+            error = payload.get("error") if isinstance(payload, dict) else None
+            raise AppError(
+                status_code=response.status_code,
+                code=str((error or {}).get("code") or "MASH_PROXY_ERROR"),
+                message=str((error or {}).get("message") or "Mash stream failed"),
+            )
+        event_name: str | None = None
+        data_lines: list[str] = []
+        async for raw_line in response.aiter_lines():
+            line = raw_line.strip()
+            if not line:
+                if event_name and data_lines:
+                    try:
+                        payload = json.loads("\n".join(data_lines))
+                    except json.JSONDecodeError:
+                        payload = {"raw": "\n".join(data_lines)}
+                    yield {
+                        "event": event_name,
+                        "data": payload,
+                    }
+                event_name = None
+                data_lines = []
+                continue
+            if line.startswith(":"):
+                continue
+            if line.startswith("event:"):
+                event_name = line[6:].strip()
+            elif line.startswith("data:"):
+                data_lines.append(line[5:].strip())
 
 
 def _build_sse_payload(event_name: str, payload: Any) -> str:
@@ -999,7 +1007,9 @@ def _reasoning_trace_title(
     return "Agent execution started"
 
 
-async def _enrich_session_record(agent: Any, session: dict[str, Any]) -> dict[str, Any]:
+async def _enrich_session_record(
+    request: Request, session: dict[str, Any]
+) -> dict[str, Any]:
     normalized = dict(session)
     session_id = str(session.get("session_id") or "").strip()
     if not session_id:
@@ -1008,7 +1018,17 @@ async def _enrich_session_record(agent: Any, session: dict[str, Any]) -> dict[st
         normalized["turn_count"] = 0
         return normalized
 
-    turns = await agent.get_history_turns(session_id)
+    try:
+        data = await _beta_state(request).host_client.data(
+            "GET",
+            f"/api/v1/agent/{quote(DATA_AGENT_ID, safe='')}"
+            f"/sessions/{quote(session_id, safe='')}/history",
+        )
+        turns = data.get("turns") if isinstance(data, dict) else []
+    except Exception:
+        # Crew owns the session record. A host outage should not make it
+        # disappear from the user's list.
+        turns = []
     normalized_turns = [
         _normalize_history_turn(turn) for turn in turns if isinstance(turn, dict)
     ]

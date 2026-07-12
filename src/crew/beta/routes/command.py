@@ -2,14 +2,10 @@ from __future__ import annotations
 
 import json
 from typing import Any
+from urllib.parse import quote
 
 import yaml
 from fastapi import APIRouter, Depends, Request
-from mash.workflows import (
-    DuplicateWorkflowRunError,
-    WorkflowInputValidationError,
-    WorkflowNotFoundError,
-)
 
 from ...artifacts.service.context import build_tool_context as build_artifact_context
 from ...artifacts.service.repo import list_artifacts, read_artifact, search_artifacts
@@ -44,10 +40,6 @@ from ..visualizations import (
     build_experiment_analysis,
     build_metric_visualization,
 )
-from .workflow import (
-    _serialize_workflow_run_started,
-    _serialize_workflow_run_status,
-)
 
 router = APIRouter()
 
@@ -77,9 +69,11 @@ async def _execute_command(
         args.pop("dataset_id", None)
 
     if payload.surface == "workflows":
-        workflow_service = state.host.get_workflow_service()
         if payload.operation == "list":
-            data = {"workflows": await workflow_service.list_workflows()}
+            result = await state.host_client.data(
+                "GET", "/api/v1/workflow", params={"host": "datasquad"}
+            )
+            data = result if isinstance(result, dict) else {"workflows": []}
         elif payload.operation == "run":
             workflow_id = _require_command_text(args.get("workflow_id"), "workflow_id")
             workflow_input = args.get("input", {})
@@ -89,53 +83,26 @@ async def _execute_command(
                     code="INVALID_COMMAND",
                     message="workflow input must be a JSON object",
                 )
-            try:
-                run = await workflow_service.run_workflow(
-                    workflow_id,
-                    dedup_key=_normalize_optional_text(
+            result = await state.host_client.data(
+                "POST",
+                f"/api/v1/workflow/{quote(workflow_id, safe='')}/run",
+                json={
+                    "dedup_key": _normalize_optional_text(
                         str(args.get("dedup_key") or "")
                     ),
-                    workflow_input=workflow_input,
-                )
-            except WorkflowNotFoundError as exc:
-                raise AppError(
-                    status_code=404,
-                    code="WORKFLOW_NOT_FOUND",
-                    message=str(exc),
-                ) from exc
-            except WorkflowInputValidationError as exc:
-                raise AppError(
-                    status_code=422,
-                    code="INVALID_WORKFLOW_INPUT",
-                    message=str(exc),
-                    details={"errors": exc.errors},
-                ) from exc
-            except DuplicateWorkflowRunError as exc:
-                raise AppError(
-                    status_code=409,
-                    code="DUPLICATE_WORKFLOW_RUN",
-                    message=str(exc),
-                    details={"existing_run_id": exc.existing_run.run_id},
-                ) from exc
-            except Exception as exc:
-                raise AppError(
-                    status_code=500,
-                    code="WORKFLOW_RUN_FAILED",
-                    message=str(exc),
-                ) from exc
-            data = _serialize_workflow_run_started(run)
+                    "input": workflow_input,
+                },
+            )
+            data = dict(result or {})
         elif payload.operation == "status":
             workflow_id = _require_command_text(args.get("workflow_id"), "workflow_id")
             run_id = _require_command_text(args.get("run_id"), "run_id")
-            try:
-                run = await workflow_service.get_run(workflow_id, run_id)
-            except WorkflowNotFoundError as exc:
-                raise AppError(
-                    status_code=404,
-                    code="WORKFLOW_NOT_FOUND",
-                    message=str(exc),
-                ) from exc
-            data = _serialize_workflow_run_status(run)
+            result = await state.host_client.data(
+                "GET",
+                f"/api/v1/workflow/{quote(workflow_id, safe='')}"
+                f"/runs/{quote(run_id, safe='')}",
+            )
+            data = dict(result or {})
         else:
             raise _invalid_operation(payload.surface, payload.operation)
         return _command_success(payload.surface, payload.operation, data)
