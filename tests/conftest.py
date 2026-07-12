@@ -395,12 +395,81 @@ class _TestSharedMemoryStore:
         return None
 
 
+class _TestWorkflowStore:
+    """In-memory stand-in for the pool's shared WorkflowStore (mash >= 0.17).
+
+    Workflow-run tests mock WorkflowService methods directly, so this fake only
+    needs the lifecycle hooks plus empty reads for definition listings.
+    """
+
+    def __init__(self, _database_url: str) -> None:
+        self._database_url = _database_url
+
+    async def open(self) -> None:
+        return None
+
+    async def close(self) -> None:
+        return None
+
+    async def create_run(self, run) -> None:
+        del run
+
+    async def mark_run_started(self, run_id, started_at) -> None:
+        del run_id, started_at
+
+    async def finish_run(self, *args, **kwargs) -> None:
+        del args, kwargs
+
+    async def upsert_step(self, step) -> None:
+        del step
+
+    async def append_step_event(self, *args, **kwargs) -> None:
+        del args, kwargs
+
+    async def get_run(self, run_id):
+        del run_id
+        return None
+
+    async def get_latest_runs(self, workflow_ids):
+        del workflow_ids
+        return {}
+
+    async def list_runs(self, *args, **kwargs):
+        del args, kwargs
+        return []
+
+    async def get_run_steps(self, run_id):
+        del run_id
+        return []
+
+    async def list_step_events(self, *args, **kwargs):
+        del args, kwargs
+        return []
+
+
+class _TestEvalStore:
+    """No-op stand-in for PostgresEvalStore; eval routes are not exercised."""
+
+    def __init__(self, _database_url: str) -> None:
+        self._database_url = _database_url
+
+    async def open(self) -> None:
+        return None
+
+    async def close(self) -> None:
+        return None
+
+
 @pytest.fixture(autouse=True, scope="session")
 def _patch_hosted_runtime_for_tests():
     from _pytest.monkeypatch import MonkeyPatch
 
     patcher = MonkeyPatch()
     patcher.setenv("MASH_MEMORY_DATABASE_URL", "")
+    # Rich wraps CLI output at the detected terminal width (80 under pytest's
+    # capture), which splits long tmp paths mid-token and breaks substring
+    # assertions. Render wide instead.
+    patcher.setenv("COLUMNS", "400")
     patcher.setenv("CREW_DATABASE_URL", "postgresql://test/runtime")
     patcher.setenv("MASH_DATABASE_URL", "postgresql://test/runtime")
     patcher.setenv("DBOS_CONDUCTOR_KEY", "test-conductor-key")
@@ -408,9 +477,16 @@ def _patch_hosted_runtime_for_tests():
     # (mash.runtime.host.host), not in mash.runtime.service.
     patcher.setattr("mash.runtime.host.host.PostgresRuntimeStore", _TestRuntimeStore)
     patcher.setattr("mash.runtime.host.host.PostgresStore", _TestSharedMemoryStore)
+    patcher.setattr("mash.runtime.host.host.WorkflowStore", _TestWorkflowStore)
+    patcher.setattr("mash.api.app.PostgresEvalStore", _TestEvalStore)
+    patcher.setattr("crew.beta.app.PostgresEvalStore", _TestEvalStore)
     patcher.setattr("mash.runtime.service.DBOSRequestEngine", _TestDBOSRequestEngine)
     patcher.setattr(
-        "mash.agents.masher.spec.MasherAgentSpec.build_llm",
+        "mash.agents.masher.spec.EvalAgentSpec.build_llm",
+        lambda self: _MasherTestLLM(),
+    )
+    patcher.setattr(
+        "mash.agents.masher.spec.EvalJudgeAgentSpec.build_llm",
         lambda self: _MasherTestLLM(),
     )
     yield

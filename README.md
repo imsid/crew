@@ -22,25 +22,20 @@ approval, and durable interactions are handled by the Mash runtime.
 ## Quick Start
 
 ```bash
-# 1. Start crew — one container serving the web UI, the API, and the host.
-#    (CREW_SERVE_MODE=beta runs the BFF; embedded Postgres is included.)
-docker run -d --name crew -p 8000:8000 \
-  -e CREW_SERVE_MODE=beta \
-  -e ANTHROPIC_API_KEY=sk-ant-... \
-  -e CREW_BETA_ALLOWED_USERS=alice \
-  -e CREW_BETA_AUTH_SECRET=change-me \
-  -v crew-data:/var/lib/crew \
-  ghcr.io/imsid/crew:latest
+# 1. Configure and start the stack — Postgres, the crew process, and the web UI.
+cp .env.example .env   # set ANTHROPIC_API_KEY, CREW_BETA_ALLOWED_USERS, CREW_BETA_AUTH_SECRET
+docker compose up -d --build
 
 # 2. Install the CLI, log in as your user, and chat
 curl -fsSL https://raw.githubusercontent.com/imsid/crew/main/install.sh | sh
-crew login alice --api-base-url http://127.0.0.1:8000
+crew login alice --api-base-url http://127.0.0.1:8003
 crew repl                                   # chat in a session shared with the UI
 ```
 
-The CLI and the web UI are clients of the **same** crew process, authenticated
-as the same user, so a session you start in the CLI shows up in the UI and
-vice versa (`crew sessions` lists them).
+The web UI is at [http://127.0.0.1:3000](http://127.0.0.1:3000). The CLI and
+the web UI are clients of the **same** crew process, authenticated as the
+same user, so a session you start in the CLI shows up in the UI and vice
+versa (`crew sessions` lists them).
 
 `ANTHROPIC_API_KEY` is required — the host refuses to start without it.
 `DBOS_CONDUCTOR_KEY` is optional: the durable runtime self-hosts against
@@ -48,19 +43,13 @@ Postgres and starts fine without it; set it only to connect to DBOS Conductor
 for cloud observability. BigQuery is optional: set `BIGQUERY_PROJECT_ID` /
 `BIGQUERY_MCP_URL` (and mount a service-account JSON via
 `GOOGLE_APPLICATION_CREDENTIALS`) to light up the data agent's BigQuery
-tools; without them the agent still runs and explains what to configure. The
-`crew-data` volume keeps the database durable across restarts and upgrades.
-
-To bring your own Postgres instead of the embedded one, set
-`MASH_DATABASE_URL` on the container — that's what the
-[docker compose setup](CONTRIBUTING.md) does.
+tools; without them the agent still runs and explains what to configure.
 
 ## The Agents
 
 **Data** is the primary. It owns the semantic metrics layer, experiment
-configs and analysis, durable artifacts, and registered workflows, querying
-BigQuery through a read-only MCP allowlist. It delegates product-framing
-questions to PM.
+configs and analysis, and durable artifacts, querying BigQuery through a
+read-only MCP allowlist. It delegates product-framing questions to PM.
 
 **PM** is a delegated specialist for product strategy: framing,
 prioritization, roadmap trade-offs, and synthesis of user and product
@@ -154,23 +143,25 @@ experiments`. Browse them with `crew artifact list / show / search`.
 
 ### Workflows
 
-Crew supports registered workflows for bounded multi-step execution. Inspect
-and run them with `crew workflow list / run / status`.
+Workflows are code-shipped, typed step pipelines registered with the Mash
+runtime — durable, observable, and resumable. Every host ships with the
+built-in masher suite (trace digests, online eval curation, synthetic eval
+generation, experiment runs). Inspect and run them with
+`crew workflow list / run / status`.
 
 ## Web App
 
-The crew process (beta mode, as in the Quick Start) is a FastAPI BFF that
-hosts the agents in-process and serves the API the CLI and the **Next.js
-frontend** (`web/`) both use. The frontend is deployed separately and points
-`NEXT_PUBLIC_CREW_API_BASE_URL` at the crew process. See
-[CONTRIBUTING.md](CONTRIBUTING.md#web-app) for running the frontend and the
-single-process model.
+The crew process is a FastAPI BFF that hosts the agents in-process and
+serves the API the CLI and the **Next.js frontend** (`web/`) both use. The
+compose stack from the Quick Start serves the frontend at
+[http://127.0.0.1:3000](http://127.0.0.1:3000); see
+[CONTRIBUTING.md](CONTRIBUTING.md) for the single-process model.
 
 ## Telemetry
 
 The crew process serves a telemetry UI for real-time visibility into agent
 execution under `/host` —
-[http://127.0.0.1:8000/host/telemetry](http://127.0.0.1:8000/host/telemetry)
+[http://127.0.0.1:8003/host/telemetry](http://127.0.0.1:8003/host/telemetry)
 (or `/host/telemetry` on whatever base you deployed).
 
 ## Documentation

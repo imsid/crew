@@ -19,10 +19,11 @@ def test_build_pool_registers_flat_pool_with_no_hosts(tmp_path):
     with patch.dict("os.environ", _crew_env(tmp_path), clear=False):
         pool = build_pool()
 
-        # The pool ships flat: agents are registered, hosts are not.
+        # The pool ships flat: agents are registered, hosts are not. The
+        # masher eval agents arrive with every pool build (mash >= 0.17).
         assert pool.list_hosts() == []
         described = {item["agent_id"]: item for item in pool.describe_agents()}
-        assert set(described.keys()) == {"pm", "data"}
+        assert set(described.keys()) == {"pm", "data", "eval-agent", "eval-judge-agent"}
         assert (
             described["pm"]["metadata"]["display_name"]
             == "Product Management Specialist"
@@ -35,14 +36,19 @@ def test_build_pool_registers_flat_pool_with_no_hosts(tmp_path):
         assert set(workflows) >= {
             "masher-trace-digest",
             "masher-online-eval-curation",
+            "gen-synthetic-evals",
+            "run-experiment",
         }
-        assert workflows["masher-trace-digest"].tasks[0].task_id == "digest-traces"
-        assert workflows["masher-trace-digest"].tasks[0].agent_id == "masher"
-        assert (
-            workflows["masher-online-eval-curation"].tasks[0].task_id
-            == "curate-online-evals"
-        )
-        assert workflows["masher-online-eval-curation"].tasks[0].agent_id == "masher"
+        assert [step.step_id for step in workflows["masher-trace-digest"].steps] == [
+            "list-traces",
+            "digest-traces",
+            "append-digests",
+        ]
+        assert [step.kind for step in workflows["gen-synthetic-evals"].steps] == [
+            "code",
+            "agent",
+            "code",
+        ]
 
 
 def test_define_default_host_composes_datasquad(tmp_path):

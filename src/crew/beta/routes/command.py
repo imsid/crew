@@ -5,7 +5,11 @@ from typing import Any
 
 import yaml
 from fastapi import APIRouter, Depends, Request
-from mash.workflows import DuplicateWorkflowRunError, WorkflowNotFoundError
+from mash.workflows import (
+    DuplicateWorkflowRunError,
+    WorkflowInputValidationError,
+    WorkflowNotFoundError,
+)
 
 from ...artifacts.service.context import build_tool_context as build_artifact_context
 from ...artifacts.service.repo import list_artifacts, read_artifact, search_artifacts
@@ -24,7 +28,6 @@ from ...metrics_layer.service.tool_entrypoints import (
     read_metrics_layer_config,
 )
 from ...shared.runtime_paths import workspace_dir
-from ...shared.workspace_context import bound_workspace, register_workflow_task_workspaces
 from ...shared.workspaces import resolve_workspace
 from ...skill.service import list_skills, read_skill, search_skills
 from ..app import (
@@ -87,25 +90,25 @@ async def _execute_command(
                     message="workflow input must be a JSON object",
                 )
             try:
-                with bound_workspace(workspace_id):
-                    run = await workflow_service.run_workflow(
-                        workflow_id,
-                        dedup_key=_normalize_optional_text(
-                            str(args.get("dedup_key") or "")
-                        ),
-                        workflow_input=workflow_input,
-                    )
-                register_workflow_task_workspaces(
-                    workflow_id=workflow_id,
-                    run_id=str(run.run_id),
-                    tasks=await _workflow_tasks(state, workflow_id),
-                    workspace_id=workspace_id,
+                run = await workflow_service.run_workflow(
+                    workflow_id,
+                    dedup_key=_normalize_optional_text(
+                        str(args.get("dedup_key") or "")
+                    ),
+                    workflow_input=workflow_input,
                 )
             except WorkflowNotFoundError as exc:
                 raise AppError(
                     status_code=404,
                     code="WORKFLOW_NOT_FOUND",
                     message=str(exc),
+                ) from exc
+            except WorkflowInputValidationError as exc:
+                raise AppError(
+                    status_code=422,
+                    code="INVALID_WORKFLOW_INPUT",
+                    message=str(exc),
+                    details={"errors": exc.errors},
                 ) from exc
             except DuplicateWorkflowRunError as exc:
                 raise AppError(
@@ -295,21 +298,6 @@ async def _execute_command(
         return _command_success(payload.surface, payload.operation, data)
 
     raise _invalid_operation(payload.surface, payload.operation)
-
-
-async def _workflow_tasks(
-    state: BetaAppState,
-    workflow_id: str,
-) -> list[dict[str, object]]:
-    for workflow in await state.host.get_workflow_service().list_workflows():
-        if not isinstance(workflow, dict):
-            continue
-        if str(workflow.get("workflow_id") or "") != workflow_id:
-            continue
-        tasks = workflow.get("tasks")
-        if isinstance(tasks, list):
-            return [dict(task) for task in tasks if isinstance(task, dict)]
-    return []
 
 
 def _require_command_text(value: Any, field_name: str) -> str:

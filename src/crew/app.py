@@ -26,8 +26,8 @@ def build_pool() -> AgentPool:
     # CREW_DATABASE_URL is crew's canonical knob; the beta store reads it
     # directly while the Mash runtime/memory store reads MASH_DATABASE_URL, and
     # the two must point at the same Postgres. Seed MASH_DATABASE_URL from it
-    # when unset (mirroring docker-entrypoint.sh). An explicit MASH_DATABASE_URL
-    # wins, so unset a stale one in your shell if it diverges from CREW_DATABASE_URL.
+    # when unset. An explicit MASH_DATABASE_URL wins, so unset a stale one in
+    # your shell if it diverges from CREW_DATABASE_URL.
     crew_db = os.environ.get("CREW_DATABASE_URL", "").strip()
     if crew_db:
         os.environ.setdefault("MASH_DATABASE_URL", crew_db)
@@ -39,7 +39,6 @@ def build_pool() -> AgentPool:
         HostBuilder()
         .agent(data, metadata=data.build_subagent_metadata())
         .agent(pm, metadata=pm.build_subagent_metadata())
-        .enable_masher()
         .build()
     )
 

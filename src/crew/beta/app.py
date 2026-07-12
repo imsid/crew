@@ -10,10 +10,12 @@ from typing import Any, Literal
 from fastapi import FastAPI, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from mash.agents.masher.spec import EVAL_AGENT_ID
 from mash.api import MashHostConfig
 from mash.api import create_app as create_mash_api_app
 from mash.api.logging import PostgresAPIEventStore
 from mash.api.routes.common import AppRuntimeState
+from mash.evals import EvalService, PostgresEvalStore
 from mash.runtime import AgentPool
 from pydantic import BaseModel, Field
 
@@ -22,7 +24,6 @@ from ..shared.workspace_context import register_request_workspace
 from ..shared.runtime_context import clear_runtime_context, set_runtime_context
 from .auth import TokenError, verify_token
 from .store import BetaStore
-from ..workflow.service import WorkflowService
 
 LOGGER = logging.getLogger(__name__)
 DATA_AGENT_ID = "data"
@@ -148,32 +149,32 @@ def create_beta_app(
         # Mounted sub-app lifespans do not run, so populate runtime_state the
         # way create_app's own lifespan would. api_key stays None: the mash API
         # is exposed only on the BFF's port for local CLI use.
-        api_event_store = PostgresAPIEventStore(
-            mash_api_config.resolved_runtime_database_url() or ""
-        )
+        database_url = mash_api_config.resolved_runtime_database_url() or ""
+        api_event_store = PostgresAPIEventStore(database_url)
         await api_event_store.open()
+        eval_service = None
+        if database_url:
+            eval_store = PostgresEvalStore(database_url)
+            await eval_store.open()
+            eval_service = EvalService(eval_store)
+            eval_agent_spec = resolved_host.get_registered_agent_spec(EVAL_AGENT_ID)
+            if eval_agent_spec is not None and hasattr(eval_agent_spec, "runtime_context"):
+                eval_agent_spec.runtime_context.bind_eval_service(eval_service)
         mash_api_app.state.runtime_state = AppRuntimeState(
             pool=resolved_host,
             api_event_store=api_event_store,
+            eval_service=eval_service,
             api_key=None,
             observability_enabled=mash_api_config.enable_observability,
             default_events_limit=max(1, int(mash_api_config.default_events_limit)),
             default_search_limit=max(1, int(mash_api_config.default_search_limit)),
         )
         primary_agent_id = define_default_host(resolved_host).primary
-        workflow = WorkflowService(
-            store=store,
-            host=resolved_host,
-            primary_agent_id=primary_agent_id,
-        )
         set_runtime_context(
             store=store,
             host=resolved_host,
             primary_agent_id=primary_agent_id,
-            workflow=workflow,
         )
-
-        await workflow.republish_published_workflows()
         application.state.beta = BetaAppState(
             host=resolved_host,
             store=store,
@@ -187,6 +188,8 @@ def create_beta_app(
                 state = getattr(application.state, "beta", None)
                 if state is not None:
                     await state.store.close()
+                if eval_service is not None:
+                    await eval_service._store.close()
                 await api_event_store.close()
                 await resolved_host.close()
             finally:

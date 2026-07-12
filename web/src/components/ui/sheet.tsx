@@ -27,6 +27,7 @@ SheetOverlay.displayName = DialogPrimitive.Overlay.displayName;
 
 const sheetVariants = {
   left: "inset-y-0 left-0 h-full w-[88vw] max-w-sm border-r",
+  right: "inset-y-0 right-0 h-full w-[92vw] max-w-xl border-l",
 };
 
 const SheetContent = React.forwardRef<

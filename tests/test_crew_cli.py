@@ -4,8 +4,6 @@ import re
 from pathlib import Path
 
 from crew.cli.main import (
-    _response_blocks,
-    _stream_workflow_run_events,
     build_parser,
     main,
 )
@@ -707,7 +705,12 @@ def test_workflow_list_uses_mash_client(monkeypatch, capsys) -> None:
             return [
                 {
                     "workflow_id": "masher-trace-digest",
-                    "tasks": [{"task_id": "digest-traces", "agent_id": "masher"}],
+                    "step_count": 3,
+                    "step_preview": [
+                        {"ordinal": 0, "step_id": "list-traces", "kind": "code"},
+                        {"ordinal": 1, "step_id": "digest-traces", "kind": "code"},
+                        {"ordinal": 2, "step_id": "append-digests", "kind": "code"},
+                    ],
                 }
             ]
 
@@ -730,7 +733,7 @@ def test_workflow_list_uses_mash_client(monkeypatch, capsys) -> None:
 
     output = _normalize_output(capsys.readouterr().out)
     assert "masher-trace-digest" in output
-    assert "digest-traces -> masher" in output
+    assert "list-traces (code) -> digest-traces (code) -> append-digests (code)" in output
 
 
 def test_workflow_run_uses_mash_client(monkeypatch, capsys) -> None:
@@ -757,6 +760,17 @@ def test_workflow_run_uses_mash_client(monkeypatch, capsys) -> None:
                 "workflow_id": workflow_id,
                 "run_id": "mw:h_test:masher-trace-digest:abc",
                 "status": "queued",
+            }
+
+        def stream_workflow_run(self, workflow_id: str, run_id: str):
+            yield {
+                "event": "workflow.completed",
+                "data": {
+                    "workflow_id": workflow_id,
+                    "run_id": run_id,
+                    "status": "completed",
+                    "result": {},
+                },
             }
 
         def close(self) -> None:
@@ -817,20 +831,33 @@ def test_workflow_run_streams_progress_and_terminal_response(monkeypatch, capsys
 
         def stream_workflow_run(self, workflow_id: str, run_id: str):
             yield {
-                "event": "workflow.task.started",
-                "data": {"task_id": "digest-traces", "status": "running"},
+                "event": "step.started",
+                "data": {"step_id": "list-traces", "attempt": 1},
             }
             yield {
-                "event": "agent.trace",
-                "data": {"event_type": "runtime.llm.think.completed"},
+                "event": "step.completed",
+                "data": {"step_id": "list-traces", "attempt": 1},
             }
             yield {
-                "event": "request.completed",
-                "data": {"response": {"text": "terminal task response"}},
+                "event": "step.started",
+                "data": {"step_id": "digest-traces", "attempt": 2},
             }
             yield {
-                "event": "workflow.task.completed",
-                "data": {"task_id": "digest-traces", "status": "completed"},
+                "event": "step.failed",
+                "data": {
+                    "step_id": "digest-traces",
+                    "attempt": 2,
+                    "payload": {"error": "trace store unavailable"},
+                },
+            }
+            yield {
+                "event": "workflow.completed",
+                "data": {
+                    "workflow_id": workflow_id,
+                    "run_id": run_id,
+                    "status": "completed",
+                    "result": {"processed_trace_count": 4},
+                },
             }
 
         def close(self) -> None:
@@ -852,54 +879,11 @@ def test_workflow_run_streams_progress_and_terminal_response(monkeypatch, capsys
     )
 
     output = _normalize_output(capsys.readouterr().out)
-    assert "Task running: digest-traces" in output
-    assert "Trace: runtime.llm.think.completed" in output
-    assert "terminal task response" in output
-    assert "Task completed: digest-traces" in output
-
-
-def test_workflow_run_event_fallback_uses_singular_mash_route() -> None:
-    captured: dict[str, object] = {}
-
-    class FakeResponse:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            return False
-
-        def iter_lines(self, *, chunk_size: int, decode_unicode: bool):
-            captured["iter_lines"] = {
-                "chunk_size": chunk_size,
-                "decode_unicode": decode_unicode,
-            }
-            yield "event: request.accepted"
-            yield 'data: {"ok": true}'
-            yield ""
-
-    class FakeClient:
-        def _request(self, method: str, path: str, *, stream: bool = False):
-            captured["request"] = {"method": method, "path": path, "stream": stream}
-            return FakeResponse()
-
-    events = list(
-        _stream_workflow_run_events(
-            FakeClient(),
-            "masher-trace-digest",
-            "mw:h_test:masher-trace-digest:abc",
-        )
-    )
-
-    assert captured["request"] == {
-        "method": "GET",
-        "path": (
-            "/api/v1/workflow/masher-trace-digest/runs/"
-            "mw%3Ah_test%3Amasher-trace-digest%3Aabc/events"
-        ),
-        "stream": True,
-    }
-    assert captured["iter_lines"] == {"chunk_size": 1, "decode_unicode": True}
-    assert events == [{"event": "request.accepted", "data": {"ok": True}}]
+    assert "Step started: list-traces" in output
+    assert "Step completed: list-traces" in output
+    assert "Step failed: digest-traces (attempt 2) - trace store unavailable" in output
+    assert '"processed_trace_count": 4' in output
+    assert "Workflow completed" in output
 
 
 def test_workflow_run_returns_error_for_streamed_failure(monkeypatch, capsys) -> None:
@@ -965,12 +949,23 @@ def test_workflow_status_uses_mash_client(monkeypatch, capsys) -> None:
                 "workflow_id": workflow_id,
                 "run_id": run_id,
                 "dedup_key": "trace-123",
-                "status": "success",
+                "status": "completed",
                 "created_at": 1.0,
                 "started_at": 2.0,
                 "finished_at": 3.0,
                 "error": None,
-                "output": {"task_states": {"digest-traces": {"ok": True}}},
+                "workflow_input": {"mode": "batch"},
+                "session_id": None,
+                "result": {"processed_trace_count": 4},
+                "steps": [
+                    {
+                        "step_id": "digest-traces",
+                        "kind": "code",
+                        "status": "completed",
+                        "attempt": 1,
+                        "error": None,
+                    }
+                ],
             }
 
         def close(self) -> None:
@@ -997,36 +992,6 @@ def test_workflow_status_uses_mash_client(monkeypatch, capsys) -> None:
         "run_id": "mw:h_test:masher-trace-digest:abc",
     }
     output = _normalize_output(capsys.readouterr().out)
-    assert "success" in output
+    assert "completed" in output
     assert "digest-traces" in output
-
-
-def test_response_blocks_renders_thinking_then_text_in_order() -> None:
-    blocks = _response_blocks(
-        {
-            "response": {
-                "text": "The activation rate is 12%.",
-                "assistant_blocks": [
-                    {"type": "thinking", "thinking": "Checking the metric."},
-                    {"type": "text", "text": "The activation rate is 12%."},
-                ],
-            }
-        }
-    )
-
-    assert blocks == [
-        ("thinking", "Checking the metric."),
-        ("text", "The activation rate is 12%."),
-    ]
-
-
-def test_response_blocks_falls_back_to_text_without_blocks() -> None:
-    assert _response_blocks({"response": {"text": "Plain answer."}}) == [
-        ("text", "Plain answer.")
-    ]
-    # Payloads may carry the text at the top level rather than under response.
-    assert _response_blocks({"text": "Top-level answer."}) == [
-        ("text", "Top-level answer.")
-    ]
-    assert _response_blocks({"response": {"text": ""}}) == []
-    assert _response_blocks("not-a-dict") == []
+    assert '"processed_trace_count": 4' in output

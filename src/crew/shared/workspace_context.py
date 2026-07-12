@@ -57,7 +57,6 @@ workspace_dir = current_workspace_dir()  # Resolves automatically
 from __future__ import annotations
 
 import contextvars
-import uuid
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
@@ -91,28 +90,6 @@ def register_request_workspace(request_id: str | None, workspace_id: str) -> Non
     if not normalized_request_id:
         return
     _request_workspace_registry[normalized_request_id] = selected_workspace_name(workspace_id)
-
-
-def register_workflow_task_workspaces(
-    *,
-    workflow_id: str,
-    run_id: str,
-    tasks: list[dict[str, object]],
-    workspace_id: str,
-) -> None:
-    normalized_workspace = selected_workspace_name(workspace_id)
-    for task in tasks:
-        task_id = str(task.get("task_id") or "").strip()
-        agent_id = str(task.get("agent_id") or "").strip()
-        if not task_id or not agent_id:
-            continue
-        session_id = (
-            f"workflow:{workflow_id}:task:{task_id}:run:{run_id}"
-        )
-        request_id = str(
-            uuid.uuid5(uuid.NAMESPACE_URL, f"mash.workflow.task:{agent_id}:{session_id}")
-        )
-        _request_workspace_registry[request_id] = normalized_workspace
 
 
 def current_workspace_id() -> str:

@@ -20,7 +20,6 @@ import {
   sendMessage,
   streamSessionEvents,
   runWorkflowCommand,
-  streamWorkflowEvents,
 } from "@/lib/api";
 import { executeInlineCommand, parseSlashCommand } from "@/lib/commands";
 import { applyTraceEvent, createExecutionTraceState } from "@/lib/execution-trace";
@@ -155,28 +154,10 @@ export function ChatPanel({
                     surface: "workflows",
                     operation: "run",
                     target: workflowId,
-                    data: {
-                      ...run,
-                      workflow_input: slashCommand.workflowInput ?? {},
-                      trace: createExecutionTraceState({ title: "Workflow started" }),
-                    },
+                    data: run,
                   } satisfies InlineCommandResult,
                 },
               ],
-            }));
-            await streamWorkflowEvents(
-              auth.token,
-              workspaceId,
-              run.workflow_id,
-              run.run_id,
-              (event) => {
-                updateMessage(threadKey, assistantId, (current) =>
-                  applyWorkflowCommandStreamEvent(current, event),
-                );
-              },
-            );
-            updateMessage(threadKey, assistantId, (current) => ({
-              ...current,
               status: { type: "complete", reason: "stop" },
             }));
           } else {
@@ -814,121 +795,6 @@ function mergeTraceSignalsIntoContent(
     nextContent.unshift(tracePart);
   }
   return nextContent;
-}
-
-function applyWorkflowCommandStreamEvent(
-  message: ThreadMessageLike,
-  event: StreamEvent,
-): ThreadMessageLike {
-  let content = message.content;
-  if (event.data.trace) {
-    content = mergeWorkflowRunTraceIntoContent(content, event.data.trace);
-  }
-  if (event.event === "request.completed") {
-    const text = event.data.response?.text;
-    if (text) {
-      content = mergeWorkflowRunResultIntoContent(content, {
-        status: "completed",
-        output: parseWorkflowOutput(text),
-      });
-    }
-  }
-  if (event.event === "request.error" || event.event === "workflow.error") {
-    const error = event.data.error ?? "Workflow failed";
-    content = mergeWorkflowRunResultIntoContent(content, {
-      status: "error",
-      error,
-    });
-    content = mergeTraceStatusIntoContent(
-      content,
-      "Workflow failed",
-      "error",
-      error,
-    );
-  }
-  return { ...message, content };
-}
-
-function mergeWorkflowRunTraceIntoContent(
-  content: ThreadMessageLike["content"],
-  traceEvent: TraceEventPayload,
-) {
-  const nextContent = Array.isArray(content) ? [...content] : [];
-  const existingIndex = findWorkflowRunResultIndex(nextContent);
-  if (existingIndex < 0) return mergeTraceEventIntoContent(content, traceEvent);
-
-  const current = nextContent[existingIndex];
-  if (current?.type !== "data-command-result") return nextContent;
-
-  const result = current.data as Extract<
-    InlineCommandResult,
-    { surface: "workflows"; operation: "run" }
-  >;
-  const currentTrace = result.data.trace ?? createExecutionTraceState();
-  nextContent[existingIndex] = {
-    ...current,
-    data: {
-      ...result,
-      data: {
-        ...result.data,
-        trace: applyTraceEvent(currentTrace, traceEvent),
-      },
-    },
-  };
-  return nextContent;
-}
-
-function mergeWorkflowRunResultIntoContent(
-  content: ThreadMessageLike["content"],
-  updates: {
-    status?: string;
-    output?: unknown;
-    error?: string | null;
-  },
-) {
-  const nextContent = Array.isArray(content) ? [...content] : [];
-  const existingIndex = findWorkflowRunResultIndex(nextContent);
-  if (existingIndex < 0) return nextContent;
-
-  const current = nextContent[existingIndex];
-  if (current?.type !== "data-command-result") return nextContent;
-
-  const result = current.data as Extract<
-    InlineCommandResult,
-    { surface: "workflows"; operation: "run" }
-  >;
-  nextContent[existingIndex] = {
-    ...current,
-    data: {
-      ...result,
-      data: {
-        ...result.data,
-        ...updates,
-      },
-    },
-  };
-  return nextContent;
-}
-
-function findWorkflowRunResultIndex(content: unknown[]) {
-  return content.findIndex((part) => {
-    if (!part || typeof part !== "object") return false;
-    const dataPart = part as { type?: string; data?: unknown };
-    const result = dataPart.data as InlineCommandResult | undefined;
-    return (
-      dataPart.type === "data-command-result" &&
-      result?.surface === "workflows" &&
-      result.operation === "run"
-    );
-  });
-}
-
-function parseWorkflowOutput(raw: string): unknown {
-  try {
-    return JSON.parse(raw) as unknown;
-  } catch {
-    return raw;
-  }
 }
 
 function mergeInteractionCreateIntoContent(

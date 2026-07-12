@@ -9,7 +9,7 @@ from typing import Any, Optional
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
-from mash.agents.masher.spec import MasherAgentSpec
+from mash.agents.masher.spec import EvalAgentSpec, EvalJudgeAgentSpec
 from mash.api import MashHostConfig, create_app
 from mash.core.context import ToolCall
 from mash.core.llm import LLMProvider
@@ -118,7 +118,10 @@ def _build_test_client(tmp_path: Path):
             patch.object(PMAgentSpec, "build_memory_store", _memory_store)
         )
         stack.enter_context(
-            patch.object(MasherAgentSpec, "build_memory_store", _memory_store)
+            patch.object(EvalAgentSpec, "build_memory_store", _memory_store)
+        )
+        stack.enter_context(
+            patch.object(EvalJudgeAgentSpec, "build_memory_store", _memory_store)
         )
         pool = build_pool()
         app = create_app(pool, config=MashHostConfig())
@@ -193,9 +196,12 @@ def test_health_lists_data_primary_and_support_agents(tmp_path: Path) -> None:
             health = client.get("/api/v1/health")
             assert health.status_code == 200
             payload = health.json()["data"]
+            # The masher eval agents ship with every pool build (mash >= 0.17).
             assert {agent["agent_id"] for agent in payload["deployment"]["agents"]} == {
                 "pm",
                 "data",
+                "eval-agent",
+                "eval-judge-agent",
             }
 
 
@@ -213,17 +219,28 @@ def test_workflows_list_includes_masher_workflows(tmp_path: Path) -> None:
             assert {
                 "masher-trace-digest",
                 "masher-online-eval-curation",
+                "gen-synthetic-evals",
+                "run-experiment",
             } <= set(workflows)
-            # mash >= 0.11 attaches a structured_output schema to these tasks;
-            # assert the routing fields and ignore the schema payload.
+            assert workflows["masher-trace-digest"]["step_kinds"] == {
+                "code": 3,
+                "agent": 0,
+            }
+            assert workflows["gen-synthetic-evals"]["step_kinds"] == {
+                "code": 2,
+                "agent": 1,
+            }
+
+            definition = client.get("/api/v1/workflow/masher-trace-digest")
+            assert definition.status_code == 200
             assert [
-                {"task_id": task["task_id"], "agent_id": task["agent_id"]}
-                for task in workflows["masher-trace-digest"]["tasks"]
-            ] == [{"task_id": "digest-traces", "agent_id": "masher"}]
-            assert [
-                {"task_id": task["task_id"], "agent_id": task["agent_id"]}
-                for task in workflows["masher-online-eval-curation"]["tasks"]
-            ] == [{"task_id": "curate-online-evals", "agent_id": "masher"}]
+                (step["step_id"], step["kind"])
+                for step in definition.json()["data"]["steps"]
+            ] == [
+                ("list-traces", "code"),
+                ("digest-traces", "code"),
+                ("append-digests", "code"),
+            ]
 
 
 def test_workflow_run_and_status_are_exposed(tmp_path: Path) -> None:
@@ -256,13 +273,15 @@ def test_workflow_run_and_status_are_exposed(tmp_path: Path) -> None:
             run_id=run_id,
             workflow_id=workflow_id,
             dedup_key="trace-123",
-            status="success",
+            status="completed",
             created_at=1.0,
             started_at=2.0,
             finished_at=3.0,
             error=None,
-            output={"task_states": {"digest-traces": {"ok": True}}},
-            summary=None,
+            workflow_input={"mode": "trace", "session_id": "s1", "trace_id": "t1"},
+            session_id=None,
+            result={"processed_trace_count": 1},
+            steps=[{"step_id": "append-digests", "status": "completed"}],
         )
 
     with patch.object(PMAgentSpec, "build_llm", return_value=_EchoLLM()), patch.object(
@@ -305,9 +324,7 @@ def test_workflow_run_and_status_are_exposed(tmp_path: Path) -> None:
                 "mw:h_test:masher-trace-digest:abc"
             )
             assert status.status_code == 200
-            assert status.json()["data"]["output"] == {
-                "task_states": {"digest-traces": {"ok": True}}
-            }
+            assert status.json()["data"]["result"] == {"processed_trace_count": 1}
             assert captured["status"] == {
                 "workflow_id": "masher-trace-digest",
                 "run_id": "mw:h_test:masher-trace-digest:abc",

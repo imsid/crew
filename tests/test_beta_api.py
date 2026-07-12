@@ -10,7 +10,7 @@ from typing import Any, Optional
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
-from mash.agents.masher.spec import MasherAgentSpec
+from mash.agents.masher.spec import EvalAgentSpec, EvalJudgeAgentSpec
 from mash.core.context import ToolCall
 from mash.core.llm import LLMProvider
 from mash.core.llm.types import LLMContentBlock, LLMRequest, LLMResponse, LLMTokenUsage
@@ -114,9 +114,6 @@ class _FakeBetaStore:
         self._users: dict[str, dict[str, Any]] = {}
         self._users_by_username: dict[str, str] = {}
         self._sessions: dict[str, dict[str, Any]] = {}
-        self._skills: dict[str, dict[str, Any]] = {}
-        self._workflows: dict[str, dict[str, Any]] = {}
-        self._workflow_tasks: dict[str, list[dict[str, Any]]] = {}
         self.open_called = False
         self.close_called = False
         _FakeBetaStore.last_created = self
@@ -217,54 +214,6 @@ class _FakeBetaStore:
             and str(session["user_id"]) == str(user_id)
         }
 
-    async def upsert_authored_skill(self, payload: dict[str, Any]) -> dict[str, Any]:
-        self._skills[str(payload["skill_id"])] = dict(payload)
-        return dict(payload)
-
-    async def upsert_authored_workflow(
-        self, payload: dict[str, Any], *, tasks: list[dict[str, Any]]
-    ) -> dict[str, Any]:
-        self._workflows[str(payload["workflow_id"])] = dict(payload)
-        self._workflow_tasks[str(payload["workflow_id"])] = [
-            dict(task) for task in sorted(tasks, key=lambda item: int(item["position"]))
-        ]
-        return dict(payload)
-
-    async def get_authored_workflow_bundle(
-        self, workflow_id: str
-    ) -> dict[str, Any] | None:
-        workflow = self._workflows.get(str(workflow_id))
-        if workflow is None:
-            return None
-        return {
-            "workflow": dict(workflow),
-            "skill": dict(self._skills[str(workflow["skill_id"])]),
-            "tasks": [dict(task) for task in self._workflow_tasks.get(str(workflow_id), [])],
-        }
-
-    async def list_authored_workflow_bundles(
-        self, *, status: str | None = None
-    ) -> list[dict[str, Any]]:
-        bundles: list[dict[str, Any]] = []
-        for workflow in self._workflows.values():
-            if status is not None and workflow.get("status") != status:
-                continue
-            bundle = await self.get_authored_workflow_bundle(str(workflow["workflow_id"]))
-            if bundle is not None:
-                bundles.append(bundle)
-        return bundles
-
-    async def set_authored_workflow_status(
-        self, workflow_id: str, status: str
-    ) -> dict[str, Any] | None:
-        workflow = self._workflows.get(str(workflow_id))
-        if workflow is None:
-            return None
-        workflow["status"] = status
-        workflow["updated_at"] = float(workflow.get("updated_at") or 0) + 1
-        return dict(workflow)
-
-
 class _HostStub:
     def __init__(self) -> None:
         self.started = False
@@ -287,6 +236,10 @@ class _HostStub:
     def get_host(self, host_id: str):
         assert host_id == "datasquad"
         return SimpleNamespace(primary="data", subagents=("pm",), workflows=())
+
+    def get_registered_agent_spec(self, agent_id: str):
+        del agent_id
+        return None
 
     def get_agent(self, agent_id: str):
         assert agent_id == "data"
@@ -332,7 +285,10 @@ def _build_test_client(tmp_path: Path):
             patch.object(PMAgentSpec, "build_memory_store", _memory_store)
         )
         stack.enter_context(
-            patch.object(MasherAgentSpec, "build_memory_store", _memory_store)
+            patch.object(EvalAgentSpec, "build_memory_store", _memory_store)
+        )
+        stack.enter_context(
+            patch.object(EvalJudgeAgentSpec, "build_memory_store", _memory_store)
         )
         app = build_beta_app()
         with TestClient(app) as client:
@@ -584,7 +540,6 @@ def test_beta_app_opens_and_closes_store(monkeypatch) -> None:
             assert context.store is created
             assert context.host is host
             assert context.primary_agent_id == "data"
-            assert context.workflow.primary_agent_id == "data"
 
         created = _FakeBetaStore.last_created
         assert created is not None
@@ -864,12 +819,15 @@ def test_workflow_endpoints_are_authenticated_and_use_host_service(
             run_id=run_id,
             workflow_id=workflow_id,
             dedup_key="trace-123",
-            status="success",
+            status="completed",
             created_at=1.0,
             started_at=2.0,
             finished_at=3.0,
             error=None,
-            output={"task_states": {"digest-traces": {"ok": True}}},
+            workflow_input={"mode": "trace", "session_id": "s1", "trace_id": "t1"},
+            session_id=None,
+            result={"processed_trace_count": 1},
+            steps=[{"step_id": "append-digests", "status": "completed"}],
         )
 
     async def fake_list_runs(
@@ -895,15 +853,6 @@ def test_workflow_endpoints_are_authenticated_and_use_host_service(
                 started_at=5.0,
                 finished_at=6.0,
                 error=None,
-                output={"hidden": True},
-                summary={
-                    "turn_id": "turn-1",
-                    "session_id": "session-1",
-                    "task_id": "digest-traces",
-                    "agent_id": "masher",
-                    "user_message": "summarize this",
-                    "agent_response": "summary text",
-                },
             )
         ]
 
@@ -925,12 +874,10 @@ def test_workflow_endpoints_are_authenticated_and_use_host_service(
                 workflow["workflow_id"]: workflow
                 for workflow in workflows.json()["data"]["workflows"]
             }
-            # mash >= 0.11 attaches a structured_output schema to these tasks;
-            # assert the routing fields and ignore the schema payload.
-            assert [
-                {"task_id": task["task_id"], "agent_id": task["agent_id"]}
-                for task in listed["masher-trace-digest"]["tasks"]
-            ] == [{"task_id": "digest-traces", "agent_id": "masher"}]
+            assert listed["masher-trace-digest"]["step_kinds"] == {
+                "code": 3,
+                "agent": 0,
+            }
 
             unauthorized = client.get("/workspace/marketing_db/workflow")
             assert unauthorized.status_code == 401
@@ -968,9 +915,10 @@ def test_workflow_endpoints_are_authenticated_and_use_host_service(
                 headers=_auth_headers(token),
             )
             assert status.status_code == 200
-            assert status.json()["data"]["output"] == {
-                "task_states": {"digest-traces": {"ok": True}}
-            }
+            assert status.json()["data"]["result"] == {"processed_trace_count": 1}
+            assert status.json()["data"]["steps"] == [
+                {"step_id": "append-digests", "status": "completed"}
+            ]
             assert captured["status"] == {
                 "workflow_id": "masher-trace-digest",
                 "run_id": "mw:h_test:masher-trace-digest:abc",
@@ -993,102 +941,17 @@ def test_workflow_endpoints_are_authenticated_and_use_host_service(
                         "started_at": 5.0,
                         "finished_at": 6.0,
                         "error": None,
-                        "summary": {
-                            "turn_id": "turn-1",
-                            "session_id": "session-1",
-                            "task_id": "digest-traces",
-                            "agent_id": "masher",
-                            "user_message": "summarize this",
-                            "agent_response": "summary text",
-                        },
                     }
                 ],
+                "limit": 5,
+                "offset": 0,
+                "has_more": False,
             }
+            # The route over-fetches by one to compute has_more.
             assert captured["runs"] == {
                 "workflow_id": "masher-trace-digest",
-                "limit": 5,
+                "limit": 6,
             }
-
-
-def test_authored_workflow_publish_endpoint_registers_primary_agent_workflow(
-    tmp_path: Path,
-) -> None:
-    with patch.object(PMAgentSpec, "build_llm", return_value=_EchoLLM()), patch.object(
-        DataAgentSpec, "build_llm", return_value=_EchoLLM()
-    ), patch.object(DataAgentSpec, "build_mcp_servers", return_value=[]):
-        with _build_test_client(tmp_path) as client:
-            token, _ = _login(client, "alice")
-            payload = {
-                "skill": {
-                    "name": "weekly-metrics-review",
-                    "description": "Review weekly metrics.",
-                    "content": "# Weekly Metrics Review\n\nReview the requested metrics.",
-                },
-                "workflow": {
-                    "workflow_id": "weekly-business-review",
-                    "name": "Weekly Business Review",
-                    "description": "Summarize weekly performance.",
-                    "input_schema": {
-                        "type": "object",
-                        "properties": {"week": {"type": "string"}},
-                        "required": ["week"],
-                    },
-                    "source_session_id": "data_session",
-                },
-                "tasks": [
-                    {
-                        "task_id": "review-metrics",
-                        "agent_id": "data",
-                        "title": "Review metrics",
-                        "structured_output": {
-                            "type": "object",
-                            "properties": {"markdown": {"type": "string"}},
-                            "required": ["markdown"],
-                        },
-                    }
-                ],
-            }
-
-            response = client.post(
-                "/workspace/marketing_db/workflow",
-                json=payload,
-                headers=_auth_headers(token),
-            )
-
-            assert response.status_code == 200
-            assert response.json()["data"]["skill_name"] == "weekly-metrics-review"
-            host = client.app.state.beta.host
-            workflow = host.get_workflow_registry().get("weekly-business-review")
-            assert workflow.tasks[0].agent_id == "data"
-            assert workflow.tasks[0].structured_output == {
-                "type": "object",
-                "properties": {"markdown": {"type": "string"}},
-                "required": ["markdown"],
-            }
-            assert workflow.task_message.skill_name == "weekly-metrics-review"
-            assert "publish_workflow" in host.get_agent("data").tools.list_tools()
-
-            detail = client.get(
-                "/workspace/marketing_db/workflow/weekly-business-review",
-                headers=_auth_headers(token),
-            )
-            assert detail.status_code == 200
-            assert detail.json()["data"]["skill"]["name"] == "weekly-metrics-review"
-
-            listed = client.get("/workspace/marketing_db/workflow", headers=_auth_headers(token))
-            assert listed.status_code == 200
-            workflows = {
-                item["workflow_id"]: item
-                for item in listed.json()["data"]["workflows"]
-            }
-            assert workflows["weekly-business-review"]["source"] == "crew-authored"
-
-            builtin_detail = client.get(
-                "/workspace/marketing_db/workflow/masher-trace-digest",
-                headers=_auth_headers(token),
-            )
-            assert builtin_detail.status_code == 200
-            assert builtin_detail.json()["data"]["workflow_id"] == "masher-trace-digest"
 
 
 def test_workflow_trace_uses_session_turn_trace_endpoint(tmp_path: Path) -> None:
@@ -1160,12 +1023,15 @@ def test_workflow_command_surface_dispatches_host_service(tmp_path: Path) -> Non
             run_id=run_id,
             workflow_id=workflow_id,
             dedup_key="trace-123",
-            status="success",
+            status="completed",
             created_at=1.0,
             started_at=2.0,
             finished_at=3.0,
             error=None,
-            output={"task_states": {"digest-traces": {"ok": True}}},
+            workflow_input={"mode": "trace", "session_id": "s1", "trace_id": "t1"},
+            session_id=None,
+            result={"processed_trace_count": 1},
+            steps=[{"step_id": "append-digests", "status": "completed"}],
         )
 
     with patch.object(PMAgentSpec, "build_llm", return_value=_EchoLLM()), patch.object(
@@ -1191,12 +1057,10 @@ def test_workflow_command_surface_dispatches_host_service(tmp_path: Path) -> Non
                 workflow["workflow_id"]: workflow
                 for workflow in listed.json()["data"]["workflows"]
             }
-            # mash >= 0.11 attaches a structured_output schema to these tasks;
-            # assert the routing fields and ignore the schema payload.
-            assert [
-                {"task_id": task["task_id"], "agent_id": task["agent_id"]}
-                for task in workflows["masher-trace-digest"]["tasks"]
-            ] == [{"task_id": "digest-traces", "agent_id": "masher"}]
+            assert workflows["masher-trace-digest"]["step_kinds"] == {
+                "code": 3,
+                "agent": 0,
+            }
 
             started = client.post(
                 "/workspace/marketing_db/command",
@@ -1244,10 +1108,8 @@ def test_workflow_command_surface_dispatches_host_service(tmp_path: Path) -> Non
                 headers=headers,
             )
             assert status.status_code == 200
-            assert status.json()["data"]["status"] == "success"
-            assert status.json()["data"]["output"] == {
-                "task_states": {"digest-traces": {"ok": True}}
-            }
+            assert status.json()["data"]["status"] == "completed"
+            assert status.json()["data"]["result"] == {"processed_trace_count": 1}
             assert captured["status"] == {
                 "workflow_id": "masher-trace-digest",
                 "run_id": "mw:h_test:masher-trace-digest:abc",
@@ -1263,12 +1125,14 @@ def test_workflow_event_stream_uses_beta_host_service(tmp_path: Path) -> None:
 
         async def _events():
             yield SimpleNamespace(
-                event="request.completed",
+                event="workflow.completed",
                 data={
                     "workflow_id": workflow_id,
                     "run_id": run_id,
-                    "response": {"text": "done"},
+                    "status": "completed",
+                    "result": {"ok": True},
                 },
+                comment=None,
             )
 
         return _events()
@@ -1292,8 +1156,8 @@ def test_workflow_event_stream_uses_beta_host_service(tmp_path: Path) -> None:
                 "workflow_id": "masher-trace-digest",
                 "run_id": "mw:h_test:masher-trace-digest:abc",
             }
-            assert events[-1]["event"] == "request.completed"
-            assert events[-1]["data"]["response"]["text"] == "done"
+            assert events[-1]["event"] == "workflow.completed"
+            assert events[-1]["data"]["result"] == {"ok": True}
             assert events[-1]["data"]["runtime_event"]["sequence"] == 1
 
 

@@ -7,7 +7,6 @@ if TYPE_CHECKING:
     from mash.runtime import AgentPool
 
     from ..beta.store import BetaStore
-    from ..workflow.service import WorkflowService
 
 
 @dataclass(frozen=True)
@@ -15,7 +14,6 @@ class RuntimeContext:
     store: BetaStore
     host: AgentPool
     primary_agent_id: str
-    workflow: WorkflowService
 
 
 _RUNTIME_CONTEXT_HOLDER: dict[str, RuntimeContext | None] = {"value": None}
@@ -26,7 +24,6 @@ def set_runtime_context(
     store: BetaStore,
     host: AgentPool,
     primary_agent_id: str,
-    workflow: WorkflowService,
 ) -> None:
     resolved_primary_agent_id = str(primary_agent_id or "").strip()
     if not resolved_primary_agent_id:
@@ -35,7 +32,6 @@ def set_runtime_context(
         store=store,
         host=host,
         primary_agent_id=resolved_primary_agent_id,
-        workflow=workflow,
     )
 
 

@@ -1,12 +1,9 @@
 from __future__ import annotations
 
 import argparse
-import contextlib
 import json
 import os
-from collections.abc import Iterator
-from typing import Any, Sequence, cast
-from urllib.parse import quote
+from typing import Any, Sequence
 
 from mash.cli.client import MashHostClient
 from mash.cli.config import load_config
@@ -44,7 +41,7 @@ from ..shared.runtime_paths import (
 from ..shared.version import crew_version
 from .hosts_store import DEFAULT_HOST_ID, hosts_file_path, load_hosts, record_host
 
-DEFAULT_BFF_BASE_URL = "http://127.0.0.1:8000"
+DEFAULT_BFF_BASE_URL = "http://127.0.0.1:8003"
 
 
 def _bff_base_url(args: argparse.Namespace) -> str:
@@ -101,16 +98,26 @@ def _agent_listing_rows(agents: list[dict[str, Any]]) -> list[list[str]]:
     return rows
 
 
+def _workflow_step_summary(workflow: dict[str, Any]) -> str:
+    rendered_steps = []
+    for step in workflow.get("step_preview") or []:
+        if isinstance(step, dict):
+            rendered_steps.append(
+                f"{step.get('step_id') or ''} ({step.get('kind') or ''})"
+            )
+    summary = " -> ".join(rendered_steps)
+    step_count = int(workflow.get("step_count") or 0)
+    if step_count > len(rendered_steps):
+        summary = f"{summary} -> …" if summary else f"{step_count} steps"
+    return summary
+
+
 def _workflow_rows(workflows: list[dict[str, Any]]) -> list[list[str]]:
     rows: list[list[str]] = []
     for workflow in sorted(workflows, key=lambda w: str(w.get("workflow_id") or "")):
-        rendered_tasks = []
-        for task in workflow.get("tasks") or []:
-            if isinstance(task, dict):
-                rendered_tasks.append(
-                    f"{task.get('task_id') or ''} -> {task.get('agent_id') or ''}"
-                )
-        rows.append([str(workflow.get("workflow_id") or ""), ", ".join(rendered_tasks)])
+        rows.append(
+            [str(workflow.get("workflow_id") or ""), _workflow_step_summary(workflow)]
+        )
     return rows
 
 
@@ -143,144 +150,48 @@ def _parse_order_by(values: list[str] | None) -> list[dict[str, str]]:
     return order_by
 
 
-def _response_blocks(payload: object) -> list[tuple[str, str]]:
-    """Return the assistant's final turn as ordered (kind, content) blocks.
-
-    Mirrors mash's shell rendering (mash >= 0.11): prefer ``assistant_blocks``
-    so reasoning ("thinking") and text render distinctly, falling back to the
-    flat ``text`` field when a payload carries no blocks.
-    """
-    if not isinstance(payload, dict):
-        return []
-    response_payload = payload.get("response")
-    source = response_payload if isinstance(response_payload, dict) else payload
-
-    blocks: list[tuple[str, str]] = []
-    assistant_blocks = source.get("assistant_blocks")
-    if isinstance(assistant_blocks, list) and assistant_blocks:
-        for block in assistant_blocks:
-            if not isinstance(block, dict):
-                continue
-            block_type = block.get("type")
-            if block_type == "thinking":
-                content = str(block.get("thinking") or "").strip()
-                if content:
-                    blocks.append(("thinking", content))
-            elif block_type == "text":
-                content = str(block.get("text") or "").strip()
-                if content:
-                    blocks.append(("text", content))
-        if blocks:
-            return blocks
-
-    text = str(source.get("text") or "").strip()
-    return [("text", text)] if text else []
-
-
-def _stream_workflow_run_events(
-    client: MashHostClient,
-    workflow_id: str,
-    run_id: str,
-) -> Iterator[dict[str, Any]]:
-    stream_method = getattr(client, "stream_workflow_run_events", None)
-    if not callable(stream_method):
-        stream_method = getattr(client, "stream_workflow_run", None)
-    if callable(stream_method):
-        yield from stream_method(workflow_id, run_id)  # type: ignore[misc]
-        return
-
-    request_method = getattr(client, "_request", None)
-    if not callable(request_method):
-        return
-    ctx = cast(
-        contextlib.AbstractContextManager[Any],
-        request_method(
-            "GET",
-            "/api/v1/workflow/"
-            f"{quote(workflow_id, safe='')}/runs/{quote(run_id, safe='')}/events",
-            stream=True,
-        ),
-    )
-    with ctx as response:
-        event_name: str | None = None
-        data_lines: list[str] = []
-        for line in response.iter_lines(chunk_size=1, decode_unicode=True):
-            if line is None:
-                continue
-            stripped = line.strip()
-            if not stripped:
-                if event_name and data_lines:
-                    raw = "\n".join(data_lines)
-                    try:
-                        payload = json.loads(raw)
-                    except json.JSONDecodeError:
-                        payload = {"raw": raw}
-                    yield {"event": event_name, "data": payload}
-                event_name = None
-                data_lines = []
-                continue
-            if stripped.startswith(":"):
-                continue
-            if stripped.startswith("event:"):
-                event_name = stripped[6:].strip()
-                continue
-            if stripped.startswith("data:"):
-                data_lines.append(stripped[5:].strip())
-
-
 def _render_workflow_stream_event(
     renderer: RichRenderer,
     event: dict[str, Any],
-    *,
-    rendered_responses: set[str],
 ) -> bool:
+    """Render one run stream event; returns True when the run has failed.
+
+    The step-pipeline stream (mash >= 0.17) emits ``step.started``,
+    ``step.completed``, ``step.failed``, and one terminal
+    ``workflow.completed`` / ``workflow.error``.
+    """
     event_name = str(event.get("event") or "")
     payload = event.get("data")
     data = payload if isinstance(payload, dict) else {}
 
-    if event_name in {
-        "workflow.task.started",
-        "workflow.task.completed",
-        "workflow.task.error",
-    }:
-        task_id = str(data.get("task_id") or data.get("task") or "").strip()
-        status = str(data.get("status") or "").strip() or event_name.rsplit(".", 1)[-1]
-        message = f"Task {status}"
-        if task_id:
-            message = f"{message}: {task_id}"
-        if event_name == "workflow.task.error":
-            error = str(data.get("error") or "").strip()
+    if event_name in {"step.started", "step.completed", "step.failed"}:
+        step_id = str(data.get("step_id") or "").strip()
+        attempt = int(data.get("attempt") or 1)
+        label = event_name.rsplit(".", 1)[-1]
+        message = f"Step {label}"
+        if step_id:
+            message = f"{message}: {step_id}"
+        if attempt > 1:
+            message = f"{message} (attempt {attempt})"
+        if event_name == "step.failed":
+            step_payload = data.get("payload")
+            error = ""
+            if isinstance(step_payload, dict):
+                error = str(step_payload.get("error") or "").strip()
             renderer.error(f"{message}{f' - {error}' if error else ''}")
-            return True
+            return False
         renderer.info(message)
         return False
 
-    if event_name == "agent.trace":
-        runtime_label = ""
-        runtime_event = data.get("runtime_event")
-        if isinstance(runtime_event, dict):
-            runtime_label = str(runtime_event.get("label") or "").strip()
-        event_type = str(
-            data.get("event_type") or runtime_label or "agent.trace"
-        ).strip()
-        renderer.print(f"Trace: {event_type}")
+    if event_name == "workflow.completed":
+        result = data.get("result")
+        if isinstance(result, dict) and result:
+            renderer.info("Result")
+            renderer.print(json.dumps(result, indent=2, sort_keys=True))
+        renderer.info("Workflow completed")
         return False
 
-    if event_name == "request.accepted":
-        return False
-
-    if event_name == "request.completed":
-        for kind, content in _response_blocks(data):
-            if content in rendered_responses:
-                continue
-            rendered_responses.add(content)
-            if kind == "thinking":
-                renderer.thinking(content)
-            else:
-                renderer.markdown(content)
-        return False
-
-    if event_name in {"request.error", "workflow.error"}:
+    if event_name == "workflow.error":
         renderer.error(str(data.get("error") or "workflow run failed"))
         return True
 
@@ -768,24 +679,7 @@ def _run_workflow_command(args: argparse.Namespace, renderer: RichRenderer) -> i
             if not workflows:
                 renderer.warn("No workflows registered.")
                 return 0
-            rows = []
-            for workflow in workflows:
-                rendered_tasks = []
-                tasks = workflow.get("tasks")
-                if isinstance(tasks, list):
-                    for task in tasks:
-                        if not isinstance(task, dict):
-                            continue
-                        rendered_tasks.append(
-                            f"{task.get('task_id') or ''} -> {task.get('agent_id') or ''}"
-                        )
-                rows.append(
-                    [
-                        str(workflow.get("workflow_id") or ""),
-                        ", ".join(rendered_tasks),
-                    ]
-                )
-            renderer.table(["Workflow ID", "Tasks"], rows)
+            renderer.table(["Workflow ID", "Steps"], _workflow_rows(workflows))
             return 0
 
         if args.workflow_command == "run":
@@ -812,16 +706,8 @@ def _run_workflow_command(args: argparse.Namespace, renderer: RichRenderer) -> i
             if not run_id:
                 return 0
             failed = False
-            rendered_responses: set[str] = set()
-            for event in _stream_workflow_run_events(client, args.workflow_id, run_id):
-                failed = (
-                    _render_workflow_stream_event(
-                        renderer,
-                        event,
-                        rendered_responses=rendered_responses,
-                    )
-                    or failed
-                )
+            for event in client.stream_workflow_run(args.workflow_id, run_id):
+                failed = _render_workflow_stream_event(renderer, event) or failed
             return 1 if failed else 0
 
         if args.workflow_command == "status":
@@ -837,10 +723,27 @@ def _run_workflow_command(args: argparse.Namespace, renderer: RichRenderer) -> i
                 ["error", str(run.get("error") or "")],
             ]
             renderer.table(["Field", "Value"], rows)
-            output = run.get("output")
-            if isinstance(output, dict) and output:
-                renderer.info("Output")
-                renderer.print(json.dumps(output, indent=2, sort_keys=True))
+            steps = run.get("steps")
+            if isinstance(steps, list) and steps:
+                step_rows = [
+                    [
+                        str(step.get("step_id") or ""),
+                        str(step.get("kind") or ""),
+                        str(step.get("status") or ""),
+                        str(step.get("attempt") or 1),
+                        str(step.get("error") or ""),
+                    ]
+                    for step in steps
+                    if isinstance(step, dict)
+                ]
+                renderer.info("Steps")
+                renderer.table(
+                    ["Step", "Kind", "Status", "Attempt", "Error"], step_rows
+                )
+            result = run.get("result")
+            if isinstance(result, dict) and result:
+                renderer.info("Result")
+                renderer.print(json.dumps(result, indent=2, sort_keys=True))
             return 0
     finally:
         client.close()
