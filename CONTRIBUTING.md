@@ -64,6 +64,23 @@ Configuration notes:
 - Probes: crew-api `GET /health`; crew-host `GET /api/v1/health` with the
   service key.
 
+### Resetting to a clean state
+
+Postgres only runs `docker/postgres/init-databases.sql` when it initializes
+an **empty** data volume. A volume from an older deployment therefore lacks
+the `crew_api`/`mash_host` roles, and crew-host fails startup with
+`password authentication failed`. To wipe all data and re-initialize from
+scratch:
+
+```bash
+docker compose down -v   # stop everything and delete the Postgres volume
+docker compose up -d     # fresh volume: init script creates the roles + DBs
+```
+
+To upgrade in place instead (keeping existing data), apply the init script
+manually before starting: `docker exec -i mash-crew-db-1 psql -U mash -d
+postgres < docker/postgres/init-databases.sql`.
+
 ## Tests
 
 ```bash
