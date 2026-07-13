@@ -73,6 +73,23 @@ Configuration notes:
 - Probes: crew-api `GET /health`; crew-host `GET /api/v1/health` with the
   service key.
 
+### Operator UIs (Mash admin, telemetry, API docs)
+
+crew-host serves them, and the base compose file deliberately publishes no
+crew-host port ("only crew-api is public" is an architecture invariant). For
+local operator access, opt into the dev overlay, which publishes crew-host
+on loopback:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+# or persistently: add to .env
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml
+```
+
+Then open [http://127.0.0.1:8004/admin](http://127.0.0.1:8004/admin) (log in
+with `MASH_API_KEY`), `/telemetry`, or `/docs`. In production, reach these
+with a port-forward instead of publishing the port.
+
 ### Resetting to a clean state
 
 Postgres only runs `docker/postgres/init-databases.sql` when it initializes
