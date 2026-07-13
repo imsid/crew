@@ -29,8 +29,11 @@ services:
       MASH_API_HOST: 0.0.0.0
       MASH_API_PORT: "8000"
       CREW_WORKSPACE_ROOT: /var/lib/crew/workspaces
+      # BigQuery ADC: the host-side key file from .env is mounted below.
+      GOOGLE_APPLICATION_CREDENTIALS: /secrets/gcp-service-account.json
     volumes:
       - ./src/crew/workspace:/var/lib/crew/workspaces
+      - ${GOOGLE_APPLICATION_CREDENTIALS:-/dev/null}:/secrets/gcp-service-account.json:ro
     depends_on:
       db:
         condition: service_healthy
@@ -57,8 +60,11 @@ services:
       CREW_HOST_URL: http://crew-host:8000
       MASH_API_KEY: ${MASH_API_KEY:-replace_me_for_local_service}
       CREW_WORKSPACE_ROOT: /var/lib/crew/workspaces
+      # Metric visualizations execute BigQuery queries in crew-api too.
+      GOOGLE_APPLICATION_CREDENTIALS: /secrets/gcp-service-account.json
     volumes:
       - ./src/crew/workspace:/var/lib/crew/workspaces:ro
+      - ${GOOGLE_APPLICATION_CREDENTIALS:-/dev/null}:/secrets/gcp-service-account.json:ro
     ports:
       - "127.0.0.1:8003:8000"
     depends_on:
