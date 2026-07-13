@@ -20,9 +20,6 @@ from .store import BetaStore
 
 LOGGER = logging.getLogger(__name__)
 DATA_AGENT_ID = "data"
-# Login also sets the token in this cookie so browser navigations that cannot
-# attach an Authorization header (the mash admin SPA at /admin) pass the mash
-# mount auth below.
 
 
 class LoginHandleRequest(BaseModel):
@@ -135,7 +132,7 @@ def create_beta_app(
                 await host_client.close()
                 await store.close()
 
-    app = FastAPI(title="Crew Beta BFF", version="0.1.0", lifespan=_lifespan)
+    app = FastAPI(title="Crew API", version="0.1.0", lifespan=_lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=list(resolved_config.cors_allowed_origins),

@@ -43,7 +43,7 @@ from .hosts_store import DEFAULT_HOST_ID, hosts_file_path, load_hosts, record_ho
 DEFAULT_CREW_API_BASE_URL = "http://127.0.0.1:8003"
 
 
-def _bff_base_url(args: argparse.Namespace) -> str:
+def _crew_api_base_url(args: argparse.Namespace) -> str:
     """Resolve the public crew-api base URL."""
     saved = load_config()
     auth = auth_store.load_auth()
@@ -60,7 +60,7 @@ def _bff_base_url(args: argparse.Namespace) -> str:
 def _mash_client(args: argparse.Namespace) -> MashHostClient:
     """Client for the Mash host API crew-api forwards under /host.
 
-    Every mount of the mash API sits behind crew token auth, so the client
+    The passthrough authenticates callers with crew tokens, so the client
     sends the logged-in user's token as the bearer key (an explicit --api-key
     overrides it).
     """
@@ -70,7 +70,7 @@ def _mash_client(args: argparse.Namespace) -> MashHostClient:
         if not auth:
             raise ValueError("not logged in. Run `crew login <username>` first.")
         api_key = auth["token"]
-    return MashHostClient(_bff_base_url(args) + "/host", api_key=api_key)
+    return MashHostClient(_crew_api_base_url(args) + "/host", api_key=api_key)
 
 
 def _require_auth(args: argparse.Namespace) -> dict[str, Any]:
@@ -270,7 +270,10 @@ def build_parser() -> argparse.ArgumentParser:
     compose = subparsers.add_parser(
         "compose",
         parents=[common_remote],
-        help="Compose agents into a host (define-or-replace)",
+        help=(
+            "Operator: compose agents into a host (define-or-replace, ad-hoc "
+            "Mash operation; not needed for `crew repl`)"
+        ),
     )
     compose.add_argument("host_id", help="Id for the composition")
     compose.add_argument("--primary", required=True, help="Primary agent id")
@@ -533,7 +536,7 @@ def _dispatch(args: argparse.Namespace, renderer: RichRenderer) -> int | None:
 
 
 def _run_login_command(args: argparse.Namespace, renderer: RichRenderer) -> int:
-    base_url = _bff_base_url(args)
+    base_url = _crew_api_base_url(args)
     username = str(args.username or "").strip()
     if not username:
         raise ValueError("a username is required: `crew login <username>`")

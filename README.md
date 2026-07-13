@@ -175,7 +175,8 @@ profile with `MASH_API_KEY`; crew-api deliberately does not proxy them.
 
 ## Prerequisites
 
-- An Anthropic API key and a DBOS conductor key
-- Postgres for runtime durability (bundled in the Docker image, or bring your
+- An Anthropic API key
+- Postgres for runtime durability (the compose stack runs one, or bring your
   own)
 - BigQuery access for the data agent's query tools (optional)
+- A DBOS Conductor key for cloud observability (optional)

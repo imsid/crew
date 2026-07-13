@@ -23,6 +23,7 @@ from ...metrics_layer.service.tool_entrypoints import (
     list_metrics_layer_configs,
     read_metrics_layer_config,
 )
+from ...app import DEFAULT_HOST_ID
 from ...shared.runtime_paths import workspace_dir
 from ...shared.workspaces import resolve_workspace
 from ...skill.service import list_skills, read_skill, search_skills
@@ -71,7 +72,7 @@ async def _execute_command(
     if payload.surface == "workflows":
         if payload.operation == "list":
             result = await state.host_client.data(
-                "GET", "/api/v1/workflow", params={"host": "datasquad"}
+                "GET", "/api/v1/workflow", params={"host": DEFAULT_HOST_ID}
             )
             data = result if isinstance(result, dict) else {"workflows": []}
         elif payload.operation == "run":

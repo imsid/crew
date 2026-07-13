@@ -359,10 +359,10 @@ export async function runCommand<T>(
   return commandPayload;
 }
 
-// Workflows are served by the mash host API the BFF mounts at root (behind
-// crew token auth), not by BFF routes: mash owns definitions, runs, step
-// events, and streaming. Workflows are host-global, not workspace-scoped;
-// the list is filtered to the workflows attached to the chat host.
+// Workflows are served by the stock Mash host API through crew-api's
+// authenticated /host passthrough, not by crew-api routes: mash owns
+// definitions, runs, step events, and streaming. Workflows are host-global,
+// not workspace-scoped; the list is filtered to the chat host's workflows.
 const CHAT_HOST_ID = "datasquad";
 
 function workflowPath(path: string) {

@@ -807,7 +807,7 @@ def test_session_history_turn_trace_can_be_loaded_from_runtime_store(tmp_path: P
             assert payload["trace"]["steps"][0]["title"]
 
 
-def test_mash_mounts_require_crew_token_and_serve_workflows(
+def test_host_passthrough_requires_crew_token_and_serves_workflows(
     tmp_path: Path,
 ) -> None:
     """Workflows are served by the mounted mash API behind the crew wrapper.
@@ -1066,7 +1066,7 @@ def test_workflow_command_surface_dispatches_host_service(tmp_path: Path) -> Non
             }
 
 
-def test_workflow_event_stream_is_served_by_mash_mount(tmp_path: Path) -> None:
+def test_workflow_event_stream_is_served_by_host_passthrough(tmp_path: Path) -> None:
     captured: dict[str, object] = {}
 
     async def fake_stream_run_events(self, workflow_id: str, run_id: str, **kwargs):
