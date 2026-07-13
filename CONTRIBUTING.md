@@ -57,10 +57,19 @@ Configuration notes:
 - The web image bakes `NEXT_PUBLIC_CREW_API_BASE_URL` into the browser
   bundle at build time (build arg in `web/Dockerfile`); rebuild `web` with
   that arg to serve from a non-local origin.
-- BigQuery: mount the service-account JSON and set
-  `GOOGLE_APPLICATION_CREDENTIALS`, `BIGQUERY_PROJECT_ID`, and
-  `BIGQUERY_MCP_URL`. Without them the data agent still runs and reports
-  itself unconfigured.
+- BigQuery: set `GOOGLE_APPLICATION_CREDENTIALS` (path to the
+  service-account JSON on your machine — compose mounts it into crew-host
+  and crew-api), `BIGQUERY_PROJECT_ID`, and `BIGQUERY_MCP_URL`. Without them
+  the data agent still runs and reports itself unconfigured.
+- **Known limitation — BigQuery MCP token expiry:** the data agent mints its
+  OAuth access token once at pool startup and bakes it into the MCP
+  connection headers (`build_mcp_servers()` in
+  `src/crew/agents/data/spec.py`). Google access tokens live ~60 minutes, so
+  BigQuery agent tool calls start failing with *"Request had invalid
+  authentication credentials"* about an hour after crew-host starts.
+  Workaround: `docker compose restart crew-host`. The fix (per-call token
+  refresh) is tracked as a follow-up. Metric visualizations in crew-api are
+  unaffected — the BigQuery client library refreshes its own credentials.
 - Probes: crew-api `GET /health`; crew-host `GET /api/v1/health` with the
   service key.
 
