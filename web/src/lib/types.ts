@@ -554,32 +554,97 @@ export type SkillDetailResponse = {
   content: string;
 };
 
-export type WorkflowTask = {
-  task_id: string;
-  agent_id: string;
+export type JsonSchema = {
+  $ref?: string;
+  type?: string | string[];
+  title?: string;
+  description?: string;
+  default?: unknown;
+  enum?: unknown[];
+  properties?: Record<string, JsonSchema>;
+  required?: string[];
+  anyOf?: JsonSchema[];
+  oneOf?: JsonSchema[];
+  minimum?: number;
+  maximum?: number;
+  minLength?: number;
+  maxLength?: number;
+  [key: string]: unknown;
+};
+
+export type WorkflowStepKind = "code" | "agent";
+
+export type WorkflowStepPreview = {
+  ordinal: number;
+  step_id: string;
+  kind: WorkflowStepKind;
+  agent_id?: string | null;
 };
 
 export type WorkflowListItem = {
   workflow_id: string;
-  tasks: WorkflowTask[];
-  [key: string]: unknown;
+  display_name: string;
+  description: string;
+  mode: "pipeline";
+  step_count: number;
+  step_kinds: { code: number; agent: number };
+  step_preview: WorkflowStepPreview[];
+  history_available: boolean;
+  latest_run: {
+    run_id: string;
+    status: string;
+    created_at: number;
+    started_at: number | null;
+    finished_at: number | null;
+  } | null;
 };
 
 export type WorkflowListResponse = {
   workflows: WorkflowListItem[];
 };
 
-export type WorkflowRunResponse = {
+export type WorkflowDefinitionStep = {
+  ordinal: number;
+  step_id: string;
+  kind: WorkflowStepKind;
+  input_schema: JsonSchema | null;
+  output_schema: JsonSchema | null;
+  timeout_s: number | null;
+  agent_id?: string | null;
+  skill_name?: string | null;
+  agent_ids?: string[];
+  orchestration?: boolean;
+};
+
+export type WorkflowDefinition = {
+  workflow_id: string;
+  mode: "pipeline";
+  metadata: Record<string, unknown>;
+  input_schema: JsonSchema | null;
+  steps: WorkflowDefinitionStep[];
+};
+
+export type WorkflowRunStarted = {
   run_id: string;
   workflow_id: string;
   status: string;
-  workflow_input?: Record<string, unknown>;
-  output?: unknown;
-  error?: string | null;
-  trace?: ExecutionTraceState;
 };
 
-export type WorkflowRunStatusResponse = {
+export type WorkflowRunStep = {
+  step_id: string;
+  ordinal: number;
+  kind: WorkflowStepKind;
+  status: string;
+  input_snapshot: Record<string, unknown> | null;
+  output_snapshot: Record<string, unknown> | null;
+  error: string | null;
+  attempt: number;
+  agent_request_id: string | null;
+  started_at: number | null;
+  finished_at: number | null;
+};
+
+export type WorkflowRunListItem = {
   run_id: string;
   workflow_id: string;
   dedup_key: string | null;
@@ -588,26 +653,38 @@ export type WorkflowRunStatusResponse = {
   started_at: number | null;
   finished_at: number | null;
   error: string | null;
-  output: Record<string, unknown> | null;
 };
 
-export type WorkflowRunSummary = {
-  turn_id: string;
-  session_id: string;
-  request_id?: string | null;
-  task_id: string;
-  agent_id: string;
-  user_message: string;
-  agent_response: string;
-};
-
-export type WorkflowRunListItem = Omit<WorkflowRunStatusResponse, "output"> & {
-  summary: WorkflowRunSummary | null;
+export type WorkflowRunDetail = WorkflowRunListItem & {
+  workflow_input: Record<string, unknown> | null;
+  session_id: string | null;
+  result: Record<string, unknown> | null;
+  steps: WorkflowRunStep[] | null;
 };
 
 export type WorkflowRunListResponse = {
   workflow_id: string;
   runs: WorkflowRunListItem[];
+  limit: number;
+  offset: number;
+  has_more: boolean;
+};
+
+export type WorkflowStepEvent = {
+  run_id: string;
+  workflow_id: string;
+  step_id: string;
+  attempt: number;
+  event_type: string;
+  seq: number;
+  at: number;
+  payload: Record<string, unknown> | null;
+};
+
+export type WorkflowStepEventsResponse = {
+  workflow_id: string;
+  run_id: string;
+  events: WorkflowStepEvent[];
 };
 
 export type WorkflowRunEvent = StreamEvent;
@@ -714,11 +791,11 @@ export type InlineCommandResult =
       surface: "workflows";
       operation: "run";
       target: string;
-      data: WorkflowRunResponse;
+      data: WorkflowRunStarted;
     }
   | {
       surface: "workflows";
       operation: "status";
       target: string;
-      data: WorkflowRunStatusResponse;
+      data: WorkflowRunDetail;
     };

@@ -1,0 +1,12 @@
+# Dev-only overlay: publishes crew-host on loopback so operators can reach
+# the Mash admin/telemetry UIs and API docs. Never use in production — the
+# base compose file deliberately keeps crew-host unpublished.
+#
+# Opt in explicitly:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+# or persistently, in .env:
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml
+services:
+  crew-host:
+    ports:
+      - "127.0.0.1:8004:8000"

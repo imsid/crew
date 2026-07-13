@@ -28,8 +28,10 @@ import type {
   WorkflowListResponse,
   WorkflowRunEvent,
   WorkflowRunListResponse,
-  WorkflowRunResponse,
-  WorkflowRunStatusResponse,
+  WorkflowDefinition,
+  WorkflowRunDetail,
+  WorkflowRunStarted,
+  WorkflowStepEventsResponse,
 } from "@/lib/types";
 
 type RequestOptions = {
@@ -44,16 +46,18 @@ type Envelope<T> = {
   error?: {
     code: string;
     message: string;
+    details?: Record<string, unknown>;
   };
 };
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_CREW_API_BASE_URL?.replace(/\/$/, "");
 
-class CrewApiError extends Error {
+export class CrewApiError extends Error {
   constructor(
     message: string,
     readonly status?: number,
     readonly code?: string,
+    readonly details?: Record<string, unknown>,
   ) {
     super(message);
   }
@@ -86,6 +90,7 @@ async function apiRequest<T>(path: string, options: RequestOptions = {}): Promis
       payload.error?.message || "Request failed",
       response.status,
       payload.error?.code,
+      payload.error?.details,
     );
   }
 
@@ -354,23 +359,36 @@ export async function runCommand<T>(
   return commandPayload;
 }
 
-export async function listWorkflows(
+// Workflows are served by the stock Mash host API through crew-api's
+// authenticated /host passthrough, not by crew-api routes: mash owns
+// definitions, runs, step events, and streaming. Workflows are host-global,
+// not workspace-scoped; the list is filtered to the chat host's workflows.
+const CHAT_HOST_ID = "datasquad";
+
+function workflowPath(path: string) {
+  return `/host/api/v1/workflow${path}`;
+}
+
+export async function listWorkflows(token: string): Promise<WorkflowListResponse> {
+  return apiRequest(workflowPath(`?host=${encodeURIComponent(CHAT_HOST_ID)}`), { token });
+}
+
+export async function getWorkflowDefinition(
   token: string,
-  workspaceId: string,
-): Promise<WorkflowListResponse> {
-  return apiRequest(workspacePath(workspaceId, "/workflow"), { token });
+  workflowId: string,
+): Promise<WorkflowDefinition> {
+  return apiRequest(workflowPath(`/${encodeURIComponent(workflowId)}`), { token });
 }
 
 export async function runWorkflow(
   token: string,
-  workspaceId: string,
   workflowId: string,
   args: {
     dedup_key?: string | null;
     input?: Record<string, unknown>;
   } = {},
-): Promise<WorkflowRunResponse> {
-  return apiRequest(workspacePath(workspaceId, `/workflow/${encodeURIComponent(workflowId)}/run`), {
+): Promise<WorkflowRunStarted> {
+  return apiRequest(workflowPath(`/${encodeURIComponent(workflowId)}/run`), {
     method: "POST",
     token,
     body: {
@@ -382,31 +400,52 @@ export async function runWorkflow(
 
 export async function getWorkflowRun(
   token: string,
-  workspaceId: string,
   workflowId: string,
   runId: string,
-): Promise<WorkflowRunStatusResponse> {
+): Promise<WorkflowRunDetail> {
   return apiRequest(
-    workspacePath(workspaceId, `/workflow/${encodeURIComponent(workflowId)}/runs/${encodeURIComponent(runId)}`),
+    workflowPath(`/${encodeURIComponent(workflowId)}/runs/${encodeURIComponent(runId)}`),
+    { token },
+  );
+}
+
+export async function resumeWorkflowRun(
+  token: string,
+  workflowId: string,
+  runId: string,
+): Promise<WorkflowRunStarted> {
+  return apiRequest(
+    workflowPath(`/${encodeURIComponent(workflowId)}/runs/${encodeURIComponent(runId)}/resume`),
+    { method: "POST", token, body: {} },
+  );
+}
+
+export async function listWorkflowStepEvents(
+  token: string,
+  workflowId: string,
+  runId: string,
+): Promise<WorkflowStepEventsResponse> {
+  return apiRequest(
+    workflowPath(`/${encodeURIComponent(workflowId)}/runs/${encodeURIComponent(runId)}/step-events`),
     { token },
   );
 }
 
 export async function listWorkflowRuns(
   token: string,
-  workspaceId: string,
   workflowId: string,
   limit = 5,
 ): Promise<WorkflowRunListResponse> {
   return apiRequest(
-    workspacePath(workspaceId, `/workflow/${encodeURIComponent(workflowId)}/runs?limit=${encodeURIComponent(String(limit))}`),
+    workflowPath(
+      `/${encodeURIComponent(workflowId)}/runs?limit=${encodeURIComponent(String(limit))}`,
+    ),
     { token },
   );
 }
 
 export async function streamWorkflowEvents(
   token: string,
-  workspaceId: string,
   workflowId: string,
   runId: string,
   onEvent: (event: WorkflowRunEvent) => void,
@@ -414,7 +453,7 @@ export async function streamWorkflowEvents(
 ): Promise<void> {
   return streamSseEvents<WorkflowRunEvent>(
     absoluteUrl(
-      workspacePath(workspaceId, `/workflow/${encodeURIComponent(workflowId)}/runs/${encodeURIComponent(runId)}/events`),
+      workflowPath(`/${encodeURIComponent(workflowId)}/runs/${encodeURIComponent(runId)}/events`),
     ),
     token,
     onEvent,
@@ -633,8 +672,8 @@ export async function runWorkflowCommand(
     dedup_key?: string | null;
     input?: Record<string, unknown>;
   },
-): Promise<WorkflowRunResponse> {
-  const response = await runCommand<WorkflowRunResponse>(token, workspaceId, {
+): Promise<WorkflowRunStarted> {
+  const response = await runCommand<WorkflowRunStarted>(token, workspaceId, {
     surface: "workflows",
     operation: "run",
     args,
@@ -649,8 +688,8 @@ export async function getWorkflowRunCommand(
     workflow_id: string;
     run_id: string;
   },
-): Promise<WorkflowRunStatusResponse> {
-  const response = await runCommand<WorkflowRunStatusResponse>(token, workspaceId, {
+): Promise<WorkflowRunDetail> {
+  const response = await runCommand<WorkflowRunDetail>(token, workspaceId, {
     surface: "workflows",
     operation: "status",
     args,

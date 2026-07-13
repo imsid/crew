@@ -10,7 +10,8 @@ from typing import Any, Optional
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
-from mash.agents.masher.spec import MasherAgentSpec
+from mash.api import MashHostConfig, create_app as create_mash_app
+from mash.agents.masher.spec import EvalAgentSpec, EvalJudgeAgentSpec
 from mash.core.context import ToolCall
 from mash.core.llm import LLMProvider
 from mash.core.llm.types import LLMContentBlock, LLMRequest, LLMResponse, LLMTokenUsage
@@ -24,9 +25,9 @@ import pytest
 
 from crew.agents.data.spec import DataAgentSpec
 from crew.agents.pm.spec import PMAgentSpec
+from crew.app import build_pool, define_default_host
 from crew.beta.app import build_beta_app, create_beta_app
 from crew.beta.routes.sessions import _normalize_stream_payload
-from crew.shared.runtime_context import get_runtime_context
 from tests.memory_fakes import InMemoryMemoryStore
 
 
@@ -114,9 +115,7 @@ class _FakeBetaStore:
         self._users: dict[str, dict[str, Any]] = {}
         self._users_by_username: dict[str, str] = {}
         self._sessions: dict[str, dict[str, Any]] = {}
-        self._skills: dict[str, dict[str, Any]] = {}
-        self._workflows: dict[str, dict[str, Any]] = {}
-        self._workflow_tasks: dict[str, list[dict[str, Any]]] = {}
+        self._session_requests: dict[str, str] = {}
         self.open_called = False
         self.close_called = False
         _FakeBetaStore.last_created = self
@@ -183,9 +182,15 @@ class _FakeBetaStore:
             return None
         return dict(session)
 
-    async def get_workspace_for_session(self, session_id: str) -> str | None:
-        session = self._sessions.get(session_id)
-        return str(session["workspace_id"]) if session else None
+    async def record_session_request(
+        self, *, request_id: str, session_id: str
+    ) -> None:
+        self._session_requests[request_id] = session_id
+
+    async def request_belongs_to_session(
+        self, *, request_id: str, session_id: str
+    ) -> bool:
+        return self._session_requests.get(request_id) == session_id
 
     async def touch_session(self, *, workspace_id: str, session_id: str) -> None:
         session = self._sessions.get(session_id)
@@ -217,54 +222,6 @@ class _FakeBetaStore:
             and str(session["user_id"]) == str(user_id)
         }
 
-    async def upsert_authored_skill(self, payload: dict[str, Any]) -> dict[str, Any]:
-        self._skills[str(payload["skill_id"])] = dict(payload)
-        return dict(payload)
-
-    async def upsert_authored_workflow(
-        self, payload: dict[str, Any], *, tasks: list[dict[str, Any]]
-    ) -> dict[str, Any]:
-        self._workflows[str(payload["workflow_id"])] = dict(payload)
-        self._workflow_tasks[str(payload["workflow_id"])] = [
-            dict(task) for task in sorted(tasks, key=lambda item: int(item["position"]))
-        ]
-        return dict(payload)
-
-    async def get_authored_workflow_bundle(
-        self, workflow_id: str
-    ) -> dict[str, Any] | None:
-        workflow = self._workflows.get(str(workflow_id))
-        if workflow is None:
-            return None
-        return {
-            "workflow": dict(workflow),
-            "skill": dict(self._skills[str(workflow["skill_id"])]),
-            "tasks": [dict(task) for task in self._workflow_tasks.get(str(workflow_id), [])],
-        }
-
-    async def list_authored_workflow_bundles(
-        self, *, status: str | None = None
-    ) -> list[dict[str, Any]]:
-        bundles: list[dict[str, Any]] = []
-        for workflow in self._workflows.values():
-            if status is not None and workflow.get("status") != status:
-                continue
-            bundle = await self.get_authored_workflow_bundle(str(workflow["workflow_id"]))
-            if bundle is not None:
-                bundles.append(bundle)
-        return bundles
-
-    async def set_authored_workflow_status(
-        self, workflow_id: str, status: str
-    ) -> dict[str, Any] | None:
-        workflow = self._workflows.get(str(workflow_id))
-        if workflow is None:
-            return None
-        workflow["status"] = status
-        workflow["updated_at"] = float(workflow.get("updated_at") or 0) + 1
-        return dict(workflow)
-
-
 class _HostStub:
     def __init__(self) -> None:
         self.started = False
@@ -287,6 +244,10 @@ class _HostStub:
     def get_host(self, host_id: str):
         assert host_id == "datasquad"
         return SimpleNamespace(primary="data", subagents=("pm",), workflows=())
+
+    def get_registered_agent_spec(self, agent_id: str):
+        del agent_id
+        return None
 
     def get_agent(self, agent_id: str):
         assert agent_id == "data"
@@ -316,6 +277,9 @@ def _build_test_client(tmp_path: Path):
     os.environ["GITHUB_URL"] = "https://github.com/org/repo"
     os.environ["MASH_DATA_DIR"] = str(tmp_path / ".mash")
     os.environ["CREW_DATABASE_URL"] = "postgresql://beta:test@127.0.0.1:5432/crew_beta"
+    os.environ["MASH_DATABASE_URL"] = "postgresql://test/runtime"
+    os.environ["CREW_HOST_URL"] = "http://mash-test"
+    os.environ["MASH_API_KEY"] = "mash-test-key"
     os.environ["CREW_BETA_AUTH_SECRET"] = "beta-secret"
     os.environ["CREW_BETA_ALLOWED_USERS"] = "alice,bob"
     _FakeBetaStore.last_created = None
@@ -332,9 +296,21 @@ def _build_test_client(tmp_path: Path):
             patch.object(PMAgentSpec, "build_memory_store", _memory_store)
         )
         stack.enter_context(
-            patch.object(MasherAgentSpec, "build_memory_store", _memory_store)
+            patch.object(EvalAgentSpec, "build_memory_store", _memory_store)
         )
-        app = build_beta_app()
+        stack.enter_context(
+            patch.object(EvalJudgeAgentSpec, "build_memory_store", _memory_store)
+        )
+        pool = build_pool()
+        define_default_host(pool)
+        host_app = create_mash_app(
+            pool,
+            config=MashHostConfig(
+                runtime_database_url=os.environ["MASH_DATABASE_URL"],
+                api_key=os.environ["MASH_API_KEY"],
+            ),
+        )
+        app = create_beta_app(host_app=host_app)
         with TestClient(app) as client:
             yield client
 
@@ -561,70 +537,68 @@ def test_build_beta_app_requires_database_url(monkeypatch) -> None:
     monkeypatch.delenv("CREW_DATABASE_URL", raising=False)
 
     with pytest.raises(RuntimeError, match="CREW_DATABASE_URL"):
-        create_beta_app(host=_HostStub())
+        create_beta_app()
 
 
 def test_beta_app_opens_and_closes_store(monkeypatch) -> None:
     monkeypatch.setenv("CREW_DATABASE_URL", "postgresql://beta:test@127.0.0.1:5432/crew_beta")
     monkeypatch.setenv("CREW_BETA_ALLOWED_USERS", "alice")
     monkeypatch.setenv("CREW_BETA_AUTH_SECRET", "beta-secret")
+    monkeypatch.setenv("CREW_HOST_URL", "http://mash-test")
+    monkeypatch.setenv("MASH_API_KEY", "mash-test-key")
 
     _FakeBetaStore.last_created = None
-    host = _HostStub()
     with patch("crew.beta.app.BetaStore", _FakeBetaStore):
-        app = create_beta_app(host=host)
+        app = create_beta_app()
         with TestClient(app) as client:
             assert client.get("/health").status_code == 200
             created = _FakeBetaStore.last_created
             assert created is not None
             assert created.open_called is True
             assert created.close_called is False
-            assert host.started is True
-            context = get_runtime_context()
-            assert context.store is created
-            assert context.host is host
-            assert context.primary_agent_id == "data"
-            assert context.workflow.primary_agent_id == "data"
 
         created = _FakeBetaStore.last_created
         assert created is not None
         assert created.close_called is True
-        with pytest.raises(RuntimeError, match="runtime context"):
-            get_runtime_context()
-        assert host.closed is True
 
 
-def test_admin_dashboard_is_served_at_root(monkeypatch) -> None:
-    from mash.api.admin_ui import admin_assets_available
-
-    if not admin_assets_available():
-        pytest.skip("packaged mash admin UI assets are not available")
-
+def test_operator_dashboard_is_not_exposed_by_crew_api(monkeypatch) -> None:
     monkeypatch.setenv("CREW_DATABASE_URL", "postgresql://beta:test@127.0.0.1:5432/crew_beta")
     monkeypatch.setenv("CREW_BETA_ALLOWED_USERS", "alice")
     monkeypatch.setenv("CREW_BETA_AUTH_SECRET", "beta-secret")
+    monkeypatch.setenv("CREW_HOST_URL", "http://mash-test")
+    monkeypatch.setenv("MASH_API_KEY", "mash-test-key")
 
     _FakeBetaStore.last_created = None
-    host = _HostStub()
     with patch("crew.beta.app.BetaStore", _FakeBetaStore):
-        app = create_beta_app(host=host)
+        app = create_beta_app()
         with TestClient(app) as client:
+            assert client.get("/admin").status_code == 404
+
+            # Login sets the crew token cookie (TestClient persists it),
+            # which is how header-less browser navigations authenticate.
+            login = client.post("/login/handle", json={"username": "alice"})
+            assert login.status_code == 200
+            assert "crew_token" not in login.cookies
+            headers = _auth_headers(login.json()["data"]["token"])
+
             # The mash admin SPA bundle uses absolute paths (/admin/assets,
             # /api/v1, /telemetry), so it must be reachable at root rather than
             # nested under /host to load.
             index = client.get("/admin")
-            assert index.status_code == 200
-            assert "/admin/assets/" in index.text
+            assert index.status_code == 404
+            assert "/admin/assets/" not in index.text
 
             asset_match = re.search(r'/admin/assets/[^"]+\.js', index.text)
-            assert asset_match is not None
+            assert asset_match is None
             # The bundle's absolute asset path resolves at root, so the SPA's
             # other absolute calls (/api/v1, /telemetry) — served by the same
             # root mount — load too.
-            assert client.get(asset_match.group(0)).status_code == 200
+            assert client.get("/host/admin", headers=headers).status_code == 404
 
-            # The CLI's /host mount of the same mash app is unaffected.
-            assert client.get("/host/admin").status_code == 200
+            # The CLI's /host mount of the same mash app sits behind the same
+            # auth.
+            assert client.get("/host/admin", headers=headers).status_code == 404
 
 
 def test_login_and_me_enforce_allowed_handles(tmp_path: Path) -> None:
@@ -833,9 +807,15 @@ def test_session_history_turn_trace_can_be_loaded_from_runtime_store(tmp_path: P
             assert payload["trace"]["steps"][0]["title"]
 
 
-def test_workflow_endpoints_are_authenticated_and_use_host_service(
+def test_host_passthrough_requires_crew_token_and_serves_workflows(
     tmp_path: Path,
 ) -> None:
+    """Workflows are served by the mounted mash API behind the crew wrapper.
+
+    Crew ships no workflow routes of its own: the web UI and CLI drive Mash
+    through the authenticated `/host` HTTP passthrough (Mash's
+    workflow behavior itself is covered in tests/test_api.py).
+    """
     captured: dict[str, object] = {}
 
     async def fake_run_workflow(
@@ -844,8 +824,9 @@ def test_workflow_endpoints_are_authenticated_and_use_host_service(
         *,
         dedup_key: str | None = None,
         workflow_input: dict[str, Any] | None = None,
+        session_id: str | None = None,
     ):
-        del self
+        del self, session_id
         captured["run"] = {
             "workflow_id": workflow_id,
             "dedup_key": dedup_key,
@@ -857,86 +838,44 @@ def test_workflow_endpoints_are_authenticated_and_use_host_service(
             status="queued",
         )
 
-    async def fake_get_run(self, workflow_id: str, run_id: str):
-        del self
-        captured["status"] = {"workflow_id": workflow_id, "run_id": run_id}
-        return SimpleNamespace(
-            run_id=run_id,
-            workflow_id=workflow_id,
-            dedup_key="trace-123",
-            status="success",
-            created_at=1.0,
-            started_at=2.0,
-            finished_at=3.0,
-            error=None,
-            output={"task_states": {"digest-traces": {"ok": True}}},
-        )
-
-    async def fake_list_runs(
-        self,
-        workflow_id: str,
-        *,
-        status: str | None = None,
-        start_time: str | None = None,
-        end_time: str | None = None,
-        limit: int = 50,
-        offset: int = 0,
-        sort_desc: bool = True,
-    ):
-        del self, status, start_time, end_time, offset, sort_desc
-        captured["runs"] = {"workflow_id": workflow_id, "limit": limit}
-        return [
-            SimpleNamespace(
-                run_id="mw:h_test:masher-trace-digest:latest",
-                workflow_id=workflow_id,
-                dedup_key=None,
-                status="completed",
-                created_at=4.0,
-                started_at=5.0,
-                finished_at=6.0,
-                error=None,
-                output={"hidden": True},
-                summary={
-                    "turn_id": "turn-1",
-                    "session_id": "session-1",
-                    "task_id": "digest-traces",
-                    "agent_id": "masher",
-                    "user_message": "summarize this",
-                    "agent_response": "summary text",
-                },
-            )
-        ]
-
     with patch.object(PMAgentSpec, "build_llm", return_value=_EchoLLM()), patch.object(
         DataAgentSpec, "build_llm", return_value=_EchoLLM()
     ), patch.object(DataAgentSpec, "build_mcp_servers", return_value=[]), patch.object(
         WorkflowService, "run_workflow", fake_run_workflow
-    ), patch.object(
-        WorkflowService, "get_run", fake_get_run
-    ), patch.object(
-        WorkflowService, "list_runs", fake_list_runs
     ):
         with _build_test_client(tmp_path) as client:
-            token, _ = _login(client, "alice")
+            # Every mash mount rejects tokenless requests.
+            assert client.get("/api/v1/workflow").status_code == 404
+            assert client.get("/host/api/v1/workflow").status_code == 401
+            assert (
+                client.get(
+                    "/host/api/v1/workflow", headers=_auth_headers("not-a-token")
+                ).status_code
+                == 401
+            )
 
-            workflows = client.get("/workspace/marketing_db/workflow", headers=_auth_headers(token))
+            token, _ = _login(client, "alice")
+            headers = _auth_headers(token)
+
+            workflows = client.get(
+                "/host/api/v1/workflow?host=datasquad", headers=headers
+            )
             assert workflows.status_code == 200
             listed = {
                 workflow["workflow_id"]: workflow
                 for workflow in workflows.json()["data"]["workflows"]
             }
-            # mash >= 0.11 attaches a structured_output schema to these tasks;
-            # assert the routing fields and ignore the schema payload.
-            assert [
-                {"task_id": task["task_id"], "agent_id": task["agent_id"]}
-                for task in listed["masher-trace-digest"]["tasks"]
-            ] == [{"task_id": "digest-traces", "agent_id": "masher"}]
+            assert listed["masher-trace-digest"]["step_kinds"] == {
+                "code": 3,
+                "agent": 0,
+            }
 
-            unauthorized = client.get("/workspace/marketing_db/workflow")
-            assert unauthorized.status_code == 401
+            # The CLI's /host mount is the same app behind the same auth.
+            host_mounted = client.get("/host/api/v1/workflow", headers=headers)
+            assert host_mounted.status_code == 200
 
             started = client.post(
-                "/workspace/marketing_db/workflow/masher-trace-digest/run",
+                "/host/api/v1/workflow/masher-trace-digest/run",
                 json={
                     "dedup_key": "trace-123",
                     "input": {
@@ -945,7 +884,7 @@ def test_workflow_endpoints_are_authenticated_and_use_host_service(
                         "trace_id": "t1",
                     },
                 },
-                headers=_auth_headers(token),
+                headers=headers,
             )
             assert started.status_code == 200
             assert started.json()["data"] == {
@@ -962,133 +901,6 @@ def test_workflow_endpoints_are_authenticated_and_use_host_service(
                     "trace_id": "t1",
                 },
             }
-
-            status = client.get(
-                "/workspace/marketing_db/workflow/masher-trace-digest/runs/mw:h_test:masher-trace-digest:abc",
-                headers=_auth_headers(token),
-            )
-            assert status.status_code == 200
-            assert status.json()["data"]["output"] == {
-                "task_states": {"digest-traces": {"ok": True}}
-            }
-            assert captured["status"] == {
-                "workflow_id": "masher-trace-digest",
-                "run_id": "mw:h_test:masher-trace-digest:abc",
-            }
-
-            runs = client.get(
-                "/workspace/marketing_db/workflow/masher-trace-digest/runs?limit=5",
-                headers=_auth_headers(token),
-            )
-            assert runs.status_code == 200
-            assert runs.json()["data"] == {
-                "workflow_id": "masher-trace-digest",
-                "runs": [
-                    {
-                        "run_id": "mw:h_test:masher-trace-digest:latest",
-                        "workflow_id": "masher-trace-digest",
-                        "dedup_key": None,
-                        "status": "completed",
-                        "created_at": 4.0,
-                        "started_at": 5.0,
-                        "finished_at": 6.0,
-                        "error": None,
-                        "summary": {
-                            "turn_id": "turn-1",
-                            "session_id": "session-1",
-                            "task_id": "digest-traces",
-                            "agent_id": "masher",
-                            "user_message": "summarize this",
-                            "agent_response": "summary text",
-                        },
-                    }
-                ],
-            }
-            assert captured["runs"] == {
-                "workflow_id": "masher-trace-digest",
-                "limit": 5,
-            }
-
-
-def test_authored_workflow_publish_endpoint_registers_primary_agent_workflow(
-    tmp_path: Path,
-) -> None:
-    with patch.object(PMAgentSpec, "build_llm", return_value=_EchoLLM()), patch.object(
-        DataAgentSpec, "build_llm", return_value=_EchoLLM()
-    ), patch.object(DataAgentSpec, "build_mcp_servers", return_value=[]):
-        with _build_test_client(tmp_path) as client:
-            token, _ = _login(client, "alice")
-            payload = {
-                "skill": {
-                    "name": "weekly-metrics-review",
-                    "description": "Review weekly metrics.",
-                    "content": "# Weekly Metrics Review\n\nReview the requested metrics.",
-                },
-                "workflow": {
-                    "workflow_id": "weekly-business-review",
-                    "name": "Weekly Business Review",
-                    "description": "Summarize weekly performance.",
-                    "input_schema": {
-                        "type": "object",
-                        "properties": {"week": {"type": "string"}},
-                        "required": ["week"],
-                    },
-                    "source_session_id": "data_session",
-                },
-                "tasks": [
-                    {
-                        "task_id": "review-metrics",
-                        "agent_id": "data",
-                        "title": "Review metrics",
-                        "structured_output": {
-                            "type": "object",
-                            "properties": {"markdown": {"type": "string"}},
-                            "required": ["markdown"],
-                        },
-                    }
-                ],
-            }
-
-            response = client.post(
-                "/workspace/marketing_db/workflow",
-                json=payload,
-                headers=_auth_headers(token),
-            )
-
-            assert response.status_code == 200
-            assert response.json()["data"]["skill_name"] == "weekly-metrics-review"
-            host = client.app.state.beta.host
-            workflow = host.get_workflow_registry().get("weekly-business-review")
-            assert workflow.tasks[0].agent_id == "data"
-            assert workflow.tasks[0].structured_output == {
-                "type": "object",
-                "properties": {"markdown": {"type": "string"}},
-                "required": ["markdown"],
-            }
-            assert workflow.task_message.skill_name == "weekly-metrics-review"
-            assert "publish_workflow" in host.get_agent("data").tools.list_tools()
-
-            detail = client.get(
-                "/workspace/marketing_db/workflow/weekly-business-review",
-                headers=_auth_headers(token),
-            )
-            assert detail.status_code == 200
-            assert detail.json()["data"]["skill"]["name"] == "weekly-metrics-review"
-
-            listed = client.get("/workspace/marketing_db/workflow", headers=_auth_headers(token))
-            assert listed.status_code == 200
-            workflows = {
-                item["workflow_id"]: item
-                for item in listed.json()["data"]["workflows"]
-            }
-            assert workflows["weekly-business-review"]["source"] == "crew-authored"
-
-            builtin_detail = client.get(
-                "/workspace/marketing_db/workflow/masher-trace-digest",
-                headers=_auth_headers(token),
-            )
-            assert builtin_detail.status_code == 200
-            assert builtin_detail.json()["data"]["workflow_id"] == "masher-trace-digest"
 
 
 def test_workflow_trace_uses_session_turn_trace_endpoint(tmp_path: Path) -> None:
@@ -1140,8 +952,9 @@ def test_workflow_command_surface_dispatches_host_service(tmp_path: Path) -> Non
         *,
         dedup_key: str | None = None,
         workflow_input: dict[str, Any] | None = None,
+        session_id: str | None = None,
     ):
-        del self
+        del self, session_id
         captured["run"] = {
             "workflow_id": workflow_id,
             "dedup_key": dedup_key,
@@ -1160,12 +973,15 @@ def test_workflow_command_surface_dispatches_host_service(tmp_path: Path) -> Non
             run_id=run_id,
             workflow_id=workflow_id,
             dedup_key="trace-123",
-            status="success",
+            status="completed",
             created_at=1.0,
             started_at=2.0,
             finished_at=3.0,
             error=None,
-            output={"task_states": {"digest-traces": {"ok": True}}},
+            workflow_input={"mode": "trace", "session_id": "s1", "trace_id": "t1"},
+            session_id=None,
+            result={"processed_trace_count": 1},
+            steps=[{"step_id": "append-digests", "status": "completed"}],
         )
 
     with patch.object(PMAgentSpec, "build_llm", return_value=_EchoLLM()), patch.object(
@@ -1191,12 +1007,10 @@ def test_workflow_command_surface_dispatches_host_service(tmp_path: Path) -> Non
                 workflow["workflow_id"]: workflow
                 for workflow in listed.json()["data"]["workflows"]
             }
-            # mash >= 0.11 attaches a structured_output schema to these tasks;
-            # assert the routing fields and ignore the schema payload.
-            assert [
-                {"task_id": task["task_id"], "agent_id": task["agent_id"]}
-                for task in workflows["masher-trace-digest"]["tasks"]
-            ] == [{"task_id": "digest-traces", "agent_id": "masher"}]
+            assert workflows["masher-trace-digest"]["step_kinds"] == {
+                "code": 3,
+                "agent": 0,
+            }
 
             started = client.post(
                 "/workspace/marketing_db/command",
@@ -1244,17 +1058,15 @@ def test_workflow_command_surface_dispatches_host_service(tmp_path: Path) -> Non
                 headers=headers,
             )
             assert status.status_code == 200
-            assert status.json()["data"]["status"] == "success"
-            assert status.json()["data"]["output"] == {
-                "task_states": {"digest-traces": {"ok": True}}
-            }
+            assert status.json()["data"]["status"] == "completed"
+            assert status.json()["data"]["result"] == {"processed_trace_count": 1}
             assert captured["status"] == {
                 "workflow_id": "masher-trace-digest",
                 "run_id": "mw:h_test:masher-trace-digest:abc",
             }
 
 
-def test_workflow_event_stream_uses_beta_host_service(tmp_path: Path) -> None:
+def test_workflow_event_stream_is_served_by_host_passthrough(tmp_path: Path) -> None:
     captured: dict[str, object] = {}
 
     async def fake_stream_run_events(self, workflow_id: str, run_id: str, **kwargs):
@@ -1263,12 +1075,14 @@ def test_workflow_event_stream_uses_beta_host_service(tmp_path: Path) -> None:
 
         async def _events():
             yield SimpleNamespace(
-                event="request.completed",
+                event="workflow.completed",
                 data={
                     "workflow_id": workflow_id,
                     "run_id": run_id,
-                    "response": {"text": "done"},
+                    "status": "completed",
+                    "result": {"ok": True},
                 },
+                comment=None,
             )
 
         return _events()
@@ -1283,7 +1097,7 @@ def test_workflow_event_stream_uses_beta_host_service(tmp_path: Path) -> None:
 
             events = _collect_sse_events(
                 client,
-                "/workspace/marketing_db/workflow/masher-trace-digest/runs/"
+                "/host/api/v1/workflow/masher-trace-digest/runs/"
                 "mw:h_test:masher-trace-digest:abc/events",
                 token=token,
             )
@@ -1292,9 +1106,8 @@ def test_workflow_event_stream_uses_beta_host_service(tmp_path: Path) -> None:
                 "workflow_id": "masher-trace-digest",
                 "run_id": "mw:h_test:masher-trace-digest:abc",
             }
-            assert events[-1]["event"] == "request.completed"
-            assert events[-1]["data"]["response"]["text"] == "done"
-            assert events[-1]["data"]["runtime_event"]["sequence"] == 1
+            assert events[-1]["event"] == "workflow.completed"
+            assert events[-1]["data"]["result"] == {"ok": True}
 
 
 def test_workflow_command_surface_maps_errors(tmp_path: Path) -> None:
@@ -1304,8 +1117,9 @@ def test_workflow_command_surface_maps_errors(tmp_path: Path) -> None:
         *,
         dedup_key: str | None = None,
         workflow_input: dict[str, Any] | None = None,
+        session_id: str | None = None,
     ):
-        del self, workflow_input
+        del self, workflow_input, session_id
         if workflow_id == "duplicate":
             existing = WorkflowRun(
                 run_id="mw:h_test:duplicate:existing",
@@ -1367,7 +1181,7 @@ def test_workflow_command_surface_maps_errors(tmp_path: Path) -> None:
                 headers=headers,
             )
             assert duplicate.status_code == 409
-            assert duplicate.json()["error"]["details"]["existing_run_id"] == (
+            assert duplicate.json()["error"]["details"]["run_id"] == (
                 "mw:h_test:duplicate:existing"
             )
 

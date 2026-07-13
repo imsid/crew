@@ -25,8 +25,21 @@ async def health(request: Request) -> dict[str, Any]:
     return {
         "data": {
             "status": "ok",
-            "service": "crew-beta-bff",
+            "service": "crew-api",
             "primary_agent_id": DATA_AGENT_ID,
+        }
+    }
+
+
+@router.get("/ready")
+async def ready(request: Request) -> dict[str, Any]:
+    state = _beta_state(request)
+    host = await state.host_client.data("GET", "/api/v1/health")
+    return {
+        "data": {
+            "status": "ready",
+            "service": "crew-api",
+            "host": host,
         }
     }
 

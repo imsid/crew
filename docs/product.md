@@ -116,7 +116,6 @@ It is grounded by six core product layers:
 - the `metrics_layer` service
 - the `experimentation` service
 - the `artifacts` service
-- the `workflow` service
 - the `analyst`, `experiment-analyst`, and `steward` skills
 - inbuilt `MemoryStore` layer provided by mash
 
@@ -199,26 +198,24 @@ The `artifacts` service is the collaboration layer for `crew`. It offers:
 
 Artifacts matter because they turn a useful conversation into team knowledge instead of leaving it trapped in one session.
 
-## Workflow Service
+## Workflows
 
-The `workflow` service is the repeatability layer for `crew`. It offers:
-
-- durable workflow definitions and published metadata in the Crew app store
-- validation and registration of approved multi-step workflows against the host
-- thin command and API surfaces for listing workflows, starting runs, and checking status
-- a path from one-off analysis into reusable operating processes
-
-This is what keeps workflow execution grounded in registered agents and validated workflow definitions instead of ad hoc procedural prompts.
+Workflows are code-shipped, typed step pipelines (`CodeStep` / `AgentStep`)
+registered with the Mash runtime at host build. The runtime owns definitions,
+durable runs, step-level audit events, and resume-from-failed-step; crew
+exposes thin command and API surfaces for listing workflows, configuring
+inputs, starting runs, and inspecting them. Every host includes the built-in
+masher suite (trace digests, online eval curation, synthetic eval generation,
+experiment runs).
 
 In practice, the flow is:
 
 ```mermaid
 flowchart TD
-    Q["Repeatable process"] --> D["Workflow definition"]
-    D --> V["Workflow service validation"]
-    V --> R["Host workflow registration"]
-    R --> X["Workflow run"]
-    X --> F["Reusable output"]
+    D["Workflow pipeline (Python)"] --> R["Host registration at build"]
+    R --> X["Workflow run (typed input)"]
+    X --> S["Durable steps + audit events"]
+    S --> F["Run result"]
 ```
 
 ## Data-Agent Skills

@@ -1,58 +1,102 @@
+# Crew Beta: one public crew-api and one private stock Mash crew-host.
 services:
   db:
     image: postgres:17-alpine
     environment:
-      POSTGRES_DB: mash_crew
+      POSTGRES_DB: postgres
       POSTGRES_USER: mash
       POSTGRES_PASSWORD: mash
     ports:
-      # Published for the local dev loop (`docker compose up -d db` +
-      # `mash host serve` on the host machine); the crew service uses the
-      # internal network either way.
       - "127.0.0.1:5434:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./docker/postgres/init-databases.sql:/docker-entrypoint-initdb.d/10-databases.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U mash -d mash_crew"]
+      test: ["CMD-SHELL", "pg_isready -U mash -d postgres"]
       interval: 2s
       timeout: 3s
       retries: 15
     restart: unless-stopped
 
-  crew:
+  crew-host:
     image: ghcr.io/imsid/crew:latest
     build: .
+    command: ["python", "-m", "crew.host"]
     env_file: .env
     environment:
-      MASH_DATABASE_URL: postgresql://mash:mash@db:5432/mash_crew
-    ports:
-      - "8000:8000"
+      MASH_DATABASE_URL: postgresql://mash_host:mash_host@db:5432/mash_runtime
+      MASH_API_KEY: ${MASH_API_KEY:-replace_me_for_local_service}
+      MASH_API_HOST: 0.0.0.0
+      MASH_API_PORT: "8000"
+      CREW_WORKSPACE_ROOT: /var/lib/crew/workspaces
+      # BigQuery ADC: the host-side key file from .env is mounted below.
+      GOOGLE_APPLICATION_CREDENTIALS: /secrets/gcp-service-account.json
     volumes:
-      - crewdata:/var/lib/crew
+      - ./src/crew/workspace:/var/lib/crew/workspaces
+      - ${GOOGLE_APPLICATION_CREDENTIALS:-/dev/null}:/secrets/gcp-service-account.json:ro
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import os,urllib.request; r=urllib.request.Request('http://127.0.0.1:8000/api/v1/health',headers={'Authorization':'Bearer '+os.environ['MASH_API_KEY']}); urllib.request.urlopen(r,timeout=3)",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
     restart: unless-stopped
 
-  # Optional: the beta web BFF, from the same image (CREW_SERVE_MODE=beta).
-  # Opt in with `docker compose --profile beta up`. Set the CREW_BETA_* and
-  # ANTHROPIC/DBOS variables in .env. The Next.js frontend under web/ is
-  # deployed separately and points at this service's URL.
-  beta:
+  crew-api:
     image: ghcr.io/imsid/crew:latest
     build: .
-    profiles: ["beta"]
     env_file: .env
     environment:
-      CREW_SERVE_MODE: beta
-      CREW_DATABASE_URL: postgresql://mash:mash@db:5432/mash_crew
+      CREW_DATABASE_URL: postgresql://crew_api:crew_api@db:5432/crew_app
+      CREW_HOST_URL: http://crew-host:8000
+      MASH_API_KEY: ${MASH_API_KEY:-replace_me_for_local_service}
+      CREW_WORKSPACE_ROOT: /var/lib/crew/workspaces
+      # Metric visualizations execute BigQuery queries in crew-api too.
+      GOOGLE_APPLICATION_CREDENTIALS: /secrets/gcp-service-account.json
+    volumes:
+      - ./src/crew/workspace:/var/lib/crew/workspaces:ro
+      - ${GOOGLE_APPLICATION_CREDENTIALS:-/dev/null}:/secrets/gcp-service-account.json:ro
     ports:
-      - "8001:8000"
+      - "127.0.0.1:8003:8000"
     depends_on:
       db:
+        condition: service_healthy
+      crew-host:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health',timeout=3)",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    restart: unless-stopped
+
+  web:
+    build:
+      context: web
+      args:
+        NEXT_PUBLIC_CREW_API_BASE_URL: http://127.0.0.1:8003
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      crew-api:
         condition: service_healthy
     restart: unless-stopped
 
 volumes:
   pgdata:
-  crewdata:

@@ -39,10 +39,9 @@ class _FakeAsyncConnection:
         self.users: dict[str, dict[str, object]] = {}
         self.users_by_username: dict[str, str] = {}
         self.sessions: dict[str, dict[str, object]] = {}
-        self.skills: dict[str, dict[str, object]] = {}
-        self.skills_by_name: dict[str, str] = {}
-        self.workflows: dict[str, dict[str, object]] = {}
-        self.workflow_tasks: dict[tuple[str, str], dict[str, object]] = {}
+        self.session_requests: dict[str, dict[str, object]] = {}
+        self.dropped_tables: list[str] = []
+        self.migrations: dict[int, dict[str, object]] = {}
 
     async def set_autocommit(self, value: bool) -> None:
         self.autocommit = value
@@ -54,25 +53,32 @@ class _FakeAsyncConnection:
         self.closed = True
 
     def execute(self, query: str, params: tuple[object, ...]) -> list[dict[str, object]]:
+        if query.startswith("CREATE TABLE IF NOT EXISTS crew_schema_migrations"):
+            return []
+        if query.startswith("SELECT version FROM crew_schema_migrations"):
+            return [dict(item) for item in self.migrations.values()]
+        if query.startswith("INSERT INTO crew_schema_migrations"):
+            version, name, applied_at = params
+            self.migrations[int(version)] = {
+                "version": int(version),
+                "name": str(name),
+                "applied_at": float(applied_at),
+            }
+            return []
         if query.startswith("CREATE TABLE IF NOT EXISTS users"):
             return []
         if query.startswith("CREATE TABLE IF NOT EXISTS sessions"):
             return []
-        if query.startswith("CREATE INDEX IF NOT EXISTS idx_sessions_user_id"):
+        if query.startswith("CREATE TABLE IF NOT EXISTS session_requests"):
             return []
         if query.startswith("CREATE INDEX IF NOT EXISTS idx_sessions_workspace_user_id"):
             return []
         if query.startswith("CREATE INDEX IF NOT EXISTS idx_sessions_last_opened_at"):
             return []
-        if query.startswith("CREATE TABLE IF NOT EXISTS skills"):
+        if query.startswith("CREATE INDEX IF NOT EXISTS idx_session_requests_session_id"):
             return []
-        if query.startswith("CREATE TABLE IF NOT EXISTS workflows"):
-            return []
-        if query.startswith("CREATE TABLE IF NOT EXISTS workflow_tasks"):
-            return []
-        if query.startswith("ALTER TABLE workflow_tasks DROP COLUMN IF EXISTS instruction"):
-            return []
-        if query.startswith("CREATE INDEX IF NOT EXISTS idx_workflows_status"):
+        if query.startswith("DROP TABLE IF EXISTS "):
+            self.dropped_tables.append(query.removeprefix("DROP TABLE IF EXISTS "))
             return []
         if query.startswith("SELECT id, username, display_name, status, created_at FROM users WHERE id ="):
             user = self.users.get(str(params[0]))
@@ -109,6 +115,20 @@ class _FakeAsyncConnection:
             }
             self.sessions[str(session_id)] = payload
             return []
+        if query.startswith("INSERT INTO session_requests"):
+            request_id, session_id, created_at = params
+            self.session_requests[str(request_id)] = {
+                "request_id": str(request_id),
+                "session_id": str(session_id),
+                "created_at": float(created_at),
+            }
+            return []
+        if query.startswith("SELECT request_id FROM session_requests"):
+            request_id, session_id = params
+            item = self.session_requests.get(str(request_id))
+            if item is None or item["session_id"] != str(session_id):
+                return []
+            return [{"request_id": str(request_id)}]
         if query.startswith("SELECT workspace_id, session_id, user_id, agent_id, label"):
             if "WHERE workspace_id = %s AND session_id = %s" in query:
                 workspace_id, session_id = params
@@ -144,151 +164,6 @@ class _FakeAsyncConnection:
                 and str(session["user_id"]) == user_id
             ]
             return rows
-        if query.startswith("INSERT INTO skills"):
-            skill_id, name, description, content, status, created_at, updated_at = params
-            existing = self.skills.get(str(skill_id))
-            if existing is not None:
-                existing.update(
-                    {
-                        "name": str(name),
-                        "description": str(description),
-                        "content": str(content),
-                        "status": str(status),
-                        "updated_at": float(updated_at),
-                    }
-                )
-                self.skills_by_name[str(name)] = str(skill_id)
-                return [dict(existing)]
-            payload = {
-                "skill_id": str(skill_id),
-                "name": str(name),
-                "description": str(description),
-                "content": str(content),
-                "status": str(status),
-                "created_at": float(created_at),
-                "updated_at": float(updated_at),
-            }
-            self.skills[str(skill_id)] = payload
-            self.skills_by_name[str(name)] = str(skill_id)
-            return [dict(payload)]
-        if query.startswith("INSERT INTO workflows"):
-            (
-                workflow_id,
-                skill_id,
-                name,
-                description,
-                status,
-                input_schema,
-                owner_agent_id,
-                source_session_id,
-                created_at,
-                updated_at,
-            ) = params
-            existing = self.workflows.get(str(workflow_id))
-            if existing is not None:
-                existing.update(
-                    {
-                        "skill_id": str(skill_id),
-                        "name": str(name),
-                        "description": str(description),
-                        "status": str(status),
-                        "input_schema": input_schema,
-                        "owner_agent_id": str(owner_agent_id),
-                        "source_session_id": source_session_id,
-                        "updated_at": float(updated_at),
-                    }
-                )
-                return [dict(existing)]
-            payload = {
-                "workflow_id": str(workflow_id),
-                "skill_id": str(skill_id),
-                "name": str(name),
-                "description": str(description),
-                "status": str(status),
-                "input_schema": input_schema,
-                "owner_agent_id": str(owner_agent_id),
-                "source_session_id": source_session_id,
-                "created_at": float(created_at),
-                "updated_at": float(updated_at),
-            }
-            self.workflows[str(workflow_id)] = payload
-            return [dict(payload)]
-        if query.startswith("DELETE FROM workflow_tasks WHERE workflow_id ="):
-            workflow_id = str(params[0])
-            self.workflow_tasks = {
-                key: value
-                for key, value in self.workflow_tasks.items()
-                if key[0] != workflow_id
-            }
-            return []
-        if query.startswith("INSERT INTO workflow_tasks"):
-            (
-                workflow_id,
-                task_id,
-                position,
-                title,
-                agent_id,
-                structured_output,
-            ) = params
-            payload = {
-                "workflow_id": str(workflow_id),
-                "task_id": str(task_id),
-                "position": int(position),
-                "title": str(title),
-                "agent_id": str(agent_id),
-                "structured_output": structured_output,
-            }
-            self.workflow_tasks[(str(workflow_id), str(task_id))] = payload
-            return []
-        if query.startswith("SELECT workflow_id, skill_id, name, description, status, input_schema"):
-            if "WHERE workflow_id =" in query:
-                workflow = self.workflows.get(str(params[0]))
-                return [dict(workflow)] if workflow is not None else []
-            if "WHERE status =" in query:
-                status = str(params[0])
-                rows = [
-                    {"workflow_id": workflow["workflow_id"]}
-                    for workflow in self.workflows.values()
-                    if workflow["status"] == status
-                ]
-                rows.sort(key=lambda item: str(item["workflow_id"]))
-                return rows
-        if query.startswith("SELECT workflow_id FROM workflows WHERE status ="):
-            status = str(params[0])
-            rows = [
-                {"workflow_id": workflow["workflow_id"]}
-                for workflow in self.workflows.values()
-                if workflow["status"] == status
-            ]
-            rows.sort(key=lambda item: str(item["workflow_id"]))
-            return rows
-        if query.startswith("SELECT workflow_id FROM workflows ORDER BY"):
-            rows = [
-                {"workflow_id": workflow["workflow_id"]}
-                for workflow in self.workflows.values()
-            ]
-            rows.sort(key=lambda item: str(item["workflow_id"]))
-            return rows
-        if query.startswith("SELECT skill_id, name, description, content, status"):
-            skill = self.skills.get(str(params[0]))
-            return [dict(skill)] if skill is not None else []
-        if query.startswith("SELECT workflow_id, task_id, position, title, agent_id"):
-            workflow_id = str(params[0])
-            rows = [
-                dict(task)
-                for key, task in self.workflow_tasks.items()
-                if key[0] == workflow_id
-            ]
-            rows.sort(key=lambda item: int(item["position"]))
-            return rows
-        if query.startswith("UPDATE workflows SET status ="):
-            status, updated_at, workflow_id = params
-            workflow = self.workflows.get(str(workflow_id))
-            if workflow is None:
-                return []
-            workflow["status"] = str(status)
-            workflow["updated_at"] = float(updated_at)
-            return [dict(workflow)]
         raise AssertionError(f"Unhandled query: {query}")
 
 
@@ -319,6 +194,18 @@ async def test_beta_store_ensure_user_is_stable(fake_connection: _FakeAsyncConne
 
     assert first == second
     assert len(fake_connection.users) == 1
+
+
+@pytest.mark.anyio
+async def test_beta_store_drops_authored_workflow_tables(
+    fake_connection: _FakeAsyncConnection,
+) -> None:
+    store = BetaStore("postgresql://beta:test@127.0.0.1:5432/crew_beta")
+    await store.open()
+
+    # The UX-authored workflow tables were removed in the mashpy 0.17.0
+    # cutover; opening the store drops any leftovers from older deployments.
+    assert fake_connection.dropped_tables == ["workflow_tasks", "workflows", "skills"]
 
 
 @pytest.mark.anyio
@@ -375,105 +262,3 @@ async def test_beta_store_close_closes_connection(fake_connection: _FakeAsyncCon
     await store.close()
 
     assert fake_connection.closed is True
-
-
-@pytest.mark.anyio
-async def test_beta_store_persists_authored_workflow_bundle(
-    fake_connection: _FakeAsyncConnection,
-) -> None:
-    store = BetaStore("postgresql://beta:test@127.0.0.1:5432/crew_beta")
-    await store.open()
-
-    skill = await store.upsert_authored_skill(
-        {
-            "skill_id": "weekly-metrics-review",
-            "name": "weekly-metrics-review",
-            "description": "Review weekly metrics.",
-            "content": "# Weekly metrics review",
-            "status": "published",
-            "created_at": 1.0,
-            "updated_at": 1.0,
-        }
-    )
-    await store.upsert_authored_workflow(
-        {
-            "workflow_id": "weekly-business-review",
-            "skill_id": skill["skill_id"],
-            "name": "Weekly Business Review",
-            "description": "Summarize the week.",
-            "status": "published",
-            "input_schema": {"type": "object", "properties": {}},
-            "owner_agent_id": "data",
-            "source_session_id": "data_session",
-            "created_at": 2.0,
-            "updated_at": 2.0,
-        },
-        tasks=[
-            {
-                "workflow_id": "weekly-business-review",
-                "task_id": "summarize",
-                "position": 2,
-                "title": "Summarize",
-                "agent_id": "data",
-                "structured_output": {"type": "object", "properties": {}},
-            },
-            {
-                "workflow_id": "weekly-business-review",
-                "task_id": "gather",
-                "position": 1,
-                "title": "Gather",
-                "agent_id": "data",
-                "structured_output": {"type": "object", "properties": {}},
-            },
-        ],
-    )
-
-    bundle = await store.get_authored_workflow_bundle("weekly-business-review")
-
-    assert bundle is not None
-    assert bundle["skill"]["name"] == "weekly-metrics-review"
-    assert bundle["workflow"]["source_session_id"] == "data_session"
-    assert [task["task_id"] for task in bundle["tasks"]] == ["gather", "summarize"]
-
-
-@pytest.mark.anyio
-async def test_beta_store_disables_authored_workflow(
-    fake_connection: _FakeAsyncConnection,
-) -> None:
-    store = BetaStore("postgresql://beta:test@127.0.0.1:5432/crew_beta")
-    await store.open()
-    skill = await store.upsert_authored_skill(
-        {
-            "skill_id": "reviewer",
-            "name": "reviewer",
-            "description": "Review.",
-            "content": "Review.",
-            "status": "published",
-        }
-    )
-    await store.upsert_authored_workflow(
-        {
-            "workflow_id": "review",
-            "skill_id": skill["skill_id"],
-            "name": "Review",
-            "description": "Review.",
-            "status": "published",
-            "input_schema": {"type": "object"},
-            "owner_agent_id": "data",
-        },
-        tasks=[
-            {
-                "workflow_id": "review",
-                "task_id": "review",
-                "position": 1,
-                "title": "Review",
-                "agent_id": "data",
-                "structured_output": {"type": "object"},
-            }
-        ],
-    )
-
-    disabled = await store.set_authored_workflow_status("review", "disabled")
-
-    assert disabled is not None
-    assert disabled["status"] == "disabled"

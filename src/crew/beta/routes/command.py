@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import json
 from typing import Any
+from urllib.parse import quote
 
 import yaml
 from fastapi import APIRouter, Depends, Request
-from mash.workflows import DuplicateWorkflowRunError, WorkflowNotFoundError
 
 from ...artifacts.service.context import build_tool_context as build_artifact_context
 from ...artifacts.service.repo import list_artifacts, read_artifact, search_artifacts
@@ -23,8 +23,8 @@ from ...metrics_layer.service.tool_entrypoints import (
     list_metrics_layer_configs,
     read_metrics_layer_config,
 )
+from ...app import DEFAULT_HOST_ID
 from ...shared.runtime_paths import workspace_dir
-from ...shared.workspace_context import bound_workspace, register_workflow_task_workspaces
 from ...shared.workspaces import resolve_workspace
 from ...skill.service import list_skills, read_skill, search_skills
 from ..app import (
@@ -40,10 +40,6 @@ from ..visualizations import (
     BigQueryExecutionError,
     build_experiment_analysis,
     build_metric_visualization,
-)
-from .workflow import (
-    _serialize_workflow_run_started,
-    _serialize_workflow_run_status,
 )
 
 router = APIRouter()
@@ -74,9 +70,11 @@ async def _execute_command(
         args.pop("dataset_id", None)
 
     if payload.surface == "workflows":
-        workflow_service = state.host.get_workflow_service()
         if payload.operation == "list":
-            data = {"workflows": await workflow_service.list_workflows()}
+            result = await state.host_client.data(
+                "GET", "/api/v1/workflow", params={"host": DEFAULT_HOST_ID}
+            )
+            data = result if isinstance(result, dict) else {"workflows": []}
         elif payload.operation == "run":
             workflow_id = _require_command_text(args.get("workflow_id"), "workflow_id")
             workflow_input = args.get("input", {})
@@ -86,53 +84,26 @@ async def _execute_command(
                     code="INVALID_COMMAND",
                     message="workflow input must be a JSON object",
                 )
-            try:
-                with bound_workspace(workspace_id):
-                    run = await workflow_service.run_workflow(
-                        workflow_id,
-                        dedup_key=_normalize_optional_text(
-                            str(args.get("dedup_key") or "")
-                        ),
-                        workflow_input=workflow_input,
-                    )
-                register_workflow_task_workspaces(
-                    workflow_id=workflow_id,
-                    run_id=str(run.run_id),
-                    tasks=await _workflow_tasks(state, workflow_id),
-                    workspace_id=workspace_id,
-                )
-            except WorkflowNotFoundError as exc:
-                raise AppError(
-                    status_code=404,
-                    code="WORKFLOW_NOT_FOUND",
-                    message=str(exc),
-                ) from exc
-            except DuplicateWorkflowRunError as exc:
-                raise AppError(
-                    status_code=409,
-                    code="DUPLICATE_WORKFLOW_RUN",
-                    message=str(exc),
-                    details={"existing_run_id": exc.existing_run.run_id},
-                ) from exc
-            except Exception as exc:
-                raise AppError(
-                    status_code=500,
-                    code="WORKFLOW_RUN_FAILED",
-                    message=str(exc),
-                ) from exc
-            data = _serialize_workflow_run_started(run)
+            result = await state.host_client.data(
+                "POST",
+                f"/api/v1/workflow/{quote(workflow_id, safe='')}/run",
+                json={
+                    "dedup_key": _normalize_optional_text(
+                        str(args.get("dedup_key") or "")
+                    ),
+                    "input": workflow_input,
+                },
+            )
+            data = dict(result or {})
         elif payload.operation == "status":
             workflow_id = _require_command_text(args.get("workflow_id"), "workflow_id")
             run_id = _require_command_text(args.get("run_id"), "run_id")
-            try:
-                run = await workflow_service.get_run(workflow_id, run_id)
-            except WorkflowNotFoundError as exc:
-                raise AppError(
-                    status_code=404,
-                    code="WORKFLOW_NOT_FOUND",
-                    message=str(exc),
-                ) from exc
-            data = _serialize_workflow_run_status(run)
+            result = await state.host_client.data(
+                "GET",
+                f"/api/v1/workflow/{quote(workflow_id, safe='')}"
+                f"/runs/{quote(run_id, safe='')}",
+            )
+            data = dict(result or {})
         else:
             raise _invalid_operation(payload.surface, payload.operation)
         return _command_success(payload.surface, payload.operation, data)
@@ -295,21 +266,6 @@ async def _execute_command(
         return _command_success(payload.surface, payload.operation, data)
 
     raise _invalid_operation(payload.surface, payload.operation)
-
-
-async def _workflow_tasks(
-    state: BetaAppState,
-    workflow_id: str,
-) -> list[dict[str, object]]:
-    for workflow in await state.host.get_workflow_service().list_workflows():
-        if not isinstance(workflow, dict):
-            continue
-        if str(workflow.get("workflow_id") or "") != workflow_id:
-            continue
-        tasks = workflow.get("tasks")
-        if isinstance(tasks, list):
-            return [dict(task) for task in tasks if isinstance(task, dict)]
-    return []
 
 
 def _require_command_text(value: Any, field_name: str) -> str:

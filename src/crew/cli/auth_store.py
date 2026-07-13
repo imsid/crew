@@ -1,6 +1,6 @@
 """Local auth state for the crew CLI.
 
-`crew login` authenticates against the BFF and stores the bearer token here so
+`crew login` authenticates against crew-api and stores the bearer token here so
 later commands act as the same user the web UI uses. Stored at
 `~/.crew/auth.json` (override the directory with `CREW_HOME`). Stdlib-only so
 the standalone CLI binary can import it without the server stack.

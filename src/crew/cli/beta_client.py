@@ -1,7 +1,7 @@
-"""HTTP client for the crew BFF (beta) API.
+"""HTTP client for crew-api.
 
-The BFF is the single host process; the CLI talks to it as an authenticated
-user so its sessions land in the same tables the web UI uses. This wraps the
+The CLI talks to crew-api as an authenticated user so its sessions land in
+the same tables the web UI uses. This wraps the
 auth, session, message, and SSE-stream endpoints under
 `/workspace/{workspace_id}`.
 """
@@ -32,7 +32,7 @@ def _raise_for_payload(response: httpx.Response) -> dict[str, Any]:
         error = error if isinstance(error, dict) else {}
         raise BetaAPIError(
             status_code=response.status_code,
-            code=str(error.get("code") or "BFF_ERROR"),
+            code=str(error.get("code") or "CREW_API_ERROR"),
             message=str(error.get("message") or f"request failed ({response.status_code})"),
         )
     return payload if isinstance(payload, dict) else {}
@@ -48,7 +48,7 @@ def login(api_base_url: str, username: str, *, timeout: float = 30.0) -> dict[st
 
 
 class BetaClient:
-    """Authenticated client for one BFF deployment."""
+    """Authenticated client for one crew-api deployment."""
 
     def __init__(self, api_base_url: str, token: str, *, timeout: float = 30.0) -> None:
         self._base = api_base_url.rstrip("/")
@@ -143,6 +143,60 @@ class BetaClient:
                         event_name = line[len("event:"):].strip()
                     elif line.startswith("data:"):
                         data_lines.append(line[len("data:"):].strip())
+
+
+class CrewRemoteShell:
+    """Product REPL that keeps authorization and workspace injection in Crew."""
+
+    def __init__(
+        self,
+        client: BetaClient,
+        workspace_id: str,
+        session_id: str,
+        renderer: Any,
+    ) -> None:
+        self.client = client
+        self.workspace_id = workspace_id
+        self.session_id = session_id
+        self.renderer = renderer
+
+    def run(self) -> None:
+        self.renderer.info("Type /exit to leave the Crew session.")
+        while True:
+            try:
+                message = input("crew> ").strip()
+            except (EOFError, KeyboardInterrupt):
+                self.renderer.print()
+                return
+            if not message:
+                continue
+            if message in {"/exit", "/quit"}:
+                return
+            request_id = self.client.send_message(
+                self.workspace_id, self.session_id, message
+            )
+            if not request_id:
+                raise BetaAPIError(502, "MASH_PROXY_ERROR", "missing request id")
+            for event_name, data in self.client.stream_events(
+                self.workspace_id, self.session_id, request_id
+            ):
+                if event_name == "request.interaction.create":
+                    prompt = str(data.get("prompt") or "Input required")
+                    response = input(f"{prompt}: ")
+                    self.client.post_interaction(
+                        self.workspace_id,
+                        self.session_id,
+                        request_id,
+                        interaction_id=str(data.get("interaction_id") or ""),
+                        response=response,
+                    )
+                elif event_name == "request.completed":
+                    response = data.get("response")
+                    text = response.get("text") if isinstance(response, dict) else None
+                    if text:
+                        self.renderer.markdown(str(text))
+                elif event_name == "request.error":
+                    self.renderer.error(str(data.get("error") or "Request failed"))
 
 
 def _decode_data(raw: str) -> dict[str, Any]:

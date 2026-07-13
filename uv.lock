@@ -871,7 +871,7 @@ dev = [
 requires-dist = [
     { name = "build", marker = "extra == 'dev'", specifier = ">=1.2.2" },
     { name = "google-auth", specifier = ">=2" },
-    { name = "mashpy", specifier = ">=0.13.0" },
+    { name = "mashpy", specifier = ">=0.18.0" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2.0" },
     { name = "pyinstaller", marker = "extra == 'dev'", specifier = ">=6.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3.0" },
@@ -885,7 +885,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "mashpy"
-version = "0.13.0"
+version = "0.18.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiosqlite" },
@@ -899,6 +899,8 @@ dependencies = [
     { name = "prompt-toolkit" },
     { name = "psycopg", extra = ["binary"] },
     { name = "psycopg-pool" },
+    { name = "pydantic" },
+    { name = "python-dotenv" },
     { name = "pyyaml" },
     { name = "requests" },
     { name = "rich" },
@@ -906,9 +908,9 @@ dependencies = [
     { name = "tomli", marker = "python_full_version < '3.11'" },
     { name = "uvicorn" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c6/4f/a618084e4edb4e3d6ab3eaad40fe9056a66b420f1e334ab3b44da870ff53/mashpy-0.13.0.tar.gz", hash = "sha256:48e1a68fe3fa1f65df4e7f4541acac43a4a65af0787e825e83ea93c491c1546e", size = 562421 }
+sdist = { url = "https://files.pythonhosted.org/packages/41/bd/d94124b8bfbd864e8b6b14be52bbc3b24c1cccbd9df98422f0ca48d13b45/mashpy-0.18.0.tar.gz", hash = "sha256:8436d1a8aa636d0430af51aa028bf26e0e246d67d833d7ebb466d7679e95b363", size = 402703 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/32/8c/6b20b965e6713f98b4ed0a048a0d4ace60f56153b97f2dc8530c646fc77b/mashpy-0.13.0-py3-none-any.whl", hash = "sha256:22beb4e2bdd8424a1d212288cfd950b475095aa66d29f813eb8662286c3b7a26", size = 621561 },
+    { url = "https://files.pythonhosted.org/packages/32/48/4dd68af952acd088bae7a6e72d6e3589baefada03dd80e95733190215d02/mashpy-0.18.0-py3-none-any.whl", hash = "sha256:c35de8e92bed6cf417474cb9ad2f975b66f57dfed212e3f9c670b4fe91d75372", size = 474247 },
 ]
 
 [[package]]

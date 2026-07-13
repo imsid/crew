@@ -314,7 +314,7 @@ export function CommandResultCard({
                   <thead className="bg-secondary/60 text-muted-foreground">
                     <tr>
                       <th className="px-3 py-2 font-medium">Workflow</th>
-                      <th className="px-3 py-2 font-medium">Tasks</th>
+                      <th className="px-3 py-2 font-medium">Steps</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -324,7 +324,10 @@ export function CommandResultCard({
                           {workflow.workflow_id}
                         </td>
                         <td className="px-3 py-2 text-muted-foreground">
-                          {workflow.tasks.map((task) => `${task.task_id} -> ${task.agent_id}`).join(", ")}
+                          {workflow.step_preview
+                            .map((step) => `${step.step_id} (${step.kind})`)
+                            .join(" -> ")}
+                          {workflow.step_count > workflow.step_preview.length ? " -> …" : ""}
                         </td>
                       </tr>
                     ))}
@@ -338,7 +341,6 @@ export function CommandResultCard({
     }
 
     if (result.operation === "run") {
-      const workflowTrace = result.data.trace ?? trace;
       return (
         <Card className="rounded-[1.2rem] border-primary/10 bg-primary/5">
           <CardHeader>
@@ -359,30 +361,12 @@ export function CommandResultCard({
               <WorkflowRunField label="Run ID" value={result.data.run_id} />
               <WorkflowRunField label="Status" value={result.data.status} />
             </div>
-            {result.data.error ? (
-              <div className="rounded-2xl border border-destructive/30 bg-destructive/10 p-3 text-destructive">
-                {result.data.error}
-              </div>
-            ) : null}
-            <WorkflowRunOutputPanel
-              title="Workflow Input"
-              output={result.data.workflow_input}
-              emptyText="No workflow input submitted."
-            />
-            {result.data.output !== undefined ? (
-              <WorkflowRunOutputPanel
-                title="Workflow Result"
-                output={result.data.output}
-                emptyText="No workflow result recorded."
-              />
-            ) : null}
-            {workflowTrace ? (
-              <ExecutionTrace
-                trace={workflowTrace}
-                isRunning={isRunning}
-                className="rounded-2xl border-border/70 bg-white/70 shadow-none"
-              />
-            ) : null}
+            <p className="text-sm text-muted-foreground">
+              Follow the run from the Workflows tab, or check it here with
+              <code className="ml-1 rounded bg-secondary/70 px-1 py-0.5 font-mono text-xs">
+                /workflow status {result.data.workflow_id} {result.data.run_id}
+              </code>
+            </p>
           </CardContent>
         </Card>
       );
@@ -418,16 +402,21 @@ export function CommandResultCard({
               {result.data.error}
             </div>
           ) : null}
-          {result.data.output ? (
+          <WorkflowRunOutputPanel
+            title="Workflow Input"
+            output={result.data.workflow_input}
+            emptyText="No workflow input recorded."
+          />
+          {result.data.result ? (
             <Collapsible defaultOpen>
               <CollapsibleTrigger asChild>
                 <Button variant="outline" size="sm">
-                  Toggle output
+                  Toggle result
                 </Button>
               </CollapsibleTrigger>
               <CollapsibleContent className="pt-3">
                 <pre className="overflow-x-auto rounded-2xl border border-border/80 bg-stone-950 p-4 text-xs text-stone-50">
-                  <code>{JSON.stringify(result.data.output, null, 2)}</code>
+                  <code>{JSON.stringify(result.data.result, null, 2)}</code>
                 </pre>
               </CollapsibleContent>
             </Collapsible>
