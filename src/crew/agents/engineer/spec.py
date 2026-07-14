@@ -67,7 +67,7 @@ class EngineerAgentSpec(AgentSpec):
             app_id=self.get_agent_id(),
             system_prompt=self.build_system_prompt(),
             max_steps=30,
-            max_tokens=4096,
+            max_tokens=32768,
             conversation_history_turns=3,
             compaction_token_threshold=30000,
             skills_enabled=True,
