@@ -1,0 +1,650 @@
+<title>Crew — the Growth Expert for consumption dev tools</title>
+<style>
+  :root {
+    --paper: #EFF2F0;
+    --surface: #FBFCFB;
+    --surface-2: #F4F7F5;
+    --ink: #0F1E19;
+    --ink-soft: #47564F;
+    --ink-faint: #6C7A73;
+    --line: #D7DEDA;
+    --line-soft: #E4E9E6;
+    --accent: #0C8A63;
+    --accent-strong: #096F4F;
+    --accent-wash: #E1F0EA;
+    --leak: #C2622E;
+    --leak-wash: #F6E7DC;
+    --code: #3C5C72;
+    --code-wash: #E4EBF1;
+    --shadow: 0 1px 2px rgba(15,30,25,.05), 0 8px 24px rgba(15,30,25,.06);
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, "Cascadia Code", "Roboto Mono", Consolas, monospace;
+    --measure: 68ch;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #0A1310;
+      --surface: #10201A;
+      --surface-2: #142621;
+      --ink: #E8EDEA;
+      --ink-soft: #A3B1AA;
+      --ink-faint: #74847C;
+      --line: #21322B;
+      --line-soft: #192A24;
+      --accent: #3FD9A4;
+      --accent-strong: #6FE7BE;
+      --accent-wash: #10322648;
+      --leak: #E39257;
+      --leak-wash: #33211448;
+      --code: #86A9C4;
+      --code-wash: #16283248;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="light"] {
+    --paper: #EFF2F0; --surface: #FBFCFB; --surface-2: #F4F7F5;
+    --ink: #0F1E19; --ink-soft: #47564F; --ink-faint: #6C7A73;
+    --line: #D7DEDA; --line-soft: #E4E9E6;
+    --accent: #0C8A63; --accent-strong: #096F4F; --accent-wash: #E1F0EA;
+    --leak: #C2622E; --leak-wash: #F6E7DC;
+    --code: #3C5C72; --code-wash: #E4EBF1;
+    --shadow: 0 1px 2px rgba(15,30,25,.05), 0 8px 24px rgba(15,30,25,.06);
+  }
+  :root[data-theme="dark"] {
+    --paper: #0A1310; --surface: #10201A; --surface-2: #142621;
+    --ink: #E8EDEA; --ink-soft: #A3B1AA; --ink-faint: #74847C;
+    --line: #21322B; --line-soft: #192A24;
+    --accent: #3FD9A4; --accent-strong: #6FE7BE; --accent-wash: #10322648;
+    --leak: #E39257; --leak-wash: #33211448;
+    --code: #86A9C4; --code-wash: #16283248;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.35);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 17px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 28px; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: .72rem;
+    letter-spacing: .18em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin: 0;
+  }
+  .eyebrow .dot { color: var(--accent); }
+
+  h1, h2, h3 { text-wrap: balance; line-height: 1.08; margin: 0; }
+  h1 { font-size: clamp(2.3rem, 5.6vw, 4rem); font-weight: 680; letter-spacing: -0.025em; }
+  h2 { font-size: clamp(1.5rem, 3vw, 2.1rem); font-weight: 640; letter-spacing: -0.02em; }
+  h3 { font-size: 1.06rem; font-weight: 640; letter-spacing: -0.01em; }
+  p { margin: 0; max-width: var(--measure); }
+  .accent { color: var(--accent-strong); }
+  strong { font-weight: 640; color: var(--ink); }
+
+  /* ---- top bar ---- */
+  header.top {
+    border-bottom: 1px solid var(--line);
+    background: color-mix(in srgb, var(--paper) 86%, transparent);
+    position: sticky; top: 0; z-index: 5;
+    backdrop-filter: saturate(1.4) blur(8px);
+  }
+  .top .wrap { display: flex; align-items: center; justify-content: space-between; height: 58px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-family: var(--mono); font-size: .82rem; letter-spacing: .04em; }
+  .brand b { font-weight: 680; letter-spacing: .02em; }
+  .brand .sep { color: var(--ink-faint); }
+  .glyph { width: 22px; height: 22px; display: block; }
+  .top .meta { font-family: var(--mono); font-size: .72rem; color: var(--ink-faint); letter-spacing: .08em; }
+
+  /* ---- hero ---- */
+  .hero { padding: clamp(48px, 8vw, 96px) 0 44px; }
+  .hero-grid { display: grid; grid-template-columns: 1.05fr .95fr; gap: clamp(28px, 4vw, 56px); align-items: center; }
+  .hero h1 { margin-top: 18px; }
+  .hero .lede { margin-top: 22px; font-size: 1.2rem; color: var(--ink-soft); max-width: 42ch; }
+  .hero .lede b { color: var(--ink); }
+
+  .signal {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    box-shadow: var(--shadow);
+    padding: 18px 18px 14px;
+  }
+  .signal-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+  .signal-head .k { font-family: var(--mono); font-size: .68rem; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-faint); }
+  .signal-head .v { font-family: var(--mono); font-size: 1.15rem; font-weight: 600; color: var(--accent-strong); font-variant-numeric: tabular-nums; }
+  canvas { display: block; width: 100%; height: 190px; }
+  .signal-legend { display: flex; gap: 18px; margin-top: 10px; flex-wrap: wrap; }
+  .signal-legend span { font-family: var(--mono); font-size: .68rem; letter-spacing: .04em; color: var(--ink-soft); display: inline-flex; align-items: center; gap: 6px; }
+  .swatch { width: 22px; height: 3px; border-radius: 2px; display: inline-block; }
+
+  /* ---- section scaffolding ---- */
+  section { padding: clamp(44px, 6vw, 72px) 0; border-top: 1px solid var(--line-soft); }
+  .sec-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 30px; }
+  .sec-head .idx { font-family: var(--mono); font-size: .72rem; color: var(--accent); letter-spacing: .1em; padding-top: .35em; }
+  .sec-head .txt h2 { margin-bottom: 8px; }
+  .sec-head .txt p { color: var(--ink-soft); }
+
+  /* ---- positioning callout ---- */
+  .thesis {
+    border-left: 3px solid var(--accent);
+    padding: 6px 0 6px 22px;
+    font-size: clamp(1.3rem, 2.6vw, 1.75rem);
+    font-weight: 560;
+    letter-spacing: -0.015em;
+    line-height: 1.32;
+    max-width: 30ch;
+    color: var(--ink);
+  }
+  .thesis em { font-style: normal; color: var(--accent-strong); }
+  .metric-row { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 30px; }
+  .metric {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+    padding: 16px 18px; flex: 1 1 200px; box-shadow: var(--shadow);
+  }
+  .metric .label { font-family: var(--mono); font-size: .66rem; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-faint); }
+  .metric .big { font-size: 1.15rem; font-weight: 620; margin-top: 8px; letter-spacing: -0.01em; }
+  .metric p { font-size: .9rem; color: var(--ink-soft); margin-top: 6px; }
+
+  /* ---- stack grid ---- */
+  .stack { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+  .tool {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+    padding: 18px 20px; box-shadow: var(--shadow);
+    display: grid; grid-template-columns: auto 1fr; column-gap: 16px; row-gap: 4px; align-items: start;
+  }
+  .tool .badge {
+    grid-row: 1 / span 3;
+    width: 42px; height: 42px; border-radius: 10px;
+    display: grid; place-items: center;
+    font-family: var(--mono); font-weight: 680; font-size: 1rem;
+    background: var(--accent-wash); color: var(--accent-strong);
+    border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  }
+  .tool .role { font-family: var(--mono); font-size: .64rem; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-faint); }
+  .tool .name { font-weight: 640; font-size: 1.02rem; }
+  .tool .desc { font-size: .92rem; color: var(--ink-soft); grid-column: 2; }
+  .stack-note { margin-top: 22px; font-size: .96rem; color: var(--ink-soft); }
+  .stack-note b { color: var(--ink); }
+
+  /* ---- MOS ladder ---- */
+  .arms { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .arm {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+    padding: 22px; box-shadow: var(--shadow); position: relative; overflow: hidden;
+  }
+  .arm::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--accent); opacity: .85; }
+  .arm .tag { font-family: var(--mono); font-size: .64rem; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); }
+  .arm h3 { margin: 10px 0 8px; }
+  .arm p { font-size: .95rem; color: var(--ink-soft); }
+  .arm .state { margin-top: 14px; font-family: var(--mono); font-size: .66rem; letter-spacing: .06em; color: var(--ink-faint); border-top: 1px dashed var(--line); padding-top: 12px; }
+  .arm.built .tag, .arm.built::before { color: var(--accent); }
+
+  /* ---- workflows ---- */
+  .flow {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
+    box-shadow: var(--shadow); padding: 24px; margin-bottom: 20px;
+  }
+  .flow-head { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 4px; }
+  .flow-head .id { font-family: var(--mono); font-size: .72rem; color: var(--accent); letter-spacing: .06em; }
+  .flow-head .cad { font-family: var(--mono); font-size: .66rem; color: var(--ink-faint); letter-spacing: .08em; text-transform: uppercase; }
+  .flow h3 { font-size: 1.3rem; }
+  .flow .sub { font-size: .96rem; color: var(--ink-soft); margin: 8px 0 20px; max-width: 60ch; }
+
+  .steps { display: flex; flex-direction: column; gap: 0; }
+  .step { display: grid; grid-template-columns: 26px 1fr; column-gap: 14px; }
+  .step .rail { display: flex; flex-direction: column; align-items: center; }
+  .step .node {
+    width: 12px; height: 12px; border-radius: 50%; margin-top: 5px; flex: none;
+    border: 2px solid var(--code); background: var(--surface);
+  }
+  .step.agent .node { border-color: var(--accent); }
+  .step .line { width: 2px; flex: 1; background: var(--line); margin: 4px 0; }
+  .step:last-child .line { display: none; }
+  .step .body { padding-bottom: 20px; }
+  .step .row1 { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .step .fn { font-family: var(--mono); font-size: .9rem; font-weight: 600; }
+  .kind {
+    font-family: var(--mono); font-size: .6rem; letter-spacing: .1em; text-transform: uppercase;
+    padding: 2px 7px; border-radius: 5px; font-weight: 600;
+  }
+  .kind.code { background: var(--code-wash); color: var(--code); }
+  .kind.agent { background: var(--accent-wash); color: var(--accent-strong); }
+  .tool-chip {
+    font-family: var(--mono); font-size: .6rem; letter-spacing: .06em;
+    padding: 2px 7px; border-radius: 5px; border: 1px solid var(--line);
+    color: var(--ink-faint);
+  }
+  .step .why { font-size: .92rem; color: var(--ink-soft); margin-top: 5px; }
+  .flow-foot {
+    margin-top: 6px; border-top: 1px dashed var(--line); padding-top: 16px;
+    font-size: .9rem; color: var(--ink-soft); display: flex; gap: 10px; align-items: baseline;
+  }
+  .flow-foot .k { font-family: var(--mono); font-size: .62rem; letter-spacing: .1em; text-transform: uppercase; color: var(--leak); flex: none; padding-top: 2px; }
+  .flow-foot.expand .k { color: var(--accent-strong); }
+
+  /* ---- close ---- */
+  .close { padding-bottom: clamp(56px, 9vw, 110px); }
+  .close .big { font-size: clamp(1.6rem, 3.4vw, 2.4rem); font-weight: 620; letter-spacing: -0.02em; max-width: 20ch; line-height: 1.2; }
+  .close .big em { font-style: normal; color: var(--accent-strong); }
+  footer { border-top: 1px solid var(--line); padding: 22px 0 40px; }
+  footer .wrap { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; font-family: var(--mono); font-size: .68rem; color: var(--ink-faint); letter-spacing: .06em; }
+
+  a.link { color: var(--accent-strong); text-decoration: none; border-bottom: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); }
+  a.link:focus-visible, .step:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 3px; }
+
+  @media (max-width: 820px) {
+    .hero-grid { grid-template-columns: 1fr; }
+    .stack { grid-template-columns: 1fr; }
+    .arms { grid-template-columns: 1fr; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { scroll-behavior: auto; }
+  }
+</style>
+
+<header class="top">
+  <div class="wrap">
+    <div class="brand">
+      <svg class="glyph" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <rect x="1" y="1" width="22" height="22" rx="6" stroke="var(--accent)" stroke-width="1.5"/>
+        <path d="M4 15 L9 15 L11.5 9 L14 18 L16 13 L20 13" stroke="var(--accent)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span><b>Crew</b> <span class="sep">/</span> Growth Expert</span>
+    </div>
+    <div class="meta">PITCH · CONSUMPTION DEV TOOLS</div>
+  </div>
+</header>
+
+<main>
+  <div class="wrap hero">
+    <div class="hero-grid">
+      <div>
+        <p class="eyebrow"><span class="dot">●</span> The context layer for growth</p>
+        <h1>Own your net revenue retention.</h1>
+        <p class="lede">For a consumption dev tool, revenue <b>is</b> usage — and it leaks silently, with no cancellation to catch. Crew runs always-on workflows that <b>stop the leak and drive the expansion</b>, on top of the stack you already have.</p>
+      </div>
+      <div class="signal" aria-label="Illustrative NRR trace: a leak that is rescued to the 100% baseline, then expansion above it.">
+        <div class="signal-head">
+          <span class="k">Net revenue retention</span>
+          <span class="v" id="nrrVal">100%</span>
+        </div>
+        <canvas id="trace" width="880" height="380"></canvas>
+        <div class="signal-legend">
+          <span><i class="swatch" style="background:var(--leak)"></i> leak (1a rescues)</span>
+          <span><i class="swatch" style="background:var(--accent)"></i> expansion (1b drives)</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="wrap">
+    <section style="border-top:none">
+      <div class="sec-head">
+        <span class="idx">01</span>
+        <div class="txt">
+          <h2>What Crew is</h2>
+          <p>Not another CRM, enrichment tool, or sequencer. The engine that makes them work as one.</p>
+        </div>
+      </div>
+      <p class="thesis">Crew is the <em>context layer and workflow engine</em> for growth — it reads from your whole stack, reasons across it, and acts back through it.</p>
+      <div class="metric-row">
+        <div class="metric">
+          <div class="label">Goal metric</div>
+          <div class="big">Net Revenue Retention</div>
+          <p>Installed-base consumption this period ÷ last. The number your board asks about.</p>
+        </div>
+        <div class="metric">
+          <div class="label">Proof, not activity</div>
+          <div class="big">Lift vs. holdout</div>
+          <p>Every workflow holds out a control arm. Crew shows it moved the number — not that it sent emails.</p>
+        </div>
+        <div class="metric">
+          <div class="label">The wedge</div>
+          <div class="big">Zero rip-and-replace</div>
+          <p>Bring your own stack. Time-to-value in days; switching cost accrues to Crew as the context deepens.</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="sec-head">
+        <span class="idx">02</span>
+        <div class="txt">
+          <h2>Runs on your stack</h2>
+          <p>Each tool plugs in as a context provider, an actuator, or both. Crew orchestrates across them.</p>
+        </div>
+      </div>
+      <div class="stack">
+        <div class="tool">
+          <div class="badge">db</div>
+          <div class="role">Product signal · read</div>
+          <div class="name">Your warehouse</div>
+          <div class="desc">Usage trajectory, decay, expansion — <code>product_usage_db</code> tokens, surfaces, active devs per org.</div>
+        </div>
+        <div class="tool">
+          <div class="badge">Cl</div>
+          <div class="role">Company signal · read</div>
+          <div class="name">Clay</div>
+          <div class="desc">Firmographics, funding, hiring, tech stack — how big the ceiling is and whether now is the moment.</div>
+        </div>
+        <div class="tool">
+          <div class="badge">At</div>
+          <div class="role">System of record · read + write</div>
+          <div class="name">Attio</div>
+          <div class="desc">The account truth. Crew maintains it: play history, thesis, outcomes — deduped, with history preserved.</div>
+        </div>
+        <div class="tool">
+          <div class="badge">Go</div>
+          <div class="role">Engagement · read + actuate</div>
+          <div class="name">Gong &amp; sequencers</div>
+          <div class="desc">Prior-touch context in; outbound and rep briefings out. Crew delivers reliably through what you use.</div>
+        </div>
+      </div>
+      <p class="stack-note"><b>BYO isn't a checkbox — it's the shape of the engine.</b> Every tool registers as an MCP-style provider. The deterministic <b>code steps</b> are the read/write seams; the <b>agent steps</b> do the reasoning in between.</p>
+    </section>
+
+    <section>
+      <div class="sec-head">
+        <span class="idx">03</span>
+        <div class="txt">
+          <h2>Crew becomes your context layer</h2>
+          <p>Every run leaves context behind. That accretion bootstraps all three arms of the Marketing OS.</p>
+        </div>
+      </div>
+      <div class="arms">
+        <div class="arm built">
+          <span class="tag">Arm 01 · Blueprint</span>
+          <h3>The workflow engine</h3>
+          <p>Two durable workflows owning NRR, composed as code + agent steps, checkpointed and retryable.</p>
+          <div class="state">STATUS — this pitch</div>
+        </div>
+        <div class="arm">
+          <span class="tag">Arm 02 · Insights Hub</span>
+          <h3>Insight, not analytics</h3>
+          <p>Workflows emit ranked, push-model alerts with a CTA and a holdout-proven number — “$42k at risk across 5 accounts; act here.”</p>
+          <div class="state">FED BY — workflow exhaust</div>
+        </div>
+        <div class="arm">
+          <span class="tag">Arm 03 · AI-native CRM</span>
+          <h3>The record, kept true</h3>
+          <p>Attio is the surface; Crew is what makes it AI-native — usage × company signal × play history, self-correcting in the background.</p>
+          <div class="state">FED BY — context written back</div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="sec-head">
+        <span class="idx">04</span>
+        <div class="txt">
+          <h2>The two workflows</h2>
+          <p>One outcome, two halves of NRR. Deterministic step → <span style="color:var(--code)">code</span>. Reasoning step → <span style="color:var(--accent-strong)">agent</span>.</p>
+        </div>
+      </div>
+
+      <div class="flow">
+        <div class="flow-head">
+          <span class="id">workflow 1a</span>
+          <span class="cad">Daily · stops the leak</span>
+        </div>
+        <h3>Consumption Dip Rescue</h3>
+        <p class="sub">A consumption tool has no cancel event, so a code step manufactures the signal and the crew acts before the revenue is gone.</p>
+        <div class="steps">
+          <div class="step code" tabindex="0">
+            <div class="rail"><span class="node"></span><span class="line"></span></div>
+            <div class="body">
+              <div class="row1"><span class="fn">pull_usage_panel</span><span class="kind code">code</span><span class="tool-chip">warehouse</span></div>
+              <p class="why">Per-org token series + 4-week rolling baseline. Pure query.</p>
+            </div>
+          </div>
+          <div class="step code" tabindex="0">
+            <div class="rail"><span class="node"></span><span class="line"></span></div>
+            <div class="body">
+              <div class="row1"><span class="fn">score_and_gate</span><span class="kind code">code</span><span class="tool-chip">Attio</span></div>
+              <p class="why">Decay % vs. own baseline, sustained days, revenue-weight → segment; dedupe against open plays. Fixed formula.</p>
+            </div>
+          </div>
+          <div class="step agent" tabindex="0">
+            <div class="rail"><span class="node"></span><span class="line"></span></div>
+            <div class="body">
+              <div class="row1"><span class="fn">diagnose_dip</span><span class="kind agent">agent</span></div>
+              <p class="why">Which surface dropped, one power user leaving vs. broad decay, root-cause hypothesis. Needs judgment over targeted SQL.</p>
+            </div>
+          </div>
+          <div class="step agent" tabindex="0">
+            <div class="rail"><span class="node"></span><span class="line"></span></div>
+            <div class="body">
+              <div class="row1"><span class="fn">select_and_draft_play</span><span class="kind agent">agent</span><span class="tool-chip">Gong ctx</span></div>
+              <p class="why">Choose motion by segment + tier and draft the personalized copy. Reasoning + writing.</p>
+            </div>
+          </div>
+          <div class="step code" tabindex="0">
+            <div class="rail"><span class="node"></span></div>
+            <div class="body">
+              <div class="row1"><span class="fn">assign_and_deliver</span><span class="kind code">code</span><span class="tool-chip">Gong</span><span class="tool-chip">Attio</span></div>
+              <p class="why">Holdout split, fire outbound, write play + outcome back to the account. Idempotent, checkpointed.</p>
+            </div>
+          </div>
+        </div>
+        <div class="flow-foot">
+          <span class="k">Readout</span>
+          <span>Paired weekly workflow: $ at-risk → $ rescued → lift vs. holdout → gross retention.</span>
+        </div>
+      </div>
+
+      <div class="flow">
+        <div class="flow-head">
+          <span class="id">workflow 1b</span>
+          <span class="cad">Weekly · drives the expansion</span>
+        </div>
+        <h3>Expansion / PQA Engine</h3>
+        <p class="sub">Internal usage says <em>who is growing</em>; Clay company signals say <em>how big the ceiling is</em> and whether now is the moment. The agent fuses them.</p>
+        <div class="steps">
+          <div class="step code" tabindex="0">
+            <div class="rail"><span class="node"></span><span class="line"></span></div>
+            <div class="body">
+              <div class="row1"><span class="fn">compute_expansion_signals</span><span class="kind code">code</span><span class="tool-chip">warehouse</span></div>
+              <p class="why">Token slope, active-dev growth, new surface adoption per org → raw PQA score. Deterministic.</p>
+            </div>
+          </div>
+          <div class="step code" tabindex="0">
+            <div class="rail"><span class="node"></span><span class="line"></span></div>
+            <div class="body">
+              <div class="row1"><span class="fn">resolve_and_enrich_company</span><span class="kind code">code</span><span class="tool-chip">Clay</span></div>
+              <p class="why">Org → domain, then headcount, funding stage, hiring signals, tech stack. Read-only, idempotent by domain.</p>
+            </div>
+          </div>
+          <div class="step agent" tabindex="0">
+            <div class="rail"><span class="node"></span><span class="line"></span></div>
+            <div class="body">
+              <div class="row1"><span class="fn">build_expansion_thesis</span><span class="kind agent">agent</span></div>
+              <p class="why">Usage trajectory × company headroom × timing moment → motion, TAM estimate, confidence. Pure fused reasoning.</p>
+            </div>
+          </div>
+          <div class="step agent" tabindex="0">
+            <div class="rail"><span class="node"></span><span class="line"></span></div>
+            <div class="body">
+              <div class="row1"><span class="fn">personalize_play</span><span class="kind agent">agent</span></div>
+              <p class="why">Self-serve upgrade nudge vs. sales briefing with usage evidence + company context attached.</p>
+            </div>
+          </div>
+          <div class="step code" tabindex="0">
+            <div class="rail"><span class="node"></span></div>
+            <div class="body">
+              <div class="row1"><span class="fn">route_and_record</span><span class="kind code">code</span><span class="tool-chip">Attio</span><span class="tool-chip">Gong</span></div>
+              <p class="why">Holdout split, write PQA + thesis to the record, route briefing to the rep, dedupe vs. open opps.</p>
+            </div>
+          </div>
+        </div>
+        <div class="flow-foot expand">
+          <span class="k">Readout</span>
+          <span>Paired weekly workflow: pipeline generated → converted → incremental consumption → NRR contribution.</span>
+        </div>
+      </div>
+      <p class="stack-note" style="margin-top:26px">Same org, same warehouse row: 3→9 active devs, tokens +140%. In a 12-person startup that’s a ceiling — nudge to self-serve. In a 4,000-person enterprise that just raised, nine devs is a beachhead worth a human motion <b>this week</b>. Code fetches the signal; the agent decides what it means.</p>
+    </section>
+
+    <section class="close" style="border-top:1px solid var(--line-soft)">
+      <p class="eyebrow" style="margin-bottom:20px"><span class="dot">●</span> The pitch, in one line</p>
+      <p class="big">Crew is the context layer that turns your stack into a Marketing OS — and the <em>two NRR workflows</em> are the proof.</p>
+    </section>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>CREW · GROWTH EXPERT</span>
+    <span>OUTCOME 01 — NET REVENUE RETENTION</span>
+  </div>
+</footer>
+
+<script>
+  (function () {
+    var canvas = document.getElementById("trace");
+    if (!canvas) return;
+    var ctx = canvas.getContext("2d");
+    var nrrVal = document.getElementById("nrrVal");
+
+    function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+
+    // Logical drawing space (matches canvas attribute size); scaled to CSS box.
+    var W = 880, H = 380;
+    var padL = 8, padR = 46, padT = 22, padB = 26;
+    var x0 = padL, x1 = W - padR, y0 = padT, y1 = H - padB;
+
+    // Baseline (100% NRR) sits ~60% down; values above baseline = expansion.
+    var baselineY = y0 + (y1 - y0) * 0.60;
+    var topVal = 128, botVal = 82;               // % range mapped to y0..y1
+    function valToY(v) { return y1 - (v - botVal) / (topVal - botVal) * (y1 - y0); }
+
+    // Narrative control points (t in 0..1, value in %).
+    var pts = [
+      { t: 0.00, v: 100 }, { t: 0.10, v: 100 },
+      { t: 0.20, v: 96 }, { t: 0.30, v: 90 },   // leak
+      { t: 0.38, v: 87 },                         // trough (rescue point)
+      { t: 0.48, v: 93 }, { t: 0.57, v: 99 },   // rescued to baseline
+      { t: 0.66, v: 103 }, { t: 0.80, v: 113 }, { t: 1.00, v: 125 } // expansion
+    ];
+    var troughT = 0.38, baselineBackT = 0.57;
+
+    function lerp(a, b, u) { return a + (b - a) * u; }
+    function valueAt(t) {
+      for (var i = 0; i < pts.length - 1; i++) {
+        if (t >= pts[i].t && t <= pts[i + 1].t) {
+          var u = (t - pts[i].t) / (pts[i + 1].t - pts[i].t);
+          u = u * u * (3 - 2 * u); // smoothstep
+          return lerp(pts[i].v, pts[i + 1].v, u);
+        }
+      }
+      return pts[pts.length - 1].v;
+    }
+    function xAt(t) { return lerp(x0, x1, t); }
+
+    function drawGrid() {
+      var line = css("--line");
+      ctx.strokeStyle = line; ctx.lineWidth = 1;
+      ctx.setLineDash([2, 5]);
+      [90, 100, 110, 120].forEach(function (v) {
+        var y = valToY(v);
+        ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x1, y); ctx.stroke();
+      });
+      ctx.setLineDash([]);
+      // Emphasized 100% baseline
+      ctx.strokeStyle = css("--ink-faint"); ctx.globalAlpha = .5;
+      ctx.beginPath(); ctx.moveTo(x0, baselineY); ctx.lineTo(x1, baselineY); ctx.stroke();
+      ctx.globalAlpha = 1;
+      // Axis labels
+      ctx.fillStyle = css("--ink-faint");
+      ctx.font = "600 15px " + css("--mono");
+      ctx.textBaseline = "middle";
+      [90, 100, 110, 120].forEach(function (v) {
+        ctx.fillText(v + "%", x1 + 6, valToY(v));
+      });
+    }
+
+    function strokeSeg(fromT, toT, color, prog) {
+      var end = Math.min(toT, prog);
+      if (end <= fromT) return;
+      ctx.strokeStyle = color; ctx.lineWidth = 3.5;
+      ctx.lineJoin = "round"; ctx.lineCap = "round";
+      ctx.beginPath();
+      var steps = 120, started = false;
+      for (var i = 0; i <= steps; i++) {
+        var t = fromT + (end - fromT) * (i / steps);
+        var x = xAt(t), y = valToY(valueAt(t));
+        if (!started) { ctx.moveTo(x, y); started = true; } else { ctx.lineTo(x, y); }
+      }
+      ctx.stroke();
+    }
+
+    function endpointDot(prog) {
+      var t = prog, x = xAt(t), y = valToY(valueAt(t));
+      var color = t < baselineBackT ? css("--leak") : css("--accent");
+      ctx.fillStyle = color;
+      ctx.beginPath(); ctx.arc(x, y, 5.5, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = css("--surface"); ctx.lineWidth = 2.5; ctx.stroke();
+    }
+
+    function fillUnder(prog) {
+      // Subtle wash under the expansion portion once past baseline.
+      if (prog <= baselineBackT) return;
+      var grad = ctx.createLinearGradient(0, y0, 0, y1);
+      var acc = css("--accent");
+      grad.addColorStop(0, acc); grad.addColorStop(1, "transparent");
+      ctx.globalAlpha = .10; ctx.fillStyle = grad;
+      ctx.beginPath();
+      var start = baselineBackT, end = prog, steps = 120, first = true;
+      for (var i = 0; i <= steps; i++) {
+        var t = start + (end - start) * (i / steps);
+        var x = xAt(t), y = valToY(valueAt(t));
+        if (first) { ctx.moveTo(x, y); first = false; } else { ctx.lineTo(x, y); }
+      }
+      ctx.lineTo(xAt(end), baselineY); ctx.lineTo(xAt(start), baselineY); ctx.closePath();
+      ctx.fill(); ctx.globalAlpha = 1;
+    }
+
+    function render(prog) {
+      ctx.clearRect(0, 0, W, H);
+      drawGrid();
+      fillUnder(prog);
+      // leak + rescue portion in leak color up to where it returns to baseline
+      strokeSeg(0, Math.min(prog, baselineBackT), css("--leak"), prog);
+      // expansion portion in accent
+      if (prog > baselineBackT) strokeSeg(baselineBackT, 1, css("--accent"), prog);
+      endpointDot(prog);
+      if (nrrVal) nrrVal.textContent = Math.round(valueAt(prog)) + "%";
+    }
+
+    var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduce) {
+      render(1);
+    } else {
+      var start = null, dur = 2200;
+      function frame(ts) {
+        if (start === null) start = ts;
+        var p = Math.min(1, (ts - start) / dur);
+        var eased = p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
+        render(eased);
+        if (p < 1) requestAnimationFrame(frame);
+      }
+      requestAnimationFrame(frame);
+    }
+
+    // Redraw on theme toggle so token colors stay correct.
+    var mo = new MutationObserver(function () { render(1); });
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    if (window.matchMedia) {
+      window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", function () { render(1); });
+    }
+  })();
+</script>
