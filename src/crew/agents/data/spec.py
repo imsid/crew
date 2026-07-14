@@ -93,7 +93,7 @@ class DataAgentSpec(AgentSpec):
             app_id=self.get_agent_id(),
             system_prompt=blocks,
             max_steps=30,
-            max_tokens=4096,
+            max_tokens=32768,
             conversation_history_turns=3,
             compaction_token_threshold=100000,
             skills_enabled=True,
