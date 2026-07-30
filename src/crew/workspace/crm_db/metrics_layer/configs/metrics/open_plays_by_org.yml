@@ -1,0 +1,10 @@
+kind: metric
+version: 1
+id: open_plays_by_org
+label: Open Plays By Org
+type: simple
+base_source: plays
+expr: play_count
+dimensions:
+  - org_id
+  - status

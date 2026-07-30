@@ -1,0 +1,11 @@
+kind: metric
+version: 1
+id: open_pipeline_amount
+label: Open Pipeline Amount
+type: simple
+base_source: opportunities
+expr: open_amount_sum
+dimensions:
+  - stage
+  - owner
+format: $#,##0.00

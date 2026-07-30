@@ -1,0 +1,10 @@
+kind: metric
+version: 1
+id: open_opps_by_org
+label: Open Opps By Org
+type: simple
+base_source: opportunities
+expr: opp_count
+dimensions:
+  - org_id
+  - is_open

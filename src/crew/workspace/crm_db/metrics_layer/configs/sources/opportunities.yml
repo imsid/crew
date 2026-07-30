@@ -1,0 +1,46 @@
+kind: source
+version: 1
+id: opportunities
+dataset: crm_db
+table: opportunities
+subject:
+  - org_id
+dimensions:
+  - name: opp_id
+    expr: opp_id
+    data_type: STRING
+    is_primary_key: true
+  - name: org_id
+    expr: org_id
+    data_type: STRING
+  - name: name
+    expr: name
+    data_type: STRING
+  - name: stage
+    expr: stage
+    data_type: STRING
+  - name: owner
+    expr: owner
+    data_type: STRING
+  - name: is_open
+    expr: is_open
+    data_type: BOOL
+measures:
+  - name: opp_count
+    expr: "1"
+    agg: COUNT
+    data_type: INT64
+  - name: amount_sum
+    expr: amount
+    agg: SUM
+    data_type: FLOAT64
+  - name: open_amount_sum
+    expr: CASE WHEN is_open THEN amount ELSE 0 END
+    agg: SUM
+    data_type: FLOAT64
+joins:
+  - to_source: accounts
+    join_type: INNER
+    left_key: org_id
+    right_key: org_id
+    relationship: many_to_one
