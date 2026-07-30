@@ -1,0 +1,21 @@
+kind: source
+version: 1
+id: plan_pricing
+dataset: product_usage_db
+table: plan_pricing
+subject:
+  - plan_tier
+dimensions:
+  - name: plan_tier
+    expr: plan_tier
+    data_type: STRING
+    is_primary_key: true
+measures:
+  - name: base_fee_usd_sum
+    expr: base_fee_usd
+    agg: SUM
+    data_type: FLOAT64
+  - name: per_million_tokens_usd_avg
+    expr: per_million_tokens_usd
+    agg: AVG
+    data_type: FLOAT64

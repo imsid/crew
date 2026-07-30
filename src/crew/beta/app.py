@@ -155,9 +155,7 @@ def create_beta_app(
         )
 
     @app.exception_handler(MashHostError)
-    async def _mash_host_error_handler(
-        _: Request, exc: MashHostError
-    ) -> JSONResponse:
+    async def _mash_host_error_handler(_: Request, exc: MashHostError) -> JSONResponse:
         return JSONResponse(
             status_code=exc.status_code,
             content={
@@ -169,6 +167,8 @@ def create_beta_app(
             },
         )
 
+    # Imported here rather than at module scope: crew.beta.routes imports names back
+    # from this module, so a top-level import is circular.
     from .routes import include_routes
 
     include_routes(app)

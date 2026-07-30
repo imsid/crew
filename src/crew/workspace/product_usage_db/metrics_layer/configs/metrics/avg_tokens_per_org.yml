@@ -4,6 +4,7 @@ id: avg_tokens_per_org
 label: Avg Tokens Per Org
 type: simple
 base_source: orgs
-expr: AVG(tokens_consumed_sum)
+expr: AVG(tokens_consumed)
 dimensions:
   - org_name
+  - plan_tier

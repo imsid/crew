@@ -7,6 +7,25 @@ from typing import Any, Dict, List, Optional
 
 from .constants import DATE_LITERAL_RE
 from .pathing import normalize_identifier
+from .plan import BindParam
+
+
+def normalize_parameters(raw_value: Any) -> List[BindParam]:
+    if raw_value is None:
+        return []
+    if not isinstance(raw_value, list):
+        raise ValueError("parameters must be an array")
+
+    params: List[BindParam] = []
+    for idx, item in enumerate(raw_value):
+        if not isinstance(item, dict):
+            raise ValueError(f"parameters[{idx}] must be an object")
+        name = normalize_identifier(item.get("name"), f"parameters[{idx}].name")
+        type_raw = item.get("type")
+        if not isinstance(type_raw, str) or not type_raw.strip():
+            raise ValueError(f"parameters[{idx}].type must be a non-empty string")
+        params.append(BindParam(name=name, type=type_raw.strip(), value=item.get("value")))
+    return params
 
 
 def normalize_filters(raw_value: Any) -> List[str]:

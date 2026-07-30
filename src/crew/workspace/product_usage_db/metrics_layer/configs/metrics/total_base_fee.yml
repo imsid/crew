@@ -1,0 +1,10 @@
+kind: metric
+version: 1
+id: total_base_fee
+label: Total Base Fee
+type: simple
+base_source: plan_pricing
+expr: base_fee_usd_sum
+dimensions:
+  - plan_tier
+format: $#,##0.00

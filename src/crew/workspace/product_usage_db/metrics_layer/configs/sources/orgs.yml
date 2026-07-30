@@ -5,7 +5,11 @@ dataset: product_usage_db
 table: dim_orgs
 subject:
   - org_id
+ts: as_of_date
 dimensions:
+  - name: as_of_date
+    expr: as_of_date
+    data_type: DATE
   - name: org_id
     expr: org_id
     data_type: STRING
@@ -13,15 +17,59 @@ dimensions:
   - name: org_name
     expr: org_name
     data_type: STRING
+  - name: created_date
+    expr: created_date
+    data_type: DATE
+  - name: plan_tier
+    expr: plan_tier
+    data_type: STRING
   - name: org_state
     expr: org_state
     data_type: STRING
+  - name: base_fee_usd
+    expr: base_fee_usd
+    data_type: FLOAT64
+    source: plan_pricing
+  - name: per_million_tokens_usd
+    expr: per_million_tokens_usd
+    data_type: FLOAT64
+    source: plan_pricing
 measures:
   - name: org_count
     expr: "1"
     agg: COUNT
     data_type: INT64
   - name: active_org_count
-    expr: CASE WHEN org_state = 'ACTIVE' THEN 1 ELSE 0 END
+    expr: CASE WHEN org_state = 'active' THEN 1 ELSE 0 END
     agg: SUM
     data_type: INT64
+  - name: active_users_sum
+    expr: active_users
+    agg: SUM
+    data_type: INT64
+  - name: new_users_sum
+    expr: new_users
+    agg: SUM
+    data_type: INT64
+  - name: returning_users_sum
+    expr: returning_users
+    agg: SUM
+    data_type: INT64
+  - name: churned_users_sum
+    expr: churned_users
+    agg: SUM
+    data_type: INT64
+  - name: activity_count_sum
+    expr: activity_count
+    agg: SUM
+    data_type: INT64
+  - name: tokens_consumed_sum
+    expr: tokens_consumed
+    agg: SUM
+    data_type: INT64
+joins:
+  - to_source: plan_pricing
+    join_type: LEFT
+    left_key: plan_tier
+    right_key: plan_tier
+    relationship: many_to_one

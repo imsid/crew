@@ -10,6 +10,7 @@ from mash.tools.base import FunctionTool, Tool
 from ...shared.workspace_context import current_workspace_dir
 from ...metrics_layer.service.context import build_tool_context
 from ...metrics_layer.service.tool_entrypoints import (
+    compile_entity_read_to_sql,
     compile_metric_configs_to_sql,
     get_metrics_layer_schema,
     list_metrics_layer_configs,
@@ -17,6 +18,38 @@ from ...metrics_layer.service.tool_entrypoints import (
     validate_and_write_metrics_layer_config,
     validate_yaml,
 )
+
+# Reused across the compile tools: typed bind parameters and post-aggregation filters.
+_PARAMETERS_SCHEMA = {
+    "type": "array",
+    "description": (
+        "Typed query parameters bound at execute time (e.g. the @as_of anchor for "
+        "windowed metrics, or an @org_ids ARRAY<STRING> for IN filters)."
+    ),
+    "items": {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string"},
+            "type": {
+                "type": "string",
+                "description": "BigQuery type, e.g. DATE, STRING, INT64, ARRAY<STRING>.",
+            },
+            "value": {},
+        },
+        "required": ["name", "type"],
+    },
+}
+_ORDER_BY_SCHEMA = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {
+            "field": {"type": "string"},
+            "direction": {"type": "string", "enum": ["ASC", "DESC"]},
+        },
+        "required": ["field", "direction"],
+    },
+}
 
 
 def _async_tool_executor(
@@ -140,8 +173,10 @@ def build_analyst_tools(workspace_root: Path | None = None) -> List[Tool]:
         FunctionTool(
             name="compile_metric_configs_to_sql",
             description=(
-                "Compile one or more metrics_layer metric configs into executable "
-                "BigQuery SQL plans. Execute returned SQL with MCP execute_sql."
+                "Compile metrics_layer metric configs into executable BigQuery SQL "
+                "plans. Handles simple, windowed (pass the anchor via parameters), and "
+                "ratio metrics, joins (request a joined dimension), filters and HAVING. "
+                "Execute returned SQL with MCP execute_sql_readonly."
             ),
             parameters={
                 "type": "object",
@@ -158,6 +193,11 @@ def build_analyst_tools(workspace_root: Path | None = None) -> List[Tool]:
                         "type": "array",
                         "items": {"type": "string"},
                     },
+                    "having": {
+                        "type": "array",
+                        "description": "Post-aggregation filters on metric_value.",
+                        "items": {"type": "string"},
+                    },
                     "date_range": {
                         "type": "object",
                         "properties": {
@@ -167,20 +207,8 @@ def build_analyst_tools(workspace_root: Path | None = None) -> List[Tool]:
                         },
                         "required": ["dimension"],
                     },
-                    "order_by": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "field": {"type": "string"},
-                                "direction": {
-                                    "type": "string",
-                                    "enum": ["ASC", "DESC"],
-                                },
-                            },
-                            "required": ["field", "direction"],
-                        },
-                    },
+                    "order_by": _ORDER_BY_SCHEMA,
+                    "parameters": _PARAMETERS_SCHEMA,
                     "limit": {
                         "type": "integer",
                         "minimum": 1,
@@ -190,5 +218,39 @@ def build_analyst_tools(workspace_root: Path | None = None) -> List[Tool]:
                 "required": ["metric_names"],
             },
             _executor=_async_tool_executor(compile_metric_configs_to_sql, workspace_root),
-        )
+        ),
+        FunctionTool(
+            name="compile_entity_read_to_sql",
+            description=(
+                "Compile a non-aggregated entity attribute read (record lookup by key) "
+                "into executable BigQuery SQL — a projection of declared dimensions with "
+                "no GROUP BY. Execute returned SQL with MCP execute_sql_readonly."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "source": {
+                        "type": "string",
+                        "description": "Source id to read attributes from.",
+                    },
+                    "attributes": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "filters": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "order_by": _ORDER_BY_SCHEMA,
+                    "parameters": _PARAMETERS_SCHEMA,
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 1000,
+                    },
+                },
+                "required": ["source", "attributes"],
+            },
+            _executor=_async_tool_executor(compile_entity_read_to_sql, workspace_root),
+        ),
     ]

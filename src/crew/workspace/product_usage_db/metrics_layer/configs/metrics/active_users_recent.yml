@@ -1,0 +1,13 @@
+kind: metric
+version: 1
+id: active_users_recent
+label: Active Users (recent 28d avg)
+type: windowed
+base_source: orgs
+expr: active_users
+agg: AVG
+window:
+  anchor_param: as_of
+  lower:
+    days_before: 28
+    inclusive: false

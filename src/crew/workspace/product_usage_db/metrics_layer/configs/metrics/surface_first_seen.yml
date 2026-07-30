@@ -1,0 +1,10 @@
+kind: metric
+version: 1
+id: surface_first_seen
+label: Surface First Seen
+type: simple
+base_source: user_activity
+expr: first_activity_date
+dimensions:
+  - org_id
+  - product_surface

@@ -24,14 +24,24 @@ properties:
     description: Human-readable metric label for display.
   type:
     type: string
-    description: Metric shape. Use simple for expr-based metrics, ratio for division metrics.
-    enum: [simple, ratio]
+    description: >-
+      Metric shape. simple = expr-based aggregate, windowed = aggregate over a window
+      relative to a runtime anchor parameter, ratio = division of expressions/metrics.
+    enum: [simple, windowed, ratio]
   base_source:
     type: string
     description: Source id this metric is defined against.
   expr:
     type: string
-    description: SQL expression for simple metrics.
+    description: SQL expression for simple metrics, or the value expression for windowed.
+  agg:
+    type: string
+    description: Aggregation applied to the windowed value expression (SUM, AVG, MAX, ...).
+  window:
+    type: object
+    description: >-
+      Windowed-metric bounds relative to an anchor parameter. Keys: anchor_param, and
+      any of equals/lower/upper (each with days_before and optional inclusive).
   numerator:
     type: string
     description: Numerator expression or metric id for ratio metrics.

@@ -1,0 +1,15 @@
+kind: metric
+version: 1
+id: org_daily_tokens
+label: Org Daily Tokens
+type: simple
+base_source: orgs
+expr: tokens_consumed_sum
+dimensions:
+  - as_of_date
+  - org_id
+  - org_name
+  - plan_tier
+  - created_date
+  - base_fee_usd
+  - per_million_tokens_usd

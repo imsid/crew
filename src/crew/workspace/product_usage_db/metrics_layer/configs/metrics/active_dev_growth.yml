@@ -1,0 +1,8 @@
+kind: metric
+version: 1
+id: active_dev_growth
+label: Active Dev Growth (recent vs prior)
+type: ratio
+base_source: orgs
+numerator: active_users_recent - active_users_prior
+denominator: active_users_prior

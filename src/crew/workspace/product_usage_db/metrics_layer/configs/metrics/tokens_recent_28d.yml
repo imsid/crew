@@ -1,0 +1,13 @@
+kind: metric
+version: 1
+id: tokens_recent_28d
+label: Tokens (recent 28d)
+type: windowed
+base_source: orgs
+expr: tokens_consumed
+agg: SUM
+window:
+  anchor_param: as_of
+  lower:
+    days_before: 28
+    inclusive: false
