@@ -151,6 +151,12 @@ Together these give the agent a structured way to reason about business logic, r
 work, and keep analysis tied to durable definitions. The company-context layer is what lets
 an agent interpret a number rather than merely report it.
 
+Skills are how that grounding becomes procedure. The data agent works through `analyst` for
+metric-backed analysis against compiled SQL, `experiment-analyst` for readouts tied to
+exposure data, and `steward` for approval-gated changes to the definitions themselves. The
+growth agent carries its own — diagnosing a consumption dip, building an expansion thesis,
+and choosing the play — which are the judgment steps inside the NRR workflows below.
+
 The memory layer preserves conversational context over time. Agent sessions persist through
 the `MemoryStore` interface — conversation turns, structured logs, signals, preferences, and
 per-session app data — backed by Postgres, so the agent has durable session history instead
@@ -297,7 +303,7 @@ decides what it means.
 The result is either a self-serve upgrade nudge or a sales briefing with the usage evidence
 and company context already attached.
 
-### See who gets touched, before anything moves
+### Preview before it acts
 
 Each workflow has a read-only twin that runs the selection and stops. Same accounts, same
 gating, no outreach and no writes — so you can review the list before the real run, and
@@ -342,21 +348,3 @@ Every run leaves context behind, and that accretion is what compounds:
   holdout-proven number: "$42k at risk across 5 accounts; act here."
 - **The record, kept true** — usage × company signal × play history, self-correcting in the
   background. Attio is the surface; Crew is what makes it AI-native.
-
-## Agent Skills
-
-### Data agent
-
-- **`analyst`** — metric-backed analysis using metrics-layer definitions and compiled SQL
-- **`experiment-analyst`** — experiment readouts grounded in experiment configs,
-  `experiment_exposures`, and metrics-layer metric ids
-- **`steward`** — schema-driven, approval-gated source and metric config authoring
-
-### Growth agent
-
-- **`diagnosing-consumption-dips`** — which surface dropped, whether it is one power user
-  leaving or broad decay, and the likely root cause
-- **`building-expansion-thesis`** — fusing usage trajectory, company headroom, and timing
-  into a motion, TAM estimate, and confidence
-- **`selecting-nrr-plays`** — choosing the motion that fits the segment and tier, and
-  drafting the copy
