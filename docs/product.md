@@ -7,17 +7,14 @@ audience: stakeholders
 
 # Crew Agent
 
-`crew` is an agent workspace built on top of `mash`.
-Its product model is intentionally small:
-
+`crew` is an agent workspace built on top of `mash` consisting of:
 - `data` is the primary agent and main user entry point
 - `pm` and `growth` are specialist subagents
-- workflows run the repeatable work that shouldn't depend on a conversation
+- deterministic `workflows` for driving NRR
 - the `crew` CLI and the web UI are two front doors onto the same sessions
 
-The goal is to help teams move from business questions to grounded answers, from one-off
-answers to reusable artifacts, and from reusable artifacts to durable workflows that run on
-their own. Current warehouse support is BigQuery.
+The goal is to help teams answer business questions with grounded answers, publish artifacts for humans and agents to collaborate,
+and run deterministic workflows.
 
 ## Workspaces
 
@@ -30,10 +27,6 @@ workspace/<name>/
   experimentation/configs/experiments/
   artifacts/
 ```
-
-Pick one with `crew workspace show` / `crew workspace list`, or override per command with
-`--workspace <name>`. The shipped workspaces are `marketing_db`, `product_usage_db`, and
-`crm_db`.
 
 ## Three Ways To Use Crew
 
@@ -111,6 +104,15 @@ flowchart LR
 Use agent mode when the question is open-ended, the user wants analysis plus explanation,
 the task may become a reusable artifact, or the data agent needs support for framing.
 
+## Common questions
+
+- "what changed in activation over the last 4 weeks?"
+- "which step in the onboarding funnel is driving the largest drop-off?"
+- "show me the results of signup_checkout_test."
+- "is there any imbalance in homepage_hero_test?"
+- "what metrics do we already have for the marketing dataset?"
+- "turn this analysis into a short launch readout I can share."
+
 ### Workflow Mode
 
 Workflow mode is for work that should run the same way every time, on a schedule or on
@@ -125,19 +127,10 @@ crew workflow status consumption-dip-rescue <run_id>
 Use workflow mode when the task is recurring, the output must be auditable, or the result
 needs to be written back to a system of record rather than read in a chat.
 
-## Common questions
-
-- "what changed in activation over the last 4 weeks?"
-- "which step in the onboarding funnel is driving the largest drop-off?"
-- "show me the results of signup_checkout_test."
-- "is there any imbalance in homepage_hero_test?"
-- "what metrics do we already have for the marketing dataset?"
-- "turn this analysis into a short launch readout I can share."
 
 ## Context and Memory
 
-The `data` agent is not meant to answer from intuition alone.
-It is grounded by several product layers:
+The `data` agent is grounded on the following services:
 
 - the `metrics_layer` service
 - the `experimentation` service
@@ -145,17 +138,18 @@ It is grounded by several product layers:
 - the `analyst`, `experiment-analyst`, and `steward` skills
 - a company-context layer under `src/crew/context/{company,marketing,sales}/`, describing
   the business model, personas and tiers, product surfaces, and revenue strategy
-- the inbuilt `MemoryStore` layer provided by mash
+- persistent `MemoryStore` layer provided by mash
 
 Together these give the agent a structured way to reason about business logic, reuse prior
-work, and keep analysis tied to durable definitions. The company-context layer is what lets
-an agent interpret a number rather than merely report it.
+work, and keep analysis tied to durable definitions.
 
-Skills are how that grounding becomes procedure. The data agent works through `analyst` for
-metric-backed analysis against compiled SQL, `experiment-analyst` for readouts tied to
-exposure data, and `steward` for approval-gated changes to the definitions themselves. The
-growth agent carries its own — diagnosing a consumption dip, building an expansion thesis,
-and choosing the play — which are the judgment steps inside the NRR workflows below.
+### SKILLs
+
+The data agent works through `analyst` SKILL for metric-backed analysis against compiled SQL, 
+and `experiment-analyst` for readouts tied to exposure data, 
+and `steward` for approval-gated changes to the metric definitions. The
+growth agent has SKILLs for diagnosing consumption dip, building an expansion thesis,
+and choosing the outbound play that are used inside the NRR workflows below.
 
 The memory layer preserves conversational context over time. Agent sessions persist through
 the `MemoryStore` interface — conversation turns, structured logs, signals, preferences, and
@@ -208,7 +202,7 @@ metric analysis.
 
 Authoring reference: `docs/semantic-layer-guide.md`.
 
-## Experimentation Service
+## Experimentation Analysis Service
 
 The `experimentation` service is the deterministic layer for experiment readouts. It offers:
 
@@ -255,32 +249,19 @@ The `artifacts` service is the collaboration layer for `crew`. It offers:
 Artifacts matter because they turn a useful conversation into team knowledge instead of
 leaving it trapped in one session.
 
-## The context layer for your growth engine
+## Growth Workflow: Net Revenue Retention
 
-Crew reads from the tools you already run, reasons across them, and writes back to them. It
-targets net revenue retention for consumption businesses, where the inputs to any account
-decision are split across systems:
+Crew ships two deterministic workflows focused on Net Reveue Retention (NRR) for any consumption business by integrating with an existing GTM stack via MCP:
 
-- the warehouse has the usage trajectory
-- enrichment has headcount, funding, and hiring
-- the CRM has what has already been tried on the account
-- the engagement tools have what the account has already heard
+| | Role | What Crew uses it for |
+|---|---|---|
+| **Warehouse** | Product signal · read | Tokens, surfaces, and active devs per org; usage trajectory and decay. |
+| **Signals** | Company signal · read | Firmographics, funding stage, hiring signals, tech stack. |
+| **CRM** | System of record · read + write | Reads open plays and opportunities for dedupe; writes back thesis, play, and outcome. |
+| **Outbound** | Engagement · read + actuate | Reads prior touches; delivers outbound and rep briefings. |
 
-Crew joins those, decides which accounts need action, and produces the play. A consumption
-business has no cancellation event to trigger on, so the workflows run on a schedule and
-infer the signal from usage instead of waiting for one.
 
-## Own your net revenue retention
-
-Two workflows cover the two halves of NRR: retaining consumption that is falling, and growing
-consumption that is rising.
-
-- **Goal metric — net revenue retention.** Installed-base consumption this period ÷ last.
-- **Measured against a holdout.** Every workflow holds out a control arm, so the reported
-  lift is the difference between treated and untreated accounts.
-- **No migration.** Each tool connects where it already sits.
-
-### Consumption Dip Rescue
+### Workflow 1: Consumption Dip Rescue
 
 Runs daily. Catches accounts whose consumption is falling.
 
@@ -293,7 +274,7 @@ tier, and drafts the copy against the account's usage evidence and prior touches
 
 Output: a rescue play on the account, with the outcome written back to the CRM.
 
-### Expansion / PQA Engine
+### Workflow 2: Expansion / PQA Engine
 
 Runs weekly. Catches accounts whose consumption is rising.
 
@@ -328,26 +309,3 @@ Each workflow has a paired weekly readout:
 
 The holdout arm is assigned on every run, so lift is computed from control data rather than
 estimated.
-
-## Runs on your stack
-
-Each tool plugs in as a context provider, an actuator, or both, and Crew orchestrates across
-them.
-
-| | Role | What Crew uses it for |
-|---|---|---|
-| **Your warehouse** | Product signal · read | Tokens, surfaces, and active devs per org; usage trajectory and decay. |
-| **Clay** | Company signal · read | Firmographics, funding stage, hiring signals, tech stack. |
-| **Attio** | System of record · read + write | Reads open plays and opportunities for dedupe; writes back thesis, play, and outcome. |
-| **Gong & sequencers** | Engagement · read + actuate | Reads prior touches; delivers outbound and rep briefings. |
-
-## What accumulates
-
-Each run writes context back, which is what the next run reads:
-
-- **Alerts** — each run emits a ranked list with a dollar figure and an action: "$42k at
-  risk across 5 accounts."
-- **Account records** — usage, company signal, thesis, and play history land in Attio, so
-  the next run dedupes against what has already been tried.
-- **Holdout history** — accumulated control data, which is what makes the lift numbers
-  meaningful over time.
