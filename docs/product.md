@@ -255,11 +255,30 @@ The `artifacts` service is the collaboration layer for `crew`. It offers:
 Artifacts matter because they turn a useful conversation into team knowledge instead of
 leaving it trapped in one session.
 
+## The context layer for your growth engine
+
+Crew is not another CRM, enrichment tool, or sequencer. It is the context layer and workflow
+engine for growth — it reads from your whole stack, reasons across it, and acts back through
+it.
+
+That matters most for a consumption business, where the objective is **net revenue
+retention**. Revenue is not booked at signature and then held; it is re-earned every week in
+usage. Expansion and contraction happen continuously and quietly inside the installed base,
+and no event marks the moment either one begins — an account that will churn next quarter
+looks, in the CRM, exactly like one that will not.
+
+So the signal has to be assembled rather than received. It lives across systems that each
+hold one piece: the warehouse knows the usage trajectory, enrichment knows how much room the
+company has to grow, the CRM knows what has already been tried, and the engagement tools know
+what the account has already heard. Read alone, each is ambiguous. Read together, they say
+what is happening to an account and what to do about it.
+
+Crew is the layer that holds them together and acts on the result.
+
 ## Own your net revenue retention
 
-For a consumption dev tool, revenue **is** usage — and it leaks silently, with no
-cancellation event to catch. Crew runs always-on workflows that stop the leak and drive the
-expansion, on top of the stack you already have.
+Crew runs always-on workflows that defend the installed base and drive the expansion, on top
+of the stack you already have.
 
 - **Goal metric — net revenue retention.** Installed-base consumption this period ÷ last.
   The number your board asks about.
@@ -271,7 +290,7 @@ Two workflows own the two halves of NRR.
 
 ### Consumption Dip Rescue
 
-Daily. Stops the leak.
+Daily. Defends the base.
 
 A consumption tool has no cancel event, so Crew manufactures the signal: it watches each
 org's token trajectory against that org's own rolling baseline, weights the decay by
@@ -325,7 +344,6 @@ data rather than asserted.
 
 ## Runs on your stack
 
-Not another CRM, enrichment tool, or sequencer — the engine that makes them work as one.
 Each tool plugs in as a context provider, an actuator, or both, and Crew orchestrates across
 them.
 
