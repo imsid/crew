@@ -249,109 +249,99 @@ The `artifacts` service is the collaboration layer for `crew`. It offers:
 Artifacts matter because they turn a useful conversation into team knowledge instead of
 leaving it trapped in one session.
 
-## Workflows
-
-Workflows are code-shipped, typed step pipelines (`CodeStep` / `AgentStep`) registered with
-the Mash runtime at host build. The runtime owns definitions, durable runs, step-level audit
-events, and resume-from-failed-step; crew exposes thin command and API surfaces for listing
-workflows, configuring inputs, starting runs, and inspecting them. Every host includes the
-built-in masher suite (trace digests, online eval curation, synthetic eval generation,
-experiment runs).
-
-```mermaid
-flowchart TD
-    D["Workflow pipeline (Python)"] --> R["Host registration at build"]
-    R --> X["Workflow run (typed input)"]
-    X --> S["Durable steps + audit events"]
-    S --> F["Run result"]
-```
-
-Each step is one of two kinds. A deterministic step is `code`; a reasoning step is `agent`.
-Code steps are the read/write seams onto your stack — the queries, the gating, the writes
-back to the system of record. Agent steps do the reasoning in between.
-
 ## Own your net revenue retention
 
 For a consumption dev tool, revenue **is** usage — and it leaks silently, with no
 cancellation event to catch. Crew runs always-on workflows that stop the leak and drive the
 expansion, on top of the stack you already have.
 
-The goal metric is **net revenue retention**: installed-base consumption this period ÷ last.
-Two workflows own the two halves of it.
+- **Goal metric — net revenue retention.** Installed-base consumption this period ÷ last.
+  The number your board asks about.
+- **Proof, not activity — lift vs. holdout.** Every workflow holds out a control arm. Crew
+  shows it moved the number, not that it sent emails.
+- **The wedge — zero rip-and-replace.** Bring your own stack. Time-to-value in days.
 
-Every workflow holds out a control arm, so the readout shows the number moved — not that
-emails were sent.
+Two workflows own the two halves of NRR.
 
-### Workflow 1a — Consumption Dip Rescue
+### Consumption Dip Rescue
 
-Daily. Stops the leak. A consumption tool has no cancel event, so a code step manufactures
-the signal and the crew acts before the revenue is gone.
+Daily. Stops the leak.
 
-| Step | Kind | Touches | What it does |
-|---|---|---|---|
-| `pull-usage-panel` | code | warehouse | Per-org token series + 4-week rolling baseline. Pure query. |
-| `score-and-gate` | code | CRM | Decay % vs. own baseline, sustained days, revenue-weight → segment; dedupe against open plays. Fixed formula. |
-| `diagnose-dip` | agent | | Which surface dropped, one power user leaving vs. broad decay, root-cause hypothesis. Judgment over targeted SQL. |
-| `select-and-draft-play` | agent | engagement ctx | Choose the motion by segment + tier and draft the personalized copy. |
-| `assign-and-deliver` | code | CRM, engagement | Holdout split, deliver, write play + outcome back to the account. Idempotent, checkpointed. |
+A consumption tool has no cancel event, so Crew manufactures the signal: it watches each
+org's token trajectory against that org's own rolling baseline, weights the decay by
+revenue, and surfaces the accounts actually worth acting on — deduped against plays already
+in flight.
 
-### Workflow 1b — Expansion / PQA Engine
+Then it works out what the dip *means*. Which surface dropped. Whether this is one power
+user leaving or broad decay across the team. What most likely caused it. That diagnosis
+drives the motion — a CSM escalation reads differently from a self-serve nudge — and the
+copy is drafted against the account's own evidence and prior touches.
 
-Weekly. Drives the expansion. Internal usage says *who is growing*; company signal says *how
-big the ceiling is* and whether now is the moment. The agent fuses them.
+The result is a rescue play on the right account, staged with the outcome written back.
 
-| Step | Kind | Touches | What it does |
-|---|---|---|---|
-| `compute-expansion-signals` | code | warehouse | Token slope, active-dev growth, new surface adoption per org → raw PQA score. Deterministic. |
-| `resolve-and-enrich-company` | code | enrichment | Org → domain, then headcount, funding stage, hiring signals, tech stack. Read-only, idempotent by domain. |
-| `build-expansion-thesis` | agent | | Usage trajectory × company headroom × timing → motion, TAM estimate, confidence. Pure fused reasoning. |
-| `personalize-play` | agent | | Self-serve upgrade nudge vs. sales briefing with usage evidence and company context attached. |
-| `route-and-record` | code | CRM, engagement | Holdout split, write PQA + thesis to the record, route the briefing to the rep, dedupe vs. open opps. |
+### Expansion / PQA Engine
 
-### Why the agent step is load-bearing
+Weekly. Drives the expansion.
+
+Internal usage says *who is growing*. Company signal says *how big the ceiling is* and
+whether now is the moment. Crew scores product-qualified accounts on token slope,
+active-developer growth, and new surface adoption, resolves each to a company, and fuses the
+two into an expansion thesis: the motion to run, the size of the opportunity, and how
+confident to be.
 
 Same org, same warehouse row: 3 → 9 active devs, tokens +140%. In a 12-person startup that
 is a ceiling — nudge to self-serve. In a 4,000-person enterprise that just raised, nine devs
-is a beachhead worth a human motion **this week**. Code fetches the signal; the agent decides
-what it means.
+is a beachhead worth a human motion **this week**. Crew fetches the signal; the reasoning
+decides what it means.
 
-### Previewing a run
+The result is either a self-serve upgrade nudge or a sales briefing with the usage evidence
+and company context already attached.
 
-Each workflow ships a read-only companion — `consumption-dip-who` and `expansion-pqa-who` —
-that runs only the deterministic candidate steps. No agent, no writes. They reuse the parent
-workflows' own code-step closures, so the set they show is the set the parent would act on,
-identical by construction rather than by convention.
+### See who gets touched, before anything moves
 
-```bash
-crew workflow list
-crew workflow run consumption-dip-who --input '{"as_of_date":"2026-05-29"}'
-crew workflow status consumption-dip-rescue <run_id>
-```
+Each workflow has a read-only twin that runs the selection and stops. Same accounts, same
+gating, no outreach and no writes — so you can review the list before the real run, and
+trust that what you reviewed is what gets actioned.
 
-Both parent workflows stop before real outbound. The deliverable is a play and a thesis
-written to the system of record, staged for a human to send.
+Both workflows stop before real outbound. The deliverable is a play staged for a human to
+send.
 
-### Readouts
+### The readouts
 
-Each workflow has a paired weekly readout: for dip rescue, $ at-risk → $ rescued → lift vs.
-holdout → gross retention; for expansion, pipeline generated → converted → incremental
-consumption → NRR contribution. Holdout arms are assigned and recorded on every run, so the
-readout is computed from real control data rather than asserted.
+Each workflow has a paired weekly readout, and each one ends on the same kind of number:
 
-### Running on your stack
+- **Dip rescue** — $ at-risk → $ rescued → lift vs. holdout → gross retention.
+- **Expansion** — pipeline generated → converted → incremental consumption → NRR
+  contribution.
 
+Because the holdout arm is assigned on every run, the lift is measured against real control
+data rather than asserted.
+
+## Runs on your stack
+
+Not another CRM, enrichment tool, or sequencer — the engine that makes them work as one.
 Each tool plugs in as a context provider, an actuator, or both, and Crew orchestrates across
-them — no rip-and-replace:
+them.
 
-- **Warehouse** — product signal, read. Usage trajectory, decay, expansion: tokens,
-  surfaces, active devs per org.
-- **Enrichment** — company signal, read. Firmographics, funding, hiring, tech stack: how big
-  the ceiling is and whether now is the moment.
-- **CRM** — system of record, read + write. The account truth, maintained by Crew: play
-  history, thesis, outcomes, deduped with history preserved.
-- **Engagement** — read + actuate. Prior-touch context in; outbound and rep briefings out.
+| | Role | What Crew uses it for |
+|---|---|---|
+| **Your warehouse** | Product signal · read | Usage trajectory, decay, expansion — tokens, surfaces, active devs per org. |
+| **Clay** | Company signal · read | Firmographics, funding, hiring, tech stack — how big the ceiling is and whether now is the moment. |
+| **Attio** | System of record · read + write | The account truth, maintained by Crew: play history, thesis, outcomes — deduped, with history preserved. |
+| **Gong & sequencers** | Engagement · read + actuate | Prior-touch context in; outbound and rep briefings out. |
 
-Every tool registers as an MCP-style provider. The code steps are where those seams live.
+Bring-your-own isn't a checkbox — it's the shape of the engine. Switching cost accrues to
+Crew as the context deepens, not to a migration.
+
+## Crew becomes your context layer
+
+Every run leaves context behind, and that accretion is what compounds:
+
+- **The workflow engine** — durable workflows owning NRR, checkpointed and retryable.
+- **Insight, not analytics** — workflows emit ranked, push-model alerts with a CTA and a
+  holdout-proven number: "$42k at risk across 5 accounts; act here."
+- **The record, kept true** — usage × company signal × play history, self-correcting in the
+  background. Attio is the surface; Crew is what makes it AI-native.
 
 ## Agent Skills
 
