@@ -257,90 +257,77 @@ leaving it trapped in one session.
 
 ## The context layer for your growth engine
 
-Crew is not another CRM, enrichment tool, or sequencer. It is the context layer and workflow
-engine for growth — it reads from your whole stack, reasons across it, and acts back through
-it.
+Crew reads from the tools you already run, reasons across them, and writes back to them. It
+targets net revenue retention for consumption businesses, where the inputs to any account
+decision are split across systems:
 
-That matters most for a consumption business, where the objective is **net revenue
-retention**. Revenue is not booked at signature and then held; it is re-earned every week in
-usage. Expansion and contraction happen continuously and quietly inside the installed base,
-and no event marks the moment either one begins — an account that will churn next quarter
-looks, in the CRM, exactly like one that will not.
+- the warehouse has the usage trajectory
+- enrichment has headcount, funding, and hiring
+- the CRM has what has already been tried on the account
+- the engagement tools have what the account has already heard
 
-So the signal has to be assembled rather than received. It lives across systems that each
-hold one piece: the warehouse knows the usage trajectory, enrichment knows how much room the
-company has to grow, the CRM knows what has already been tried, and the engagement tools know
-what the account has already heard. Read alone, each is ambiguous. Read together, they say
-what is happening to an account and what to do about it.
-
-Crew is the layer that holds them together and acts on the result.
+Crew joins those, decides which accounts need action, and produces the play. A consumption
+business has no cancellation event to trigger on, so the workflows run on a schedule and
+infer the signal from usage instead of waiting for one.
 
 ## Own your net revenue retention
 
-Crew runs always-on workflows that defend the installed base and drive the expansion, on top
-of the stack you already have.
+Two workflows cover the two halves of NRR: retaining consumption that is falling, and growing
+consumption that is rising.
 
 - **Goal metric — net revenue retention.** Installed-base consumption this period ÷ last.
-  The number your board asks about.
-- **Proof, not activity — lift vs. holdout.** Every workflow holds out a control arm. Crew
-  shows it moved the number, not that it sent emails.
-- **The wedge — zero rip-and-replace.** Bring your own stack. Time-to-value in days.
-
-Two workflows own the two halves of NRR.
+- **Measured against a holdout.** Every workflow holds out a control arm, so the reported
+  lift is the difference between treated and untreated accounts.
+- **No migration.** Each tool connects where it already sits.
 
 ### Consumption Dip Rescue
 
-Daily. Defends the base.
+Runs daily. Catches accounts whose consumption is falling.
 
-A consumption tool has no cancel event, so Crew manufactures the signal: it watches each
-org's token trajectory against that org's own rolling baseline, weights the decay by
-revenue, and surfaces the accounts actually worth acting on — deduped against plays already
-in flight.
+Crew compares each org's token trajectory against that org's own rolling baseline, weights
+the decay by revenue, and drops accounts that already have a play in flight.
 
-Then it works out what the dip *means*. Which surface dropped. Whether this is one power
-user leaving or broad decay across the team. What most likely caused it. That diagnosis
-drives the motion — a CSM escalation reads differently from a self-serve nudge — and the
-copy is drafted against the account's own evidence and prior touches.
+For each account that passes, it identifies which surface dropped and whether the cause is
+one power user leaving or broad decay across the team, picks the motion for that segment and
+tier, and drafts the copy against the account's usage evidence and prior touches.
 
-The result is a rescue play on the right account, staged with the outcome written back.
+Output: a rescue play on the account, with the outcome written back to the CRM.
 
 ### Expansion / PQA Engine
 
-Weekly. Drives the expansion.
+Runs weekly. Catches accounts whose consumption is rising.
 
-Internal usage says *who is growing*. Company signal says *how big the ceiling is* and
-whether now is the moment. Crew scores product-qualified accounts on token slope,
-active-developer growth, and new surface adoption, resolves each to a company, and fuses the
-two into an expansion thesis: the motion to run, the size of the opportunity, and how
-confident to be.
+Crew scores accounts on token slope, active-developer growth, and new surface adoption,
+resolves each org to a company, and pulls headcount, funding stage, hiring signals, and tech
+stack. It combines usage and company signal into a thesis: which motion to run, the size of
+the opportunity, and a confidence level.
 
-Same org, same warehouse row: 3 → 9 active devs, tokens +140%. In a 12-person startup that
-is a ceiling — nudge to self-serve. In a 4,000-person enterprise that just raised, nine devs
-is a beachhead worth a human motion **this week**. Crew fetches the signal; the reasoning
-decides what it means.
+Company size is what separates the two motions. 3 → 9 active devs with tokens up 140% is
+near the ceiling in a 12-person startup, so the play is a self-serve upgrade nudge. The same
+delta in a 4,000-person enterprise that just raised is a small fraction of the account, so
+the play is a sales briefing.
 
-The result is either a self-serve upgrade nudge or a sales briefing with the usage evidence
-and company context already attached.
+Output: a self-serve nudge or a rep briefing, with the usage evidence and company context
+attached, deduped against open opportunities.
 
 ### Preview before it acts
 
-Each workflow has a read-only twin that runs the selection and stops. Same accounts, same
-gating, no outreach and no writes — so you can review the list before the real run, and
-trust that what you reviewed is what gets actioned.
+Each workflow has a read-only twin that runs the account selection and stops — no reasoning
+steps, no outreach, no writes. It returns the same account list the full workflow would act
+on, so you can review it first.
 
-Both workflows stop before real outbound. The deliverable is a play staged for a human to
-send.
+Neither workflow sends outbound on its own. The play is staged for a human to send.
 
 ### The readouts
 
-Each workflow has a paired weekly readout, and each one ends on the same kind of number:
+Each workflow has a paired weekly readout:
 
 - **Dip rescue** — $ at-risk → $ rescued → lift vs. holdout → gross retention.
 - **Expansion** — pipeline generated → converted → incremental consumption → NRR
   contribution.
 
-Because the holdout arm is assigned on every run, the lift is measured against real control
-data rather than asserted.
+The holdout arm is assigned on every run, so lift is computed from control data rather than
+estimated.
 
 ## Runs on your stack
 
@@ -349,20 +336,18 @@ them.
 
 | | Role | What Crew uses it for |
 |---|---|---|
-| **Your warehouse** | Product signal · read | Usage trajectory, decay, expansion — tokens, surfaces, active devs per org. |
-| **Clay** | Company signal · read | Firmographics, funding, hiring, tech stack — how big the ceiling is and whether now is the moment. |
-| **Attio** | System of record · read + write | The account truth, maintained by Crew: play history, thesis, outcomes — deduped, with history preserved. |
-| **Gong & sequencers** | Engagement · read + actuate | Prior-touch context in; outbound and rep briefings out. |
+| **Your warehouse** | Product signal · read | Tokens, surfaces, and active devs per org; usage trajectory and decay. |
+| **Clay** | Company signal · read | Firmographics, funding stage, hiring signals, tech stack. |
+| **Attio** | System of record · read + write | Reads open plays and opportunities for dedupe; writes back thesis, play, and outcome. |
+| **Gong & sequencers** | Engagement · read + actuate | Reads prior touches; delivers outbound and rep briefings. |
 
-Bring-your-own isn't a checkbox — it's the shape of the engine. Switching cost accrues to
-Crew as the context deepens, not to a migration.
+## What accumulates
 
-## Crew becomes your context layer
+Each run writes context back, which is what the next run reads:
 
-Every run leaves context behind, and that accretion is what compounds:
-
-- **The workflow engine** — durable workflows owning NRR, checkpointed and retryable.
-- **Insight, not analytics** — workflows emit ranked, push-model alerts with a CTA and a
-  holdout-proven number: "$42k at risk across 5 accounts; act here."
-- **The record, kept true** — usage × company signal × play history, self-correcting in the
-  background. Attio is the surface; Crew is what makes it AI-native.
+- **Alerts** — each run emits a ranked list with a dollar figure and an action: "$42k at
+  risk across 5 accounts."
+- **Account records** — usage, company signal, thesis, and play history land in Attio, so
+  the next run dedupes against what has already been tried.
+- **Holdout history** — accumulated control data, which is what makes the lift numbers
+  meaningful over time.
