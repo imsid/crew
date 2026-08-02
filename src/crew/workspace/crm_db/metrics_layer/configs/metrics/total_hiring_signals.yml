@@ -1,0 +1,10 @@
+kind: metric
+version: 1
+id: total_hiring_signals
+label: Total Hiring Signals
+type: simple
+base_source: company_enrichment
+expr: hiring_signals_sum
+dimensions:
+  - funding_stage
+  - industry

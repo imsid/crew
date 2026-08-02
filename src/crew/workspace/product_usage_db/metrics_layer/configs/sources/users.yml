@@ -6,7 +6,11 @@ table: dim_users
 subject:
   - user_id
   - org_id
+ts: as_of_date
 dimensions:
+  - name: as_of_date
+    expr: as_of_date
+    data_type: DATE
   - name: user_id
     expr: user_id
     data_type: STRING
@@ -14,8 +18,14 @@ dimensions:
   - name: org_id
     expr: org_id
     data_type: STRING
-  - name: user_name
-    expr: user_name
+  - name: first_active_date
+    expr: first_active_date
+    data_type: DATE
+  - name: last_active_date
+    expr: last_active_date
+    data_type: DATE
+  - name: user_state
+    expr: user_state
     data_type: STRING
   - name: is_active_user
     expr: is_active_user
@@ -48,6 +58,14 @@ measures:
     data_type: INT64
   - name: churned_user_count
     expr: CASE WHEN is_churned_user THEN 1 ELSE 0 END
+    agg: SUM
+    data_type: INT64
+  - name: activity_count_sum
+    expr: activity_count
+    agg: SUM
+    data_type: INT64
+  - name: tokens_consumed_sum
+    expr: tokens_consumed
     agg: SUM
     data_type: INT64
 joins:

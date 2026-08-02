@@ -1,0 +1,153 @@
+"""Growth agent spec for the unified Mash host.
+
+The Growth Expert persona (CMO/CRO judgment) that runs the reasoning steps of the two
+'Own NRR' workflows. Read-only BigQuery access for evidence; all writes happen in the
+workflows' deterministic code steps.
+"""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+from typing import Any
+
+import google.auth
+from google.auth.transport.requests import Request
+from mash.core.config import AgentConfig
+from mash.core.llm import AnthropicProvider, LLMProvider
+from mash.mcp import MCPServerConfig
+from mash.runtime import AgentMetadata, AgentSpec
+from mash.skills.registry import SkillRegistry
+from mash.tools.registry import ToolRegistry
+
+from ...artifacts.tools import build_artifact_tools
+from ...shared.skills import CREW_SKILLS_DIR, register_custom_skills
+from .config import (
+    ANTHROPIC_API_KEY,
+    ANTHROPIC_MODEL,
+    BIGQUERY_ALLOWED_TOOLS,
+    BIGQUERY_MCP_URL,
+    BIGQUERY_PROJECT_ID,
+)
+from .prompt import build_base_prompt, build_roles_context
+
+APP_ID = "growth"
+BIGQUERY_CONNECTION_NAME = "bigquery"
+SKILLS_DIR = Path(__file__).resolve().parent / "skills"
+
+
+class GrowthAgentSpec(AgentSpec):
+    """Growth Expert specialist: dip diagnosis, play selection, expansion thesis."""
+
+    def __init__(self) -> None:
+        self._skills: SkillRegistry | None = None
+
+    def get_agent_id(self) -> str:
+        return APP_ID
+
+    def build_llm(self) -> LLMProvider:
+        return AnthropicProvider(
+            app_id=APP_ID,
+            model=ANTHROPIC_MODEL,
+            api_key=ANTHROPIC_API_KEY,
+        )
+
+    def build_tools(self) -> ToolRegistry:
+        tools = ToolRegistry()
+        for tool in build_artifact_tools():
+            tools.register(tool)
+        return tools
+
+    def build_skills(self) -> SkillRegistry:
+        if self._skills is None:
+            skills = SkillRegistry()
+            register_custom_skills(skills, CREW_SKILLS_DIR, SKILLS_DIR)
+            self._skills = skills
+        return self._skills
+
+    def build_agent_config(self) -> AgentConfig:
+        skills = self.build_skills()
+        blocks: list[dict[str, Any]] = [
+            {
+                "type": "text",
+                "text": build_base_prompt(BIGQUERY_PROJECT_ID),
+                "cache_control": {"type": "ephemeral"},
+            },
+            {
+                "type": "text",
+                "text": build_roles_context(skills),
+                "cache_control": {"type": "ephemeral"},
+            },
+        ]
+        return AgentConfig(
+            app_id=self.get_agent_id(),
+            system_prompt=blocks,
+            max_steps=30,
+            # Kept below the Anthropic SDK's non-streaming ceiling; the structured
+            # step outputs (a handful of candidates + short copy) fit comfortably.
+            max_tokens=8192,
+            conversation_history_turns=3,
+            compaction_token_threshold=100000,
+            skills_enabled=True,
+        )
+
+    def build_mcp_servers(self) -> list[MCPServerConfig]:
+        if not BIGQUERY_MCP_URL or not BIGQUERY_PROJECT_ID:
+            return []
+        try:
+            access_token = self._generate_access_token()
+        except RuntimeError as exc:
+            print(
+                f"Warning: BigQuery MCP auth token could not be generated: {exc}",
+                file=sys.stderr,
+            )
+            return []
+
+        headers = {"Authorization": f"Bearer {access_token}"}
+        headers["x-goog-user-project"] = BIGQUERY_PROJECT_ID
+        return [
+            MCPServerConfig(
+                name=BIGQUERY_CONNECTION_NAME,
+                url=BIGQUERY_MCP_URL,
+                description="BigQuery MCP server for read-only usage evidence",
+                headers=headers,
+                allowed_tools=BIGQUERY_ALLOWED_TOOLS,
+            )
+        ]
+
+    def build_subagent_metadata(self) -> AgentMetadata:
+        return AgentMetadata(
+            display_name="Growth Expert",
+            description=(
+                "Owns Net Revenue Retention for a consumption business: diagnoses "
+                "consumption dips, selects and drafts rescue plays, builds expansion "
+                "theses from usage x company signal, and personalizes expansion plays."
+            ),
+            capabilities=[
+                "consumption dip diagnosis",
+                "NRR play selection and copywriting",
+                "product-qualified-account expansion thesis",
+                "usage x firmographic fusion",
+            ],
+            usage_guidance=(
+                "Delegate growth/NRR judgment: interpreting usage trajectories against "
+                "company headroom and timing, choosing retention or expansion motions, "
+                "and drafting the outreach that goes with them."
+            ),
+        )
+
+    @staticmethod
+    def _generate_access_token() -> str:
+        try:
+            credentials, _project = google.auth.default(
+                scopes=["https://www.googleapis.com/auth/bigquery"]
+            )
+            credentials.refresh(Request())
+        except Exception as exc:
+            raise RuntimeError(
+                f"Failed to generate BigQuery access token via ADC/google-auth: {exc}"
+            ) from exc
+        token = credentials.token
+        if not token:
+            raise RuntimeError("google-auth returned an empty access token")
+        return token

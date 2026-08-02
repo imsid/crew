@@ -1,0 +1,10 @@
+kind: metric
+version: 1
+id: avg_token_price
+label: Avg Token Price (per M)
+type: simple
+base_source: plan_pricing
+expr: per_million_tokens_usd_avg
+dimensions:
+  - plan_tier
+format: $#,##0.00

@@ -1,0 +1,12 @@
+kind: metric
+version: 1
+id: active_users_now
+label: Active Users (at as_of)
+type: windowed
+base_source: orgs
+expr: active_users
+agg: MAX
+window:
+  anchor_param: as_of
+  equals:
+    days_before: 0

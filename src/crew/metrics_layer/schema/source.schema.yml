@@ -60,6 +60,11 @@ properties:
         is_primary_key:
           type: boolean
           description: Marks whether this dimension participates in the primary key.
+        source:
+          type: string
+          description: >-
+            Optional id of a joined source (declared under joins) that this dimension
+            reads from; omitted for base-table dimensions.
   measures:
     type: array
     description: Aggregated fields available as building blocks for metrics.

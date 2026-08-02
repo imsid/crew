@@ -1,0 +1,11 @@
+kind: metric
+version: 1
+id: total_dollars_at_risk
+label: Total Dollars At Risk
+type: simple
+base_source: plays
+expr: dollars_at_risk_sum
+dimensions:
+  - segment
+  - status
+format: $#,##0.00

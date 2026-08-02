@@ -1,0 +1,49 @@
+kind: source
+version: 1
+id: company_enrichment
+dataset: crm_db
+table: company_enrichment
+subject:
+  - domain
+dimensions:
+  - name: domain
+    expr: domain
+    data_type: STRING
+    is_primary_key: true
+  - name: company_name
+    expr: company_name
+    data_type: STRING
+  - name: funding_stage
+    expr: funding_stage
+    data_type: STRING
+  - name: industry
+    expr: industry
+    data_type: STRING
+  - name: is_personal_domain
+    expr: is_personal_domain
+    data_type: BOOL
+  - name: last_raised_date
+    expr: last_raised_date
+    data_type: DATE
+  - name: headcount
+    expr: headcount
+    data_type: INT64
+  - name: hiring_signals
+    expr: hiring_signals
+    data_type: INT64
+  - name: tech_stack
+    expr: tech_stack
+    data_type: STRING
+measures:
+  - name: company_count
+    expr: "1"
+    agg: COUNT
+    data_type: INT64
+  - name: headcount_sum
+    expr: headcount
+    agg: SUM
+    data_type: INT64
+  - name: hiring_signals_sum
+    expr: hiring_signals
+    agg: SUM
+    data_type: INT64

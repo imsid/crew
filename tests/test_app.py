@@ -23,7 +23,13 @@ def test_build_pool_registers_flat_pool_with_no_hosts(tmp_path):
         # masher eval agents arrive with every pool build (mash >= 0.17).
         assert pool.list_hosts() == []
         described = {item["agent_id"]: item for item in pool.describe_agents()}
-        assert set(described.keys()) == {"pm", "data", "eval-agent", "eval-judge-agent"}
+        assert set(described.keys()) == {
+            "pm",
+            "data",
+            "growth",
+            "eval-agent",
+            "eval-judge-agent",
+        }
         assert (
             described["pm"]["metadata"]["display_name"]
             == "Product Management Specialist"
@@ -38,6 +44,10 @@ def test_build_pool_registers_flat_pool_with_no_hosts(tmp_path):
             "masher-online-eval-curation",
             "gen-synthetic-evals",
             "run-experiment",
+            "consumption-dip-rescue",
+            "consumption-dip-who",
+            "expansion-pqa",
+            "expansion-pqa-who",
         }
         assert [step.step_id for step in workflows["masher-trace-digest"].steps] == [
             "list-traces",
@@ -58,5 +68,5 @@ def test_define_default_host_composes_datasquad(tmp_path):
 
         assert host.host_id == DEFAULT_HOST_ID
         assert host.primary == "data"
-        assert host.subagents == ("pm",)
+        assert host.subagents == ("pm", "growth")
         assert [h.host_id for h in pool.list_hosts()] == [DEFAULT_HOST_ID]

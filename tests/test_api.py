@@ -200,6 +200,7 @@ def test_health_lists_data_primary_and_support_agents(tmp_path: Path) -> None:
             assert {agent["agent_id"] for agent in payload["deployment"]["agents"]} == {
                 "pm",
                 "data",
+                "growth",
                 "eval-agent",
                 "eval-judge-agent",
             }

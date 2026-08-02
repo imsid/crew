@@ -19,6 +19,7 @@ from .config_repo import (
 from .context import ToolContext
 from .pathing import (
     ensure_kind,
+    normalize_identifier,
     normalize_identifier_list,
     resolve_config_path,
     resolve_workspace_dataset_id,
@@ -28,8 +29,9 @@ from .query_args import (
     normalize_filters,
     normalize_limit,
     normalize_order_by,
+    normalize_parameters,
 )
-from .sql_compiler import compile_metric_plan
+from .sql_compiler import compile_entity_plan, compile_metric_plan
 from .yaml_schema import (
     describe_schema_path,
     load_metrics_layer_schema_text,
@@ -266,9 +268,11 @@ def compile_metric_configs_to_sql(
         )
         dimensions = normalize_identifier_list(args.get("dimensions"), "dimensions")
         filters = normalize_filters(args.get("filters"))
+        having = normalize_filters(args.get("having"))
         date_range = normalize_date_range(args.get("date_range"))
         order_by = normalize_order_by(args.get("order_by"))
         limit = normalize_limit(args.get("limit"))
+        parameters = normalize_parameters(args.get("parameters"))
 
         metric_entries = load_metric_entries_by_dataset(context=context, dataset_id=dataset_id)
         source_cache: Dict[str, Dict[str, Any]] = {}
@@ -289,8 +293,10 @@ def compile_metric_configs_to_sql(
                     order_by=order_by,
                     limit=limit,
                     bigquery_project_id=BIGQUERY_PROJECT_ID,
+                    parameters=parameters,
+                    having=having,
                 )
-                plans.append(plan)
+                plans.append(plan.to_tool_dict())
             except Exception as exc:
                 errors.append({
                     "metric_name": metric_name,
@@ -323,6 +329,46 @@ def compile_metric_configs_to_sql(
                     "status": "compile_failed",
                     "dataset_id": dataset_id,
                     "errors": [{"metric_name": None, "error": str(exc)}],
+                },
+                ensure_ascii=True,
+                indent=2,
+            )
+        )
+
+
+def compile_entity_read_to_sql(args: Dict[str, Any], context: ToolContext) -> ToolResult:
+    """Compile a non-aggregated attribute read (entity lookup) to executable SQL."""
+    dataset_id: Optional[str] = None
+    try:
+        dataset_id = resolve_workspace_dataset_id(context, args.get("dataset_id"))
+        source_id = normalize_identifier(args.get("source"), "source")
+        attributes = normalize_identifier_list(
+            args.get("attributes"), field_name="attributes", required=True
+        )
+        filters = normalize_filters(args.get("filters"))
+        order_by = normalize_order_by(args.get("order_by"))
+        limit = normalize_limit(args.get("limit"))
+        parameters = normalize_parameters(args.get("parameters"))
+
+        plan = compile_entity_plan(
+            context=context,
+            dataset_id=dataset_id,
+            source_id=source_id,
+            requested_attributes=attributes,
+            filters=filters,
+            order_by=order_by,
+            limit=limit,
+            bigquery_project_id=BIGQUERY_PROJECT_ID,
+            parameters=parameters,
+        )
+        return _to_json({"dataset_id": dataset_id, "plan": plan.to_tool_dict()})
+    except Exception as exc:
+        return ToolResult.error(
+            json.dumps(
+                {
+                    "status": "compile_failed",
+                    "dataset_id": dataset_id,
+                    "errors": [{"source": None, "error": str(exc)}],
                 },
                 ensure_ascii=True,
                 indent=2,

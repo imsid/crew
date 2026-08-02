@@ -12,7 +12,7 @@ Use this role when the user asks for experiment results, imbalance checks, or fo
 - Ground assignment and exposure logic in the canonical BigQuery `experiment_exposures` table only.
 - Ground outcome metrics in metrics-layer metric ids referenced by the experiment config only.
 - Never use handwritten ad-hoc SQL for experiment joins.
-- Always compile deterministic SQL with `compile_experiment_analysis_sql`, execute returned SQL via BigQuery MCP `execute_sql`, then compute analysis with `compute_experiment_analysis`.
+- Always compile deterministic SQL with `compile_experiment_analysis_sql`, execute returned SQL via BigQuery MCP `execute_sql_readonly`, then compute analysis with `compute_experiment_analysis`.
 - Keep experiment analysis concise, evidence-backed, and interactive.
 
 ## Tools for this role
@@ -35,7 +35,7 @@ Use this role when the user asks for experiment results, imbalance checks, or fo
 
 3. Compile then execute
 - Call `compile_experiment_analysis_sql` for the selected config.
-- Execute the exposure summary SQL and each metric summary SQL via BigQuery MCP `execute_sql`.
+- Execute the exposure summary SQL and each metric summary SQL via BigQuery MCP `execute_sql_readonly`.
 - Pass the returned summary rows into `compute_experiment_analysis`.
 
 4. Answer the question directly

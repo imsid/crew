@@ -21,5 +21,5 @@ BIGQUERY_ALLOWED_TOOLS = [
     "list_table_ids",
     "get_dataset_info",
     "get_table_info",
-    "execute_sql",
+    "execute_sql_readonly",
 ]

@@ -14,7 +14,10 @@ Use this role when the user asks for analytical insights using metrics_layer sem
   - `metric` configs: `src/apps/db/metrics_layer/<dataset_id>/metrics/*.yml`
 - Never read BigQuery tables directly to define business logic.
 - Never use handwritten ad-hoc SQL for analysis execution.
-- Always compile metric config(s) to SQL with `compile_metric_configs_to_sql`, then execute returned SQL via BigQuery MCP `execute_sql`.
+- Always compile to SQL via the compile tools, then execute returned SQL via BigQuery MCP `execute_sql_readonly`.
+  - Aggregations (simple, windowed, ratio metrics; joins; HAVING): `compile_metric_configs_to_sql`.
+  - Record lookups (non-aggregated attribute reads by key): `compile_entity_read_to_sql`.
+- Windowed metrics need their anchor supplied via `parameters` (e.g. `{name: as_of, type: DATE, value: ...}`); joins activate automatically when you request a joined dimension.
 - Keep analysis concise, relevant to the user query, and interactive.
 
 ## Tools for this role
@@ -22,6 +25,7 @@ Use this role when the user asks for analytical insights using metrics_layer sem
 - `list_metrics_layer_configs`
 - `read_metrics_layer_config`
 - `compile_metric_configs_to_sql`
+- `compile_entity_read_to_sql`
 - `validate_and_write_metrics_layer_config` (approval-gated metric creation only)
 
 ## Modes
@@ -48,8 +52,8 @@ Use this role when the user asks for analytical insights using metrics_layer sem
 - After confirmation, keep metric selection and discussion anchored to that theme.
 
 4. Compile then execute
-- Call `compile_metric_configs_to_sql` with selected metric(s) and query controls (dimensions, filters, date_range, order_by, limit).
-- Execute each returned SQL plan via BigQuery MCP `execute_sql`.
+- Call `compile_metric_configs_to_sql` with selected metric(s) and query controls (dimensions, filters, having, date_range, order_by, parameters, limit), or `compile_entity_read_to_sql` for record lookups.
+- Execute each returned SQL plan via BigQuery MCP `execute_sql_readonly`.
 - Summarize findings tied to the user question and follow-up prompts.
 
 5. List available metrics on request

@@ -1,0 +1,8 @@
+kind: metric
+version: 1
+id: token_slope
+label: Token Slope (recent vs prior)
+type: ratio
+base_source: orgs
+numerator: tokens_recent_28d - tokens_prior_28d
+denominator: tokens_prior_28d

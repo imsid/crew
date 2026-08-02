@@ -1,0 +1,11 @@
+kind: metric
+version: 1
+id: total_consumption_mrr
+label: Total Consumption MRR
+type: simple
+base_source: accounts
+expr: consumption_mrr_sum
+dimensions:
+  - segment
+  - plan_tier
+format: $#,##0.00

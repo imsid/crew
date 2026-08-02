@@ -1,0 +1,11 @@
+kind: metric
+version: 1
+id: total_accounts
+label: Total Accounts
+type: simple
+base_source: accounts
+expr: account_count
+dimensions:
+  - segment
+  - plan_tier
+  - lifecycle_stage

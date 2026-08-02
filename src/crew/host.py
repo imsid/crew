@@ -3,12 +3,12 @@ from __future__ import annotations
 import os
 
 from mash.api import MashHostConfig, run_host
-from mash.runtime import AgentPool
+from mash.runtime import Pool
 
 from .app import build_pool, define_default_host
 
 
-def build_host_pool() -> AgentPool:
+def build_host_pool() -> Pool:
     pool = build_pool()
     define_default_host(pool)
     return pool
