@@ -266,43 +266,92 @@ flowchart TD
     S --> F["Run result"]
 ```
 
-### Code owns the WHO, agents own the WHAT
+Each step is one of two kinds. A deterministic step is `code`; a reasoning step is `agent`.
+Code steps are the read/write seams onto your stack — the queries, the gating, the writes
+back to the system of record. Agent steps do the reasoning in between.
 
-The pattern that makes these workflows trustworthy: **deterministic code steps decide who
-gets actioned, and agent steps decide what to say about them.**
+## Own your net revenue retention
 
-Code steps own gating, segmentation, dedupe against work already in flight, holdout
-assignment, and every write. Agent steps add judgment — a diagnosis, a thesis, a piece of
-copy — and nothing else. The final code step re-derives the authoritative candidate set and
-overlays the agent's per-entity judgment by id, so the population being actioned is correct
-whether or not the model echoed it faithfully.
+For a consumption dev tool, revenue **is** usage — and it leaks silently, with no
+cancellation event to catch. Crew runs always-on workflows that stop the leak and drive the
+expansion, on top of the stack you already have.
 
-This matters because it bounds the blast radius of a model mistake. A bad generation
-produces bad copy on the right account; it cannot silently email the wrong list.
+The goal metric is **net revenue retention**: installed-base consumption this period ÷ last.
+Two workflows own the two halves of it.
 
-### Reference workflows: Own NRR
+Every workflow holds out a control arm, so the readout shows the number moved — not that
+emails were sent.
 
-Crew ships a worked example of the pattern — two workflows for net revenue retention on a
-consumption-billed product, plus read-only previews of each:
+### Workflow 1a — Consumption Dip Rescue
 
-| Workflow | What it does |
-|---|---|
-| `consumption-dip-rescue` | Infers a churn-equivalent signal from usage decay, diagnoses which surface dropped, drafts a rescue play, assigns a holdout arm, writes it back |
-| `expansion-pqa` | Scores product-qualified accounts, enriches with company signal, fuses usage × headroom × timing into an expansion thesis, personalizes a play |
-| `consumption-dip-who` | Runs only the deterministic candidate steps of the above — no agent, no writes |
-| `expansion-pqa-who` | Same, for the expansion pipeline |
+Daily. Stops the leak. A consumption tool has no cancel event, so a code step manufactures
+the signal and the crew acts before the revenue is gone.
 
-The `-who` variants exist so you can see exactly who *would* be actioned before anything
-runs for real. They reuse the parent workflows' own code-step closures, so the selection
-logic is identical by construction rather than by convention.
+| Step | Kind | Touches | What it does |
+|---|---|---|---|
+| `pull-usage-panel` | code | warehouse | Per-org token series + 4-week rolling baseline. Pure query. |
+| `score-and-gate` | code | CRM | Decay % vs. own baseline, sustained days, revenue-weight → segment; dedupe against open plays. Fixed formula. |
+| `diagnose-dip` | agent | | Which surface dropped, one power user leaving vs. broad decay, root-cause hypothesis. Judgment over targeted SQL. |
+| `select-and-draft-play` | agent | engagement ctx | Choose the motion by segment + tier and draft the personalized copy. |
+| `assign-and-deliver` | code | CRM, engagement | Holdout split, deliver, write play + outcome back to the account. Idempotent, checkpointed. |
 
-Both parent workflows stop before real outbound. The deliverable is a play row and a thesis
-written to the CRM, staged for a human to send.
+### Workflow 1b — Expansion / PQA Engine
 
-These currently run against mock data for **Ampere**, a fictional consumption-billed AI
-coding platform, and the `growth` agent's prompt is written to that scenario. Treat them as
-a reference implementation of the workflow pattern, not a turnkey product. Runbook:
-`docs/nrr-workflows-demo.md`.
+Weekly. Drives the expansion. Internal usage says *who is growing*; company signal says *how
+big the ceiling is* and whether now is the moment. The agent fuses them.
+
+| Step | Kind | Touches | What it does |
+|---|---|---|---|
+| `compute-expansion-signals` | code | warehouse | Token slope, active-dev growth, new surface adoption per org → raw PQA score. Deterministic. |
+| `resolve-and-enrich-company` | code | enrichment | Org → domain, then headcount, funding stage, hiring signals, tech stack. Read-only, idempotent by domain. |
+| `build-expansion-thesis` | agent | | Usage trajectory × company headroom × timing → motion, TAM estimate, confidence. Pure fused reasoning. |
+| `personalize-play` | agent | | Self-serve upgrade nudge vs. sales briefing with usage evidence and company context attached. |
+| `route-and-record` | code | CRM, engagement | Holdout split, write PQA + thesis to the record, route the briefing to the rep, dedupe vs. open opps. |
+
+### Why the agent step is load-bearing
+
+Same org, same warehouse row: 3 → 9 active devs, tokens +140%. In a 12-person startup that
+is a ceiling — nudge to self-serve. In a 4,000-person enterprise that just raised, nine devs
+is a beachhead worth a human motion **this week**. Code fetches the signal; the agent decides
+what it means.
+
+### Previewing a run
+
+Each workflow ships a read-only companion — `consumption-dip-who` and `expansion-pqa-who` —
+that runs only the deterministic candidate steps. No agent, no writes. They reuse the parent
+workflows' own code-step closures, so the set they show is the set the parent would act on,
+identical by construction rather than by convention.
+
+```bash
+crew workflow list
+crew workflow run consumption-dip-who --input '{"as_of_date":"2026-05-29"}'
+crew workflow status consumption-dip-rescue <run_id>
+```
+
+Both parent workflows stop before real outbound. The deliverable is a play and a thesis
+written to the system of record, staged for a human to send.
+
+### Readouts
+
+Each workflow has a paired weekly readout: for dip rescue, $ at-risk → $ rescued → lift vs.
+holdout → gross retention; for expansion, pipeline generated → converted → incremental
+consumption → NRR contribution. Holdout arms are assigned and recorded on every run, so the
+readout is computed from real control data rather than asserted.
+
+### Running on your stack
+
+Each tool plugs in as a context provider, an actuator, or both, and Crew orchestrates across
+them — no rip-and-replace:
+
+- **Warehouse** — product signal, read. Usage trajectory, decay, expansion: tokens,
+  surfaces, active devs per org.
+- **Enrichment** — company signal, read. Firmographics, funding, hiring, tech stack: how big
+  the ceiling is and whether now is the moment.
+- **CRM** — system of record, read + write. The account truth, maintained by Crew: play
+  history, thesis, outcomes, deduped with history preserved.
+- **Engagement** — read + actuate. Prior-touch context in; outbound and rep briefings out.
+
+Every tool registers as an MCP-style provider. The code steps are where those seams live.
 
 ## Agent Skills
 
