@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 
-from mash.runtime import AgentPool, Host, HostBuilder
+from mash.runtime import Host, HostBuilder, Pool
 
 from .agents.data.spec import DataAgentSpec
 from .agents.growth.spec import GrowthAgentSpec
@@ -19,7 +19,7 @@ from .shared.runtime_paths import crew_root_dir
 DEFAULT_HOST_ID = "datasquad"
 
 
-def build_pool() -> AgentPool:
+def build_pool() -> Pool:
     load_project_env()
     load_agent_env("pm")
     load_agent_env("data")
@@ -47,7 +47,7 @@ def build_pool() -> AgentPool:
     return pool
 
 
-def define_default_host(pool: AgentPool) -> Host:
+def define_default_host(pool: Pool) -> Host:
     """Ensure the `datasquad` composition exists on a running pool.
 
     The pool ships flat; crew-host calls this at startup so the deployment

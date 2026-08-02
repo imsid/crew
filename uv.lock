@@ -1066,7 +1066,7 @@ requires-dist = [
     { name = "build", marker = "extra == 'dev'", specifier = ">=1.2.2" },
     { name = "google-auth", specifier = ">=2" },
     { name = "google-cloud-bigquery", specifier = ">=3.11" },
-    { name = "mashpy", specifier = ">=0.18.1" },
+    { name = "mashpy", specifier = ">=0.21.0" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2.0" },
     { name = "pyinstaller", marker = "extra == 'dev'", specifier = ">=6.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3.0" },
@@ -1080,7 +1080,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "mashpy"
-version = "0.18.1"
+version = "0.21.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiosqlite" },
@@ -1103,9 +1103,9 @@ dependencies = [
     { name = "tomli", marker = "python_full_version < '3.11'" },
     { name = "uvicorn" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/b8/77/e64872190da14586d06f279e9b02f4b7e17006b241c8454660396fe62f19/mashpy-0.18.1.tar.gz", hash = "sha256:0de07bc685cf09f28ffc6b5a2f94e433d9dfa44401f6961948260ca0dfcfa2f4", size = 403506 }
+sdist = { url = "https://files.pythonhosted.org/packages/c5/18/b4e07cf292494688bca99af2b7492c7b7d2e43341f4d4f3c3beb9d9c4036/mashpy-0.21.0.tar.gz", hash = "sha256:cc89fb2e1aea9f6230c2bc6e819edd76f152d618f0809a7ce192a3bc8e5679a7", size = 415449 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a9/3e/ab0368a39574ae2e0092bbeb927e132286e49d6c644a0260b5573b08d39d/mashpy-0.18.1-py3-none-any.whl", hash = "sha256:e26ef7c894d357368d3fd39d74487261564c8e196cffa2f2dc2d88baf3c76699", size = 475075 },
+    { url = "https://files.pythonhosted.org/packages/a9/b4/8faca2e5ef3824b0f56bd5058293928ac03c0c30b92c0c8d39124d79ee27/mashpy-0.21.0-py3-none-any.whl", hash = "sha256:b5d834d3d20fe8c8298043379d6a523d820af1dfb30cad08c821e0c463cd19e2", size = 488021 },
 ]
 
 [[package]]
