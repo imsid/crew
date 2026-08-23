@@ -44,10 +44,6 @@ def test_build_pool_registers_flat_pool_with_no_hosts(tmp_path):
             "masher-online-eval-curation",
             "gen-synthetic-evals",
             "run-experiment",
-            "consumption-dip-rescue",
-            "consumption-dip-who",
-            "expansion-pqa",
-            "expansion-pqa-who",
         }
         assert [step.step_id for step in workflows["masher-trace-digest"].steps] == [
             "list-traces",

@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 
 from ..metrics_layer.service.plan import BindParam
-from .context import CrewGrowthRuntimeContext
+from .context import PlayRuntimeContext
 from .models import ExpansionCandidate, UsageRow
 
 # Dip signal windows (see revenue-strategy.md §2).
@@ -42,7 +42,7 @@ def _clamp01(value: float) -> float:
 # --------------------------------------------------------------------------------------
 
 
-def pull_usage_panel(ctx: CrewGrowthRuntimeContext, as_of_date: str) -> list[UsageRow]:
+def pull_usage_panel(ctx: PlayRuntimeContext, as_of_date: str) -> list[UsageRow]:
     """Per-org token series vs. its own 4-week baseline, as of ``as_of_date``."""
     as_of = _to_date(as_of_date)
     lookback = BASELINE_WINDOW_DAYS + BASELINE_OFFSET_DAYS + 5  # small margin
@@ -164,7 +164,7 @@ def _sustained_days(
 
 
 def compute_expansion_signals(
-    ctx: CrewGrowthRuntimeContext, as_of_date: str
+    ctx: PlayRuntimeContext, as_of_date: str
 ) -> list[ExpansionCandidate]:
     """Raw product-qualified-account signal per org (token slope, dev growth, new surface)."""
 

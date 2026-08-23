@@ -1,10 +1,9 @@
-"""Runtime dependencies shared by the Growth Crew workflows.
+"""Runtime dependencies shared by the play workflow code steps.
 
-Workflow **code steps** are deterministic Python and cannot use the agents' MCP
-connection, so they read/write BigQuery through a direct client held on this
-context. It is built once in ``crew.app.build_pool`` and closed over by the code
-step factories (mirrors ``MasherRuntimeContext``); the BigQuery client is created
-lazily on first use so importing the workflows never touches the network.
+Code steps are deterministic Python and cannot use the agents' MCP connection, so
+they read BigQuery through a direct client held on this context (mirrors
+``MasherRuntimeContext``). The BigQuery client is created lazily on first use, so
+importing a module that takes a context never touches the network.
 
 Credentials resolve via Application Default Credentials — locally the developer's
 gcloud ADC, in the deployed host the service account in ``GOOGLE_APPLICATION_CREDENTIALS``.
@@ -33,13 +32,13 @@ CRM_DATASET_DEFAULT = "crm_db"
 BQ_LOCATION_DEFAULT = "US"
 
 # Workspaces (one dir per dataset) live under ``src/crew/workspace``; this module is
-# ``src/crew/growth/context.py``, so the packaged default is two parents up + workspace.
+# ``src/crew/plays/context.py``, so the packaged default is two parents up + workspace.
 WORKSPACE_ROOT_DEFAULT = Path(__file__).resolve().parents[1] / "workspace"
 
 
 @dataclass
-class CrewGrowthRuntimeContext:
-    """BigQuery project + dataset ids for the Growth Crew workflow code steps."""
+class PlayRuntimeContext:
+    """BigQuery project + dataset ids for the play workflow code steps."""
 
     project_id: str
     usage_dataset_id: str = USAGE_DATASET_DEFAULT
@@ -49,7 +48,7 @@ class CrewGrowthRuntimeContext:
     _client: Any = None
 
     @classmethod
-    def from_env(cls) -> "CrewGrowthRuntimeContext":
+    def from_env(cls) -> "PlayRuntimeContext":
         project_id = (
             os.getenv("BIGQUERY_PROJECT_ID")
             or os.getenv("PROJECT_ID")
@@ -212,4 +211,4 @@ class CrewGrowthRuntimeContext:
         )
 
 
-__all__ = ["CrewGrowthRuntimeContext"]
+__all__ = ["PlayRuntimeContext"]

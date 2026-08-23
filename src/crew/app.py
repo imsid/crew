@@ -7,7 +7,6 @@ from mash.runtime import Host, HostBuilder, Pool
 from .agents.data.spec import DataAgentSpec
 from .agents.growth.spec import GrowthAgentSpec
 from .agents.pm.spec import PMAgentSpec
-from .growth import CrewGrowthRuntimeContext, build_growth_workflows
 from .shared.config import load_agent_env, load_project_env
 from .shared.runtime_paths import crew_root_dir
 
@@ -36,14 +35,6 @@ def build_pool() -> Pool:
         .agent(growth, metadata=growth.build_subagent_metadata())
         .build()
     )
-
-    # The two 'Own NRR' workflows: code steps read/write BigQuery via this context;
-    # agent steps run the `growth` loop. Registered as defaults so they attach to the
-    # datasquad host defined in define_default_host().
-    growth_ctx = CrewGrowthRuntimeContext.from_env()
-    for workflow in build_growth_workflows(growth_ctx):
-        pool.register_default_workflow(workflow)
-
     return pool
 
 
