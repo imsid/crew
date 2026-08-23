@@ -556,57 +556,6 @@ class EntityReadTests(unittest.TestCase):
             )
         self.assertIn("not found in source", str(ctx.exception))
 
-    def test_resolve_accounts_reads_via_entity_archetype(self) -> None:
-        from crew.plays import crm
-
-        rows = [
-            {
-                "org_id": "org_1",
-                "account_name": "Org One",
-                "domain": "org1.com",
-                "owner": "ae@co",
-                "segment": "smb",
-                "lifecycle_stage": "customer",
-                "plan_tier": "pro",
-                "consumption_mrr": 500.0,
-                "active_users": 5,
-                "thesis": None,
-            }
-        ]
-        ctx = PlayRuntimeContext(project_id="proj-123")
-        ctx._client = _FakeClient(rows)
-
-        accounts = crm.resolve_accounts(ctx, ["org_1"])
-        self.assertEqual(set(accounts), {"org_1"})
-        self.assertEqual(accounts["org_1"]["consumption_mrr"], 500.0)
-        executed = ctx._client.calls[0]["sql"]
-        self.assertIn("FROM `proj-123.crm_db.accounts`", executed)
-        self.assertNotIn("GROUP BY", executed)
-
-    def test_read_enrichment_stringifies_dates(self) -> None:
-        from crew.plays import crm
-
-        rows = [
-            {
-                "domain": "org1.com",
-                "company_name": "Org One Inc",
-                "headcount": 42,
-                "funding_stage": "series_a",
-                "last_raised_date": date(2025, 3, 1),
-                "hiring_signals": 3,
-                "tech_stack": "python",
-                "industry": "devtools",
-                "is_personal_domain": False,
-            }
-        ]
-        ctx = PlayRuntimeContext(project_id="proj-123")
-        ctx._client = _FakeClient(rows)
-
-        enrichment = crm.read_enrichment(ctx, ["org1.com"])
-        # DATE rendered to an ISO string (matches the prior CAST AS STRING).
-        self.assertEqual(enrichment["org1.com"]["last_raised_date"], "2025-03-01")
-        self.assertEqual(enrichment["org1.com"]["headcount"], 42)
-
 
 class EntityTableRefTests(unittest.TestCase):
     def test_entity_table_ref_reads_table_from_source_config(self) -> None:

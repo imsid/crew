@@ -1,8 +1,9 @@
 """Deterministic warehouse reads over ``product_usage_db`` for the code steps.
 
 These are the "code fetches the signal" half of the pitch: pure, idempotent queries
-that manufacture the churn-equivalent dip signal (1a) and the raw product-qualified
-account signal (1b). The *judgment* over these numbers happens in the agent steps.
+that manufacture the churn-equivalent dip signal and the raw product-qualified
+account signal, plus the row shapes they return. The *judgment* over these numbers
+belongs to the ``growth`` agent.
 
 Thresholds mirror src/crew/context/sales/revenue-strategy.md.
 """
@@ -10,10 +11,42 @@ Thresholds mirror src/crew/context/sales/revenue-strategy.md.
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
+from typing import Optional
+
+from pydantic import BaseModel
 
 from ..metrics_layer.service.plan import BindParam
 from .context import PlayRuntimeContext
-from .models import ExpansionCandidate, UsageRow
+
+
+class UsageRow(BaseModel):
+    """One org's usage panel: token trajectory vs. its own baseline."""
+
+    org_id: str
+    org_name: str
+    plan_tier: str
+    baseline_tokens: float  # trailing 4-week avg daily tokens (weeks -5..-1)
+    current_tokens: float  # trailing 7-day avg daily tokens
+    decay_pct: float  # (baseline - current) / baseline
+    sustained_days: int  # consecutive recent days below 0.8 x baseline
+    age_days: int  # account age at as_of (guards onboarding ramps)
+    active_users: int
+    consumption_mrr: float  # revenue-weight: base fee + trailing-30d token $
+
+
+class ExpansionCandidate(BaseModel):
+    """One org's product-qualified-account signal."""
+
+    org_id: str
+    org_name: str
+    plan_tier: str
+    token_slope: float  # recent-window token growth (fraction)
+    active_dev_growth: float  # recent active-dev growth (fraction)
+    active_users_start: int
+    active_users_now: int
+    new_surface_adopted: bool
+    new_surface: Optional[str] = None
+    pqa_raw: float  # 0-100 raw product-qualified-account score
 
 # Dip signal windows (see revenue-strategy.md §2).
 CURRENT_WINDOW_DAYS = 7
@@ -246,4 +279,9 @@ def compute_expansion_signals(
     return candidates
 
 
-__all__ = ["pull_usage_panel", "compute_expansion_signals"]
+__all__ = [
+    "UsageRow",
+    "ExpansionCandidate",
+    "pull_usage_panel",
+    "compute_expansion_signals",
+]
