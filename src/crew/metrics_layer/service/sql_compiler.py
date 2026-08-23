@@ -102,9 +102,11 @@ def compile_entity_plan(
 ) -> CompiledPlan:
     """Compile a non-aggregated attribute read of an entity source (by key).
 
-    The second query archetype: not everything is a metric. ``resolve_accounts`` /
-    ``read_enrichment`` are row lookups — a projection of declared dimensions filtered
-    by key, with no GROUP BY. Reuses the same source/join vocabulary as aggregate reads.
+    The second query archetype: not everything is a metric. Account and company
+    enrichment lookups are rows, not aggregates — a projection of declared dimensions
+    filtered by key, with no GROUP BY. Reuses the same source/join vocabulary as
+    aggregate reads, so an attribute declared with ``source:`` pulls its joined table
+    into the same query.
     """
     if not requested_attributes:
         raise ValueError("entity read requires at least one attribute")

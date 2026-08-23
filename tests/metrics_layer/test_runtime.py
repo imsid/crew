@@ -11,7 +11,7 @@ import unittest
 from datetime import date, timedelta
 from typing import Any, Dict, List
 
-from crew.growth.context import WORKSPACE_ROOT_DEFAULT, CrewGrowthRuntimeContext
+from crew.plays.context import WORKSPACE_ROOT_DEFAULT, PlayRuntimeContext
 from crew.metrics_layer.service.config_repo import load_metric_entries_by_dataset
 from crew.metrics_layer.service.context import build_tool_context
 from crew.metrics_layer.service.plan import BindParam, CompiledPlan
@@ -435,7 +435,7 @@ class HavingTests(unittest.TestCase):
 
 class ExpansionSignalsMigrationTests(unittest.TestCase):
     def test_compute_expansion_signals_reads_windowed_metrics(self) -> None:
-        from crew.growth.warehouse import compute_expansion_signals
+        from crew.plays.warehouse import compute_expansion_signals
 
         trend = [
             {
@@ -453,7 +453,7 @@ class ExpansionSignalsMigrationTests(unittest.TestCase):
             {"org_id": "org_1", "product_surface": "workflow", "first_seen": date(2026, 7, 1)}
         ]
 
-        ctx = CrewGrowthRuntimeContext(project_id="proj-123")
+        ctx = PlayRuntimeContext(project_id="proj-123")
         ctx._client = _SequencedClient([trend, surface])
 
         candidates = compute_expansion_signals(ctx, "2026-07-18")
@@ -475,7 +475,7 @@ class ExpansionSignalsMigrationTests(unittest.TestCase):
 
 class PullUsagePanelMigrationTests(unittest.TestCase):
     def test_pull_usage_panel_reads_price_via_compiled_join(self) -> None:
-        from crew.growth.warehouse import pull_usage_panel
+        from crew.plays.warehouse import pull_usage_panel
 
         as_of = date(2026, 7, 18)
         created = date(2026, 1, 1)
@@ -496,7 +496,7 @@ class PullUsagePanelMigrationTests(unittest.TestCase):
             for offset in range(40)
         ]
 
-        ctx = CrewGrowthRuntimeContext(project_id="proj-123")
+        ctx = PlayRuntimeContext(project_id="proj-123")
         ctx._client = _SequencedClient([series])
 
         panel = pull_usage_panel(ctx, "2026-07-18")
@@ -556,95 +556,13 @@ class EntityReadTests(unittest.TestCase):
             )
         self.assertIn("not found in source", str(ctx.exception))
 
-    def test_resolve_accounts_reads_via_entity_archetype(self) -> None:
-        from crew.growth import crm
 
-        rows = [
-            {
-                "org_id": "org_1",
-                "account_name": "Org One",
-                "domain": "org1.com",
-                "owner": "ae@co",
-                "segment": "smb",
-                "lifecycle_stage": "customer",
-                "plan_tier": "pro",
-                "consumption_mrr": 500.0,
-                "active_users": 5,
-                "thesis": None,
-            }
-        ]
-        ctx = CrewGrowthRuntimeContext(project_id="proj-123")
-        ctx._client = _FakeClient(rows)
-
-        accounts = crm.resolve_accounts(ctx, ["org_1"])
-        self.assertEqual(set(accounts), {"org_1"})
-        self.assertEqual(accounts["org_1"]["consumption_mrr"], 500.0)
-        executed = ctx._client.calls[0]["sql"]
-        self.assertIn("FROM `proj-123.crm_db.accounts`", executed)
-        self.assertNotIn("GROUP BY", executed)
-
-    def test_read_enrichment_stringifies_dates(self) -> None:
-        from crew.growth import crm
-
-        rows = [
-            {
-                "domain": "org1.com",
-                "company_name": "Org One Inc",
-                "headcount": 42,
-                "funding_stage": "series_a",
-                "last_raised_date": date(2025, 3, 1),
-                "hiring_signals": 3,
-                "tech_stack": "python",
-                "industry": "devtools",
-                "is_personal_domain": False,
-            }
-        ]
-        ctx = CrewGrowthRuntimeContext(project_id="proj-123")
-        ctx._client = _FakeClient(rows)
-
-        enrichment = crm.read_enrichment(ctx, ["org1.com"])
-        # DATE rendered to an ISO string (matches the prior CAST AS STRING).
-        self.assertEqual(enrichment["org1.com"]["last_raised_date"], "2025-03-01")
-        self.assertEqual(enrichment["org1.com"]["headcount"], 42)
-
-
-class WriteSeamTests(unittest.TestCase):
+class EntityTableRefTests(unittest.TestCase):
     def test_entity_table_ref_reads_table_from_source_config(self) -> None:
-        ctx = CrewGrowthRuntimeContext(project_id="proj-123")
+        ctx = PlayRuntimeContext(project_id="proj-123")
         self.assertEqual(
             ctx.entity_table_ref("crm_db", "plays"), "`proj-123.crm_db.plays`"
         )
-
-    def test_write_play_upserts_via_config_derived_table(self) -> None:
-        from crew.growth import writes
-
-        ctx = CrewGrowthRuntimeContext(project_id="proj-123")
-        ctx._client = _FakeClient([])
-        writes.write_play(
-            ctx,
-            {
-                "play_id": "run:org_1",
-                "org_id": "org_1",
-                "workflow_id": "consumption-dip-rescue",
-                "play_type": "sales_assisted_checkin",
-                "status": "ready_to_send",
-            },
-        )
-        sql = ctx._client.calls[0]["sql"]
-        self.assertIn("MERGE `proj-123.crm_db.plays` T", sql)
-        self.assertIn("ON T.play_id = S.play_id", sql)
-        bound = {p.name for p in ctx._client.calls[0]["job_config"].query_parameters}
-        self.assertIn("play_id", bound)
-
-    def test_update_account_thesis_targets_config_table(self) -> None:
-        from crew.growth import writes
-
-        ctx = CrewGrowthRuntimeContext(project_id="proj-123")
-        ctx._client = _FakeClient([])
-        writes.update_account_thesis(ctx, "org_1", "expanding on workflows")
-        sql = ctx._client.calls[0]["sql"]
-        self.assertIn("UPDATE `proj-123.crm_db.accounts`", sql)
-        self.assertIn("SET thesis = @thesis", sql)
 
 
 class AgentToolSurfaceTests(unittest.TestCase):
@@ -698,10 +616,10 @@ class AgentToolSurfaceTests(unittest.TestCase):
         self.assertIn("domain IN UNNEST(['acme.com'])", sql)
 
 
-class GrowthSeamTests(unittest.TestCase):
+class PlayContextTests(unittest.TestCase):
     def test_compile_and_run_executes_compiled_sql_in_process(self) -> None:
         rows = [{"plan_tier": "pro", "metric_value": 12.5}]
-        ctx = CrewGrowthRuntimeContext(project_id="proj-123")
+        ctx = PlayRuntimeContext(project_id="proj-123")
         ctx._client = _FakeClient(rows)
 
         out = ctx.compile_and_run(
@@ -712,35 +630,9 @@ class GrowthSeamTests(unittest.TestCase):
         )
         self.assertEqual(out, rows)
         executed_sql = ctx._client.calls[0]["sql"]
-        # Project id from the growth context flows into the compiled table ref.
+        # Project id from the play context flows into the compiled table ref.
         self.assertIn("`proj-123.product_usage_db.plan_pricing`", executed_sql)
         self.assertIn("LIMIT 50", executed_sql)
-
-    def test_open_plays_for_uses_bound_params_via_compiled_metric(self) -> None:
-        from crew.growth import crm
-
-        rows = [{"org_id": "org_1", "metric_value": 2}, {"org_id": "org_3", "metric_value": 1}]
-        ctx = CrewGrowthRuntimeContext(project_id="proj-123")
-        ctx._client = _FakeClient(rows)
-
-        result = crm.open_plays_for(ctx, ["org_1", "org_2", "org_3"])
-        self.assertEqual(result, {"org_1", "org_3"})
-
-        call = ctx._client.calls[0]
-        self.assertIn("`proj-123.crm_db.plays`", call["sql"])
-        self.assertIn("status IN UNNEST(@open_statuses)", call["sql"])
-        self.assertIn("org_id IN UNNEST(@org_ids)", call["sql"])
-        bound = {p.name for p in call["job_config"].query_parameters}
-        self.assertEqual(bound, {"open_statuses", "org_ids"})
-
-    def test_open_opps_for_short_circuits_on_empty_input(self) -> None:
-        from crew.growth import crm
-
-        ctx = CrewGrowthRuntimeContext(project_id="proj-123")
-        ctx._client = _FakeClient([])
-        self.assertEqual(crm.open_opps_for(ctx, []), set())
-        # No query issued for an empty id list.
-        self.assertEqual(ctx._client.calls, [])
 
 
 if __name__ == "__main__":

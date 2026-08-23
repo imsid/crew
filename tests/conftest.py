@@ -183,6 +183,34 @@ class _TestRuntimeStore:
             RuntimeEventType.REQUEST_FAILED.value,
         }
 
+    async def read_request_stream(
+        self,
+        request_id: str,
+        *,
+        after_seq: int = 0,
+    ) -> tuple[list[RuntimeEvent], bool]:
+        async with self._lock:
+            stored = list(self._events_by_request.get(request_id, ()))
+        events = [
+            event
+            for event in stored
+            if int(event.request_seq or 0) > int(after_seq)
+        ]
+        # Terminality is reported only over the prefix returned here, so a
+        # terminal event appended after this read cannot close the stream
+        # before the caller has been handed it.
+        bound = int(events[-1].request_seq or 0) if events else int(after_seq)
+        terminal = any(
+            int(event.request_seq or 0) <= bound
+            and event.event_type
+            in {
+                RuntimeEventType.REQUEST_COMPLETED.value,
+                RuntimeEventType.REQUEST_FAILED.value,
+            }
+            for event in stored
+        )
+        return events, terminal
+
     async def get_latest_trace(
         self,
         app_id: str,
