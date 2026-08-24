@@ -9,7 +9,7 @@ from typing import Any
 import google.auth
 from google.auth.transport.requests import Request
 from mash.core.config import AgentConfig
-from mash.core.llm import AnthropicProvider, LLMProvider
+from mash.core.llm import GeminiProvider, LLMProvider
 from mash.mcp import MCPServerConfig
 from mash.runtime import AgentMetadata, AgentSpec
 from mash.skills.registry import SkillRegistry
@@ -21,11 +21,11 @@ from ...experimentation.tools import build_experimentation_tools
 from ...metrics_layer.service.constants import METRICS_LAYER_SCHEMA_ROOT
 from ...shared.skills import CREW_SKILLS_DIR, register_custom_skills
 from .config import (
-    ANTHROPIC_API_KEY,
-    ANTHROPIC_MODEL,
     BIGQUERY_ALLOWED_TOOLS,
     BIGQUERY_MCP_URL,
     BIGQUERY_PROJECT_ID,
+    GEMINI_API_KEY,
+    GEMINI_MODEL,
 )
 from .prompt import build_base_prompt, build_roles_context, build_schema_context
 from .tools import build_analyst_tools, build_steward_tools
@@ -45,10 +45,10 @@ class DataAgentSpec(AgentSpec):
         return APP_ID
 
     def build_llm(self) -> LLMProvider:
-        return AnthropicProvider(
+        return GeminiProvider(
             app_id=APP_ID,
-            model=ANTHROPIC_MODEL,
-            api_key=ANTHROPIC_API_KEY,
+            model=GEMINI_MODEL,
+            api_key=GEMINI_API_KEY,
         )
 
     def build_tools(self) -> ToolRegistry:
@@ -81,11 +81,12 @@ class DataAgentSpec(AgentSpec):
         if schema_context:
             sections.append(schema_context)
 
+        # Plain text, no `cache_control`: that is Anthropic syntax, and Gemini does
+        # its own implicit context caching.
         blocks: list[dict[str, Any]] = [
             {
                 "type": "text",
                 "text": "\n\n".join(section for section in sections if section),
-                "cache_control": {"type": "ephemeral"},
             }
         ]
 

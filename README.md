@@ -23,7 +23,7 @@ approval, and durable interactions are handled by the Mash runtime.
 
 ```bash
 # 1. Configure and start Postgres, crew-host, crew-api, and the web UI.
-cp .env.example .env   # set ANTHROPIC_API_KEY, CREW_BETA_ALLOWED_USERS, CREW_BETA_AUTH_SECRET
+cp .env.example .env   # set GEMINI_API_KEY, CREW_BETA_ALLOWED_USERS, CREW_BETA_AUTH_SECRET
 docker compose up -d --build
 
 # 2. Install the CLI, log in as your user, and chat
@@ -36,7 +36,9 @@ The web UI is at [http://127.0.0.1:3000](http://127.0.0.1:3000). The CLI and
 web UI both authenticate with crew-api, so sessions are shared between them.
 Agent execution runs independently on the private crew-host service.
 
-`ANTHROPIC_API_KEY` is required — the host refuses to start without it.
+`GEMINI_API_KEY` is required — the `data`, `pm`, and `growth` agents all run
+on Gemini and build their clients eagerly, so the host refuses to start without
+it. `ANTHROPIC_API_KEY` is only needed for the `engineer` agent.
 `DBOS_CONDUCTOR_KEY` is optional: the durable runtime self-hosts against
 Postgres and starts fine without it; set it only to connect to DBOS Conductor
 for cloud observability. BigQuery is optional: set `BIGQUERY_PROJECT_ID` /

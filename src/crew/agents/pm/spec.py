@@ -4,14 +4,14 @@ from pathlib import Path
 from typing import Any
 
 from mash.core.config import AgentConfig
-from mash.core.llm import AnthropicProvider, LLMProvider
+from mash.core.llm import GeminiProvider, LLMProvider
 from mash.runtime import AgentMetadata, AgentSpec
 from mash.skills.registry import SkillRegistry
 from mash.tools.registry import ToolRegistry
 
 from ...artifacts.tools import build_artifact_tools
 from ...shared.skills import CREW_SKILLS_DIR, register_custom_skills
-from .config import ANTHROPIC_API_KEY, ANTHROPIC_MODEL
+from .config import GEMINI_API_KEY, GEMINI_MODEL
 from .prompt import build_base_prompt, build_roles_context
 
 APP_ID = "pm"
@@ -26,10 +26,10 @@ class PMAgentSpec(AgentSpec):
         return APP_ID
 
     def build_llm(self) -> LLMProvider:
-        return AnthropicProvider(
+        return GeminiProvider(
             app_id=APP_ID,
-            model=ANTHROPIC_MODEL,
-            api_key=ANTHROPIC_API_KEY,
+            model=GEMINI_MODEL,
+            api_key=GEMINI_API_KEY,
         )
 
     def build_tools(self) -> ToolRegistry:
@@ -77,16 +77,10 @@ class PMAgentSpec(AgentSpec):
 
     def build_system_prompt(self) -> list[dict[str, Any]]:
         skills = self.build_skills()
+        # Plain text, no `cache_control`: that is Anthropic syntax, and Gemini does
+        # its own implicit context caching.
         blocks: list[dict[str, Any]] = [
-            {
-                "type": "text",
-                "text": build_base_prompt(),
-                "cache_control": {"type": "ephemeral"},
-            },
-            {
-                "type": "text",
-                "text": build_roles_context(skills),
-                "cache_control": {"type": "ephemeral"},
-            },
+            {"type": "text", "text": build_base_prompt()},
+            {"type": "text", "text": build_roles_context(skills)},
         ]
         return blocks

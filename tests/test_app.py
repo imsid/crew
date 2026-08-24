@@ -1,21 +1,31 @@
 from __future__ import annotations
 
+from contextlib import ExitStack
 from unittest.mock import MagicMock, patch
 
+from crew.agents.data.spec import DataAgentSpec
 from crew.agents.growth.spec import GrowthAgentSpec
+from crew.agents.pm.spec import PMAgentSpec
 from crew.app import DEFAULT_HOST_ID, build_pool, define_default_host
 
 
-def _stub_growth_provider():
-    """The growth agent's Gemini client is built at construction and its MCP server
-    refreshes an ADC token. Neither is exercised here, so both are stubbed and the
-    tests need no credentials."""
+def _stub_gemini_providers():
+    """Every agent's Gemini client is built at construction, and the BigQuery MCP
+    servers refresh an ADC token. None of that is exercised here, so all of it is
+    stubbed and the tests need no credentials."""
 
-    return patch.multiple(
-        GrowthAgentSpec,
-        build_llm=MagicMock(return_value=MagicMock(model="test-model")),
-        build_mcp_servers=MagicMock(return_value=[]),
-    )
+    stack = ExitStack()
+    for spec in (GrowthAgentSpec, DataAgentSpec, PMAgentSpec):
+        stack.enter_context(
+            patch.object(
+                spec, "build_llm", MagicMock(return_value=MagicMock(model="test-model"))
+            )
+        )
+    for spec in (GrowthAgentSpec, DataAgentSpec):
+        stack.enter_context(
+            patch.object(spec, "build_mcp_servers", MagicMock(return_value=[]))
+        )
+    return stack
 
 
 def _crew_env(tmp_path):
@@ -29,7 +39,7 @@ def _crew_env(tmp_path):
 
 
 def test_build_pool_registers_flat_pool_with_no_hosts(tmp_path):
-    with patch.dict("os.environ", _crew_env(tmp_path), clear=False), _stub_growth_provider():
+    with patch.dict("os.environ", _crew_env(tmp_path), clear=False), _stub_gemini_providers():
         pool = build_pool()
 
         # The pool ships flat: agents are registered, hosts are not. The
@@ -81,7 +91,7 @@ def test_build_pool_registers_flat_pool_with_no_hosts(tmp_path):
 
 
 def test_define_default_host_composes_datasquad(tmp_path):
-    with patch.dict("os.environ", _crew_env(tmp_path), clear=False), _stub_growth_provider():
+    with patch.dict("os.environ", _crew_env(tmp_path), clear=False), _stub_gemini_providers():
         pool = build_pool()
         host = define_default_host(pool)
 
