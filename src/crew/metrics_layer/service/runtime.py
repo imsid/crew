@@ -15,6 +15,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+from google.cloud import bigquery
+
 from .config_repo import load_metric_entries_by_dataset
 from .context import ToolContext
 from .plan import BindParam, CompiledPlan
@@ -46,7 +48,9 @@ def compile_query(
     *,
     bigquery_project_id: Optional[str] = None,
 ) -> CompiledPlan:
-    metric_entries = load_metric_entries_by_dataset(context=context, dataset_id=dataset_id)
+    metric_entries = load_metric_entries_by_dataset(
+        context=context, dataset_id=dataset_id
+    )
     return compile_metric_plan(
         context=context,
         dataset_id=dataset_id,
@@ -79,7 +83,9 @@ def compile_multi_query(
     bigquery_project_id: Optional[str] = None,
 ) -> CompiledPlan:
     """Compile several metrics sharing a base source into one multi-column plan."""
-    metric_entries = load_metric_entries_by_dataset(context=context, dataset_id=dataset_id)
+    metric_entries = load_metric_entries_by_dataset(
+        context=context, dataset_id=dataset_id
+    )
     return compile_multi_metric_plan(
         context=context,
         dataset_id=dataset_id,
@@ -126,7 +132,6 @@ def compile_entity_query(
 def execute_plan(
     plan: CompiledPlan, *, client: Any, location: Optional[str] = None
 ) -> List[Dict[str, Any]]:
-    from google.cloud import bigquery
 
     job_config = bigquery.QueryJobConfig(
         query_parameters=[param.to_bigquery() for param in plan.parameters]
