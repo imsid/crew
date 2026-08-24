@@ -1,11 +1,11 @@
-"""Deterministic warehouse reads over ``product_usage_db`` for the code steps.
+"""``product_usage_db`` — the usage panel and the raw expansion signal.
 
-These are the "code fetches the signal" half of the pitch: pure, idempotent queries
-that manufacture the churn-equivalent dip signal and the raw product-qualified
-account signal, plus the row shapes they return. The *judgment* over these numbers
-belongs to the ``growth`` agent.
+Pure, idempotent reads that manufacture the two signals a play workflow selects on:
+the token trajectory against each org's own baseline (the churn-equivalent dip) and
+the raw product-qualified-account score. Gating and snapshot shaping are the
+workflow's job, not this module's — these functions just return the numbers.
 
-Thresholds mirror src/crew/context/sales/revenue-strategy.md.
+Windows mirror src/crew/context/sales/revenue-strategy.md.
 """
 
 from __future__ import annotations
@@ -15,8 +15,8 @@ from typing import Optional
 
 from pydantic import BaseModel
 
-from ..metrics_layer.service.plan import BindParam
-from .context import PlayRuntimeContext
+from ...metrics_layer.service.plan import BindParam
+from ..context import PlayRuntimeContext
 
 
 class UsageRow(BaseModel):
@@ -75,15 +75,22 @@ def _clamp01(value: float) -> float:
 # --------------------------------------------------------------------------------------
 
 
-def pull_usage_panel(ctx: PlayRuntimeContext, as_of_date: str) -> list[UsageRow]:
-    """Per-org token series vs. its own 4-week baseline, as of ``as_of_date``."""
+def pull_usage_panel(
+    ctx: PlayRuntimeContext, as_of_date: str
+) -> tuple[list[UsageRow], str]:
+    """Per-org token series vs. its own 4-week baseline, plus the SQL that produced it.
+
+    The SQL comes back because the candidate set carries it: the agent and the
+    artifact both quote the query behind a run.
+    """
+
     as_of = _to_date(as_of_date)
     lookback = BASELINE_WINDOW_DAYS + BASELINE_OFFSET_DAYS + 5  # small margin
     start = (as_of - timedelta(days=lookback)).isoformat()
 
     # One org-day-grain read returns both measures (tokens + active users) plus the
     # tier's base fee and token price, folded in via the compiled orgs→plan_pricing join.
-    series = ctx.compile_and_run_multi(
+    plan = ctx.compile_multi(
         ctx.usage_dataset_id,
         ["org_daily_tokens", "org_daily_active_users"],
         dimensions=[
@@ -102,6 +109,7 @@ def pull_usage_panel(ctx: PlayRuntimeContext, as_of_date: str) -> list[UsageRow]
         ],
         limit=1000,
     )
+    series = ctx.run_plan(plan)
 
     by_org: dict[str, list[dict]] = {}
     for row in series:
@@ -154,7 +162,7 @@ def pull_usage_panel(ctx: PlayRuntimeContext, as_of_date: str) -> list[UsageRow]
             )
         )
     panel.sort(key=lambda r: r.decay_pct, reverse=True)
-    return panel
+    return panel, plan.sql
 
 
 def _within(day: date, as_of: date, days: int) -> bool:

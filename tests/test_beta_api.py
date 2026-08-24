@@ -24,6 +24,7 @@ from mash.workflows.service import (
 import pytest
 
 from crew.agents.data.spec import DataAgentSpec
+from crew.agents.growth.spec import GrowthAgentSpec
 from crew.agents.pm.spec import PMAgentSpec
 from crew.app import build_pool, define_default_host
 from crew.beta.app import build_beta_app, create_beta_app
@@ -300,6 +301,15 @@ def _build_test_client(tmp_path: Path):
         )
         stack.enter_context(
             patch.object(EvalJudgeAgentSpec, "build_memory_store", _memory_store)
+        )
+        # The growth agent is never invoked here, but its provider builds a real client
+        # at construction and its MCP server does an ADC token refresh. Both stubbed so
+        # the suite needs no credentials.
+        stack.enter_context(
+            patch.object(GrowthAgentSpec, "build_llm", return_value=_EchoLLM())
+        )
+        stack.enter_context(
+            patch.object(GrowthAgentSpec, "build_mcp_servers", return_value=[])
         )
         pool = build_pool()
         define_default_host(pool)

@@ -1,17 +1,22 @@
-"""Warehouse and CRM access for play workflows.
+"""The play workflows and the BigQuery access behind them.
 
-The deterministic half of the 'Own NRR' motion: BigQuery reads through
-:class:`PlayRuntimeContext` that manufacture the dip and product-qualified-account
-signals. Judgment over those numbers belongs to the ``growth`` agent. See
-src/crew/context/** for the company context it reasons over.
+Three pieces, in dependency order:
 
-CRM records (accounts, company enrichment) are read straight through
-``PlayRuntimeContext.read_entity``: ``accounts`` declares a join to
-``company_enrichment``, so one compiled query serves both.
+- ``context`` — the BigQuery client and the query primitives everything shares.
+- ``data_loaders`` — one module per table, holding the SQL that reads and writes it.
+- ``workflows`` — one module per workflow, calling those loaders.
+- ``migrations`` — the tables' schema, as SQL, applied at crew-host boot.
+
+``render`` sits beside them: pure copy-template functions, no database.
+
+The judgment over these numbers belongs to the ``growth`` agent, which reaches the
+same tables through the tools in ``crew.agents.growth.tools``.
 """
 
 from __future__ import annotations
 
 from .context import PlayRuntimeContext
+from .migrations import run_migrations
+from .workflows import build_play_workflows
 
-__all__ = ["PlayRuntimeContext"]
+__all__ = ["PlayRuntimeContext", "build_play_workflows", "run_migrations"]

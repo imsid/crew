@@ -46,6 +46,7 @@ crew = [
   "metrics_layer/schema/*.yml",
   "experimentation/schema/*.yml",
   "code_index/*.sh",
+  "plays/migrations/*.sql",
   "workspace/*/artifacts/*.md",
   "workspace/*/artifacts/*.html",
   "workspace/*/metrics_layer/configs/sources/*.yml",

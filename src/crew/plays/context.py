@@ -20,8 +20,11 @@ from google.cloud import bigquery
 
 from ..metrics_layer.service.config_repo import load_source_config
 from ..metrics_layer.service.context import build_tool_context
+from ..metrics_layer.service.plan import CompiledPlan
 from ..metrics_layer.service.runtime import (
     QuerySpec,
+    compile_multi_query,
+    execute_plan,
     run_entity_query,
     run_multi_query,
     run_query,
@@ -97,10 +100,25 @@ class PlayRuntimeContext:
         return f"`{dataset}.{table}`"
 
     def execute_write(self, sql: str, params: list[Any] | None = None) -> None:
-        """Run a DML statement (MERGE/UPDATE) — the write seam's execution primitive."""
+        """Run a DDL/DML statement — the write primitive the data loaders share."""
 
         job_config = bigquery.QueryJobConfig(query_parameters=params or [])
         self.client().query(sql, job_config=job_config, location=self.location).result()
+
+    def query(self, sql: str, params: list[Any] | None = None) -> list[dict[str, Any]]:
+        """Run a hand-written SELECT and return rows as dicts.
+
+        The read primitive for the candidate tables, which the metrics layer does not
+        model: they are a workflow's working set, not a read model over the warehouse.
+        """
+
+        job_config = bigquery.QueryJobConfig(query_parameters=params or [])
+        result = (
+            self.client()
+            .query(sql, job_config=job_config, location=self.location)
+            .result()
+        )
+        return [dict(row) for row in result]
 
     def compile_and_run(
         self,
@@ -177,6 +195,33 @@ class PlayRuntimeContext:
             bigquery_project_id=self.project_id,
             location=self.location,
         )
+
+    def compile_multi(
+        self,
+        dataset_id: str,
+        metric_names: list[str],
+        **kwargs: Any,
+    ) -> CompiledPlan:
+        """Compile a multi-metric read without running it.
+
+        The seam a selection function uses when the SQL itself is part of the output:
+        the compiled text goes on the candidate set so the agent (and the artifact)
+        can see exactly which query produced the run.
+        """
+
+        tool_context = build_tool_context(Path(self.workspace_root) / dataset_id)
+        return compile_multi_query(
+            tool_context,
+            dataset_id,
+            list(metric_names),
+            bigquery_project_id=self.project_id,
+            **kwargs,
+        )
+
+    def run_plan(self, plan: CompiledPlan) -> list[dict[str, Any]]:
+        """Execute an already-compiled plan on the shared client."""
+
+        return execute_plan(plan, client=self.client(), location=self.location)
 
     def read_entity(
         self,

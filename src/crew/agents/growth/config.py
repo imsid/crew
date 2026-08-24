@@ -8,19 +8,15 @@ from ...shared.config import load_agent_env
 
 load_agent_env("growth")
 
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
-# Growth judgment (dip diagnosis, expansion thesis) benefits from a stronger model.
-ANTHROPIC_MODEL = (
-    os.getenv("GROWTH_ANTHROPIC_MODEL")
-    or os.getenv("ANTHROPIC_MODEL")
-    or "claude-sonnet-4-6"
-)
+# The growth agent runs on Gemini; `data` and `pm` stay on Anthropic.
+GEMINI_MODEL = os.getenv("GROWTH_GEMINI_MODEL") or "gemini-3.7-flash"
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
 
 BIGQUERY_MCP_URL = os.getenv("BIGQUERY_MCP_URL") or "https://bigquery.googleapis.com/mcp"
 BIGQUERY_PROJECT_ID = os.getenv("BIGQUERY_PROJECT_ID")
 
-# Read-only: the growth agent queries the warehouse for evidence during diagnosis and
-# thesis-building. Writes happen only in deterministic code steps.
+# Read-only: the MCP connection is for evidence beyond the snapshots. The agent's own
+# writes (plays, assignments) go through the candidate tools, not through SQL.
 BIGQUERY_ALLOWED_TOOLS = [
     "list_dataset_ids",
     "list_table_ids",

@@ -1,8 +1,21 @@
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
+from crew.agents.growth.spec import GrowthAgentSpec
 from crew.app import DEFAULT_HOST_ID, build_pool, define_default_host
+
+
+def _stub_growth_provider():
+    """The growth agent's Gemini client is built at construction and its MCP server
+    refreshes an ADC token. Neither is exercised here, so both are stubbed and the
+    tests need no credentials."""
+
+    return patch.multiple(
+        GrowthAgentSpec,
+        build_llm=MagicMock(return_value=MagicMock(model="test-model")),
+        build_mcp_servers=MagicMock(return_value=[]),
+    )
 
 
 def _crew_env(tmp_path):
@@ -16,7 +29,7 @@ def _crew_env(tmp_path):
 
 
 def test_build_pool_registers_flat_pool_with_no_hosts(tmp_path):
-    with patch.dict("os.environ", _crew_env(tmp_path), clear=False):
+    with patch.dict("os.environ", _crew_env(tmp_path), clear=False), _stub_growth_provider():
         pool = build_pool()
 
         # The pool ships flat: agents are registered, hosts are not. The
@@ -56,9 +69,19 @@ def test_build_pool_registers_flat_pool_with_no_hosts(tmp_path):
             "code",
         ]
 
+        # The play workflow: code selects the run's candidates, the growth agent
+        # curates them into plays.
+        assert [
+            (step.step_id, step.kind)
+            for step in workflows["consumption-dip-rescue"].steps
+        ] == [
+            ("select-play-candidates", "code"),
+            ("curate-plays", "agent"),
+        ]
+
 
 def test_define_default_host_composes_datasquad(tmp_path):
-    with patch.dict("os.environ", _crew_env(tmp_path), clear=False):
+    with patch.dict("os.environ", _crew_env(tmp_path), clear=False), _stub_growth_provider():
         pool = build_pool()
         host = define_default_host(pool)
 

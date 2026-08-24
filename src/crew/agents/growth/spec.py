@@ -1,8 +1,12 @@
 """Growth agent spec for the unified Mash host.
 
-The Growth Expert persona (CMO/CRO judgment) that runs the reasoning steps of the two
-'Own NRR' workflows. Read-only BigQuery access for evidence; all writes happen in the
-workflows' deterministic code steps.
+The Growth Expert persona (CMO/CRO judgment) that runs the curate step of the play
+workflows: it reads a run of candidates, defines a few plays, assigns every org to
+one, and writes the artifact. Those writes go through the candidate tools built over
+:class:`PlayRuntimeContext`; the MCP connection stays read-only, for evidence beyond
+the snapshots.
+
+Runs on Gemini. `data` and `pm` stay on Anthropic.
 """
 
 from __future__ import annotations
@@ -14,22 +18,24 @@ from typing import Any
 import google.auth
 from google.auth.transport.requests import Request
 from mash.core.config import AgentConfig
-from mash.core.llm import AnthropicProvider, LLMProvider
+from mash.core.llm import GeminiProvider, LLMProvider
 from mash.mcp import MCPServerConfig
 from mash.runtime import AgentMetadata, AgentSpec
 from mash.skills.registry import SkillRegistry
 from mash.tools.registry import ToolRegistry
 
 from ...artifacts.tools import build_artifact_tools
+from ...plays.context import PlayRuntimeContext
 from ...shared.skills import CREW_SKILLS_DIR, register_custom_skills
 from .config import (
-    ANTHROPIC_API_KEY,
-    ANTHROPIC_MODEL,
     BIGQUERY_ALLOWED_TOOLS,
     BIGQUERY_MCP_URL,
     BIGQUERY_PROJECT_ID,
+    GEMINI_API_KEY,
+    GEMINI_MODEL,
 )
 from .prompt import build_base_prompt, build_roles_context
+from .tools import build_candidate_tools
 
 APP_ID = "growth"
 BIGQUERY_CONNECTION_NAME = "bigquery"
@@ -37,24 +43,29 @@ SKILLS_DIR = Path(__file__).resolve().parent / "skills"
 
 
 class GrowthAgentSpec(AgentSpec):
-    """Growth Expert specialist: dip diagnosis, play selection, expansion thesis."""
+    """Growth Expert specialist: turns a run of candidates into a handful of plays."""
 
-    def __init__(self) -> None:
+    def __init__(self, ctx: PlayRuntimeContext | None = None) -> None:
+        # The context carries the BigQuery client the candidate tools write through.
+        # It builds lazily, so constructing the spec never touches the network.
+        self._ctx = ctx if ctx is not None else PlayRuntimeContext.from_env()
         self._skills: SkillRegistry | None = None
 
     def get_agent_id(self) -> str:
         return APP_ID
 
     def build_llm(self) -> LLMProvider:
-        return AnthropicProvider(
+        return GeminiProvider(
             app_id=APP_ID,
-            model=ANTHROPIC_MODEL,
-            api_key=ANTHROPIC_API_KEY,
+            model=GEMINI_MODEL,
+            api_key=GEMINI_API_KEY,
         )
 
     def build_tools(self) -> ToolRegistry:
         tools = ToolRegistry()
         for tool in build_artifact_tools():
+            tools.register(tool)
+        for tool in build_candidate_tools(self._ctx):
             tools.register(tool)
         return tools
 
@@ -67,24 +78,19 @@ class GrowthAgentSpec(AgentSpec):
 
     def build_agent_config(self) -> AgentConfig:
         skills = self.build_skills()
+        # Two plain text blocks: `cache_control` is Anthropic syntax and Gemini does
+        # its own implicit context caching, so there is nothing to annotate.
         blocks: list[dict[str, Any]] = [
-            {
-                "type": "text",
-                "text": build_base_prompt(BIGQUERY_PROJECT_ID),
-                "cache_control": {"type": "ephemeral"},
-            },
-            {
-                "type": "text",
-                "text": build_roles_context(skills),
-                "cache_control": {"type": "ephemeral"},
-            },
+            {"type": "text", "text": build_base_prompt(BIGQUERY_PROJECT_ID)},
+            {"type": "text", "text": build_roles_context(skills)},
         ]
         return AgentConfig(
             app_id=self.get_agent_id(),
             system_prompt=blocks,
-            max_steps=30,
-            # Kept below the Anthropic SDK's non-streaming ceiling; the structured
-            # step outputs (a handful of candidates + short copy) fit comfortably.
+            # A run is one to four `read_candidates`, three or four
+            # `create_play` + `assign_play` pairs, a `preview_play_copy` or two, and
+            # one artifact write.
+            max_steps=20,
             max_tokens=8192,
             conversation_history_turns=3,
             compaction_token_threshold=100000,
@@ -119,19 +125,20 @@ class GrowthAgentSpec(AgentSpec):
         return AgentMetadata(
             display_name="Growth Expert",
             description=(
-                "Owns Net Revenue Retention for a consumption business: diagnoses "
-                "consumption dips, selects and drafts rescue plays, builds expansion "
-                "theses from usage x company signal, and personalizes expansion plays."
+                "Owns Net Revenue Retention for a consumption business: reads a run "
+                "of candidate accounts, consolidates them into a handful of plays "
+                "with per-play copy, assigns every account to one, and writes the "
+                "briefing a human acts on."
             ),
             capabilities=[
-                "consumption dip diagnosis",
-                "NRR play selection and copywriting",
-                "product-qualified-account expansion thesis",
+                "consumption dip and expansion judgment",
+                "play design and consolidation",
+                "NRR outreach copywriting",
                 "usage x firmographic fusion",
             ],
             usage_guidance=(
                 "Delegate growth/NRR judgment: interpreting usage trajectories against "
-                "company headroom and timing, choosing retention or expansion motions, "
+                "company headroom and timing, deciding what to do about it, "
                 "and drafting the outreach that goes with them."
             ),
         )

@@ -1,13 +1,12 @@
 kind: metric
 version: 1
-id: total_dollars_at_risk
-label: Total Dollars At Risk
+id: total_play_candidates
+label: Total Play Candidates
 type: simple
 base_source: play_candidates
-expr: dollars_at_risk_sum
+expr: candidate_count
 dimensions:
   - workflow_id
   - run_id
   - plan_tier
   - assignment_status
-format: $#,##0.00

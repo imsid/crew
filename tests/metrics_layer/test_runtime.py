@@ -206,28 +206,26 @@ class ParameterTests(unittest.TestCase):
             _tool_context("crm_db"),
             "crm_db",
             QuerySpec(
-                metric_name="open_plays_by_org",
-                dimensions=["org_id"],
+                metric_name="total_play_candidates",
+                dimensions=["run_id"],
                 filters=[
-                    "status IN UNNEST(@open_statuses)",
+                    "assignment_status IN UNNEST(@statuses)",
                     "org_id IN UNNEST(@org_ids)",
                 ],
                 parameters=[
-                    BindParam("open_statuses", "ARRAY<STRING>", ["ready_to_send"]),
+                    BindParam("statuses", "ARRAY<STRING>", ["unassigned"]),
                     BindParam("org_ids", "ARRAY<STRING>", ["org_1", "org_2"]),
                 ],
             ),
         )
-        self.assertIn("status IN UNNEST(@open_statuses)", plan.sql)
+        self.assertIn("assignment_status IN UNNEST(@statuses)", plan.sql)
         self.assertIn("org_id IN UNNEST(@org_ids)", plan.sql)
         # Inline (agent path) expands arrays to literals.
         inline = plan.render_inline()
-        self.assertIn("status IN UNNEST(['ready_to_send'])", inline)
+        self.assertIn("assignment_status IN UNNEST(['unassigned'])", inline)
         self.assertIn("org_id IN UNNEST(['org_1', 'org_2'])", inline)
         # Bind (in-process) exposes both array parameters.
-        self.assertEqual(
-            {p.name for p in plan.parameters}, {"open_statuses", "org_ids"}
-        )
+        self.assertEqual({p.name for p in plan.parameters}, {"statuses", "org_ids"})
 
     def test_stray_at_sign_in_string_literal_is_untouched(self) -> None:
         # A '@' inside a value must not be mistaken for a parameter reference.
@@ -435,7 +433,7 @@ class HavingTests(unittest.TestCase):
 
 class ExpansionSignalsMigrationTests(unittest.TestCase):
     def test_compute_expansion_signals_reads_windowed_metrics(self) -> None:
-        from crew.plays.warehouse import compute_expansion_signals
+        from crew.plays.data_loaders.usage import compute_expansion_signals
 
         trend = [
             {
@@ -475,7 +473,7 @@ class ExpansionSignalsMigrationTests(unittest.TestCase):
 
 class PullUsagePanelMigrationTests(unittest.TestCase):
     def test_pull_usage_panel_reads_price_via_compiled_join(self) -> None:
-        from crew.plays.warehouse import pull_usage_panel
+        from crew.plays.data_loaders.usage import pull_usage_panel
 
         as_of = date(2026, 7, 18)
         created = date(2026, 1, 1)
@@ -499,7 +497,7 @@ class PullUsagePanelMigrationTests(unittest.TestCase):
         ctx = PlayRuntimeContext(project_id="proj-123")
         ctx._client = _SequencedClient([series])
 
-        panel = pull_usage_panel(ctx, "2026-07-18")
+        panel, _sql = pull_usage_panel(ctx, "2026-07-18")
         self.assertEqual(len(panel), 1)
         row = panel[0]
         self.assertEqual(row.org_id, "org_1")
