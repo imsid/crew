@@ -2,24 +2,21 @@
 
 The Growth Expert persona (CMO/CRO judgment) that runs the curate step of the play
 workflows: it reads a run of candidates, defines a few plays, assigns every org to
-one, and writes the artifact. Those writes go through the candidate tools built over
-:class:`PlayRuntimeContext`; the MCP connection stays read-only, for evidence beyond
-the snapshots.
+one, and writes the artifact.
 
-Runs on Gemini. `data` and `pm` stay on Anthropic.
+The agent has no warehouse connection. The selection step already put everything a
+play needs on the candidate row — usage trajectory and who the org is — so the whole
+loop runs over the candidate tools, and a gap in the snapshot fails in the code step
+where it can be fixed rather than turning into improvised SQL at runtime.
 """
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 from typing import Any
 
-import google.auth
-from google.auth.transport.requests import Request
 from mash.core.config import AgentConfig
 from mash.core.llm import GeminiProvider, LLMProvider
-from mash.mcp import MCPServerConfig
 from mash.runtime import AgentMetadata, AgentSpec
 from mash.skills.registry import SkillRegistry
 from mash.tools.registry import ToolRegistry
@@ -27,18 +24,11 @@ from mash.tools.registry import ToolRegistry
 from ...artifacts.tools import build_artifact_tools
 from ...plays.context import PlayRuntimeContext
 from ...shared.skills import CREW_SKILLS_DIR, register_custom_skills
-from .config import (
-    BIGQUERY_ALLOWED_TOOLS,
-    BIGQUERY_MCP_URL,
-    BIGQUERY_PROJECT_ID,
-    GEMINI_API_KEY,
-    GEMINI_MODEL,
-)
+from .config import GEMINI_API_KEY, GEMINI_MODEL
 from .prompt import build_base_prompt, build_roles_context
 from .tools import build_candidate_tools
 
 APP_ID = "growth"
-BIGQUERY_CONNECTION_NAME = "bigquery"
 SKILLS_DIR = Path(__file__).resolve().parent / "skills"
 
 
@@ -81,7 +71,7 @@ class GrowthAgentSpec(AgentSpec):
         # Two plain text blocks: `cache_control` is Anthropic syntax and Gemini does
         # its own implicit context caching, so there is nothing to annotate.
         blocks: list[dict[str, Any]] = [
-            {"type": "text", "text": build_base_prompt(BIGQUERY_PROJECT_ID)},
+            {"type": "text", "text": build_base_prompt()},
             {"type": "text", "text": build_roles_context(skills)},
         ]
         return AgentConfig(
@@ -96,30 +86,6 @@ class GrowthAgentSpec(AgentSpec):
             compaction_token_threshold=100000,
             skills_enabled=True,
         )
-
-    def build_mcp_servers(self) -> list[MCPServerConfig]:
-        if not BIGQUERY_MCP_URL or not BIGQUERY_PROJECT_ID:
-            return []
-        try:
-            access_token = self._generate_access_token()
-        except RuntimeError as exc:
-            print(
-                f"Warning: BigQuery MCP auth token could not be generated: {exc}",
-                file=sys.stderr,
-            )
-            return []
-
-        headers = {"Authorization": f"Bearer {access_token}"}
-        headers["x-goog-user-project"] = BIGQUERY_PROJECT_ID
-        return [
-            MCPServerConfig(
-                name=BIGQUERY_CONNECTION_NAME,
-                url=BIGQUERY_MCP_URL,
-                description="BigQuery MCP server for read-only usage evidence",
-                headers=headers,
-                allowed_tools=BIGQUERY_ALLOWED_TOOLS,
-            )
-        ]
 
     def build_subagent_metadata(self) -> AgentMetadata:
         return AgentMetadata(
@@ -142,19 +108,3 @@ class GrowthAgentSpec(AgentSpec):
                 "and drafting the outreach that goes with them."
             ),
         )
-
-    @staticmethod
-    def _generate_access_token() -> str:
-        try:
-            credentials, _project = google.auth.default(
-                scopes=["https://www.googleapis.com/auth/bigquery"]
-            )
-            credentials.refresh(Request())
-        except Exception as exc:
-            raise RuntimeError(
-                f"Failed to generate BigQuery access token via ADC/google-auth: {exc}"
-            ) from exc
-        token = credentials.token
-        if not token:
-            raise RuntimeError("google-auth returned an empty access token")
-        return token

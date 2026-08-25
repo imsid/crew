@@ -8,19 +8,10 @@ from ...shared.config import load_agent_env
 
 load_agent_env("growth")
 
-# The growth agent runs on Gemini; `data` and `pm` stay on Anthropic.
+# The growth agent runs on Gemini, like `data` and `pm`.
 GEMINI_MODEL = os.getenv("GROWTH_GEMINI_MODEL") or "gemini-3.7-flash"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
 
-BIGQUERY_MCP_URL = os.getenv("BIGQUERY_MCP_URL") or "https://bigquery.googleapis.com/mcp"
-BIGQUERY_PROJECT_ID = os.getenv("BIGQUERY_PROJECT_ID")
-
-# Read-only: the MCP connection is for evidence beyond the snapshots. The agent's own
-# writes (plays, assignments) go through the candidate tools, not through SQL.
-BIGQUERY_ALLOWED_TOOLS = [
-    "list_dataset_ids",
-    "list_table_ids",
-    "get_dataset_info",
-    "get_table_info",
-    "execute_sql_readonly",
-]
+# No BigQuery connection by design. Everything a play needs is on the candidate row
+# the selection step wrote; the agent reads it with `read_candidates` and writes
+# through the candidate tools. It has no SQL.

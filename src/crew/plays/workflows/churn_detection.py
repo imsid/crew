@@ -19,7 +19,7 @@ from mash.workflows import AgentStep, CodeStep, StepContext, WorkflowSpec
 from pydantic import BaseModel, Field
 
 from ..context import PlayRuntimeContext
-from ..data_loaders import play_candidates
+from ..data_loaders import crm, play_candidates
 from ..data_loaders.play_candidates import CandidateRecord
 from ..data_loaders.usage import pull_usage_panel
 
@@ -52,6 +52,56 @@ ORG_SNAPSHOT_SCHEMA: dict[str, dict[str, str]] = {
         "type": "integer",
         "unit": "days",
         "description": "Account age at as_of_date. The gate excludes onboarding ramps.",
+    },
+    # From crm_db (accounts joined to company_enrichment). Present when the warehouse
+    # has a value; an org with no enrichment row simply lacks these keys.
+    "owner": {
+        "type": "string",
+        "unit": "name",
+        "description": "Account owner or CSM. Absent means nobody is assigned.",
+    },
+    "segment": {
+        "type": "string",
+        "unit": "enum",
+        "description": "hobbyist | startup | midmarket | enterprise.",
+    },
+    "lifecycle_stage": {
+        "type": "string",
+        "unit": "enum",
+        "description": "Where the account sits in its lifecycle, e.g. customer.",
+    },
+    "thesis": {
+        "type": "string",
+        "unit": "text",
+        "description": "The account team's standing read on this org, if any.",
+    },
+    "industry": {
+        "type": "string",
+        "unit": "text",
+        "description": "What the company does, e.g. Financial Services.",
+    },
+    "headcount": {
+        "type": "integer",
+        "unit": "people",
+        "description": "Company headcount. The headroom denominator: 14 active devs "
+        "is saturation at 60 people and a beachhead at 3,200.",
+    },
+    "funding_stage": {
+        "type": "string",
+        "unit": "enum",
+        "description": "Bootstrapped | Seed | Series A/B/C | Public.",
+    },
+    "last_raised_date": {
+        "type": "string",
+        "unit": "date",
+        "description": "When they last raised, YYYY-MM-DD. Timing: fresh money buys "
+        "attention that a company mid-runway does not have.",
+    },
+    "hiring_signals": {
+        "type": "integer",
+        "unit": "open_roles",
+        "description": "Open engineering roles. Growing headcount means the dip is "
+        "not a shrinking team.",
     },
 }
 
@@ -144,6 +194,9 @@ def select_candidates(
         and row.plan_tier != "free"
         and row.consumption_mrr > IGNORE_REVENUE
     ]
+    # Who the org is, for the orgs that passed. One read for the whole run, so the
+    # agent gets headroom and timing off the candidate row and never queries crm_db.
+    account_context = crm.read_account_context(ctx, [row.org_id for row in candidates])
     records = [
         CandidateRecord(
             org_id=row.org_id,
@@ -152,6 +205,7 @@ def select_candidates(
                 "plan_tier": row.plan_tier,
                 "consumption_mrr": row.consumption_mrr,
                 "account_age_days": row.age_days,
+                **account_context.get(row.org_id, {}),
             },
             usage_snapshot={
                 "as_of_date": as_of_date,

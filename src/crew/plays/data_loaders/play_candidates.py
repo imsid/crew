@@ -159,6 +159,11 @@ def select_candidates(
     """
 
     keys = snapshot_keys(ctx, run_id)
+    if not keys and row_count(ctx, run_id) == 0:
+        # An empty run has no snapshot keys to compile against, so every field the
+        # caller names would look unknown. The run is empty, not the field wrong.
+        return []
+
     params: list[Any] = [bigquery.ScalarQueryParameter("run_id", "STRING", run_id)]
     predicates = ["run_id = @run_id"] + (
         _compile_where(where, keys, params) if where else []
@@ -185,14 +190,28 @@ def count_candidates(
 ) -> int:
     """How many of the run's rows match ``where`` (the un-paged total)."""
 
+    if not where:
+        return row_count(ctx, run_id)
+
     keys = snapshot_keys(ctx, run_id)
+    if not keys and row_count(ctx, run_id) == 0:
+        return 0
+
     params: list[Any] = [bigquery.ScalarQueryParameter("run_id", "STRING", run_id)]
-    predicates = ["run_id = @run_id"] + (
-        _compile_where(where, keys, params) if where else []
-    )
+    predicates = ["run_id = @run_id"] + _compile_where(where, keys, params)
     rows = ctx.query(
         f"SELECT COUNT(*) AS n FROM {table_ref(ctx)} WHERE {' AND '.join(predicates)}",
         params,
+    )
+    return int(rows[0]["n"]) if rows else 0
+
+
+def row_count(ctx: PlayRuntimeContext, run_id: str) -> int:
+    """How many rows the run has at all, before any caller-supplied filter."""
+
+    rows = ctx.query(
+        f"SELECT COUNT(*) AS n FROM {table_ref(ctx)} WHERE run_id = @run_id",
+        [bigquery.ScalarQueryParameter("run_id", "STRING", run_id)],
     )
     return int(rows[0]["n"]) if rows else 0
 
