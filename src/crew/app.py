@@ -26,14 +26,13 @@ def build_pool() -> Pool:
     load_agent_env("growth")
 
     os.environ.setdefault("MASH_DATA_DIR", str(crew_root_dir()))
-    # The play context comes first: the growth agent's candidate tools are built over
-    # it, and so are the workflows' code steps. Its BigQuery client is lazy, so this
-    # is free until something actually queries.
+    # Only workflow code receives the play context. Its BigQuery client is lazy, so
+    # constructing the pool is free until a workflow actually queries.
     play_ctx = PlayRuntimeContext.from_env()
 
     pm = PMAgentSpec()
     data = DataAgentSpec()
-    growth = GrowthAgentSpec(play_ctx)
+    growth = GrowthAgentSpec()
     pool = (
         HostBuilder()
         .agent(data, metadata=data.build_subagent_metadata())

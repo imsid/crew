@@ -1,31 +1,24 @@
-"""Churn detection — ``consumption-dip-rescue``.
+"""Step 1 of ``consumption-dip`` — the precheck.
 
-A consumption tool has no cancel event: revenue leaks silently as usage decays, so
-the churn-equivalent signal has to be manufactured from the usage trajectory itself.
+Gates the usage panel, writes the run's candidate rows, and hands the agent the
+vocabulary it needs to reason about them. It is the only write outside ``commit-plays``.
 
-  select-play-candidates  (code)  — gate the usage panel, write the run's rows
-  curate-plays            (agent) — define a few plays, assign every org, write the artifact
-
-The rows never pass through the model. Step 1 hands step 2 a :class:`CandidateSet` —
-the run id, the SQL that produced it, the count, and what every snapshot field means
-and is measured in — and the agent reads the rows back out of BigQuery by ``run_id``.
+This step hands the next one a :class:`CandidateSet`: the selected rows and the schema
+that explains what every snapshot field means and how it is measured. The agent needs no
+database read.
 """
 
 from __future__ import annotations
 
-from typing import Optional
-
-from mash.workflows import AgentStep, CodeStep, StepContext, WorkflowSpec
+from mash.workflows import CodeStep, StepContext
 from pydantic import BaseModel, Field
 
-from ..context import PlayRuntimeContext
-from ..data_loaders import crm, play_candidates
-from ..data_loaders.play_candidates import CandidateRecord
-from ..data_loaders.usage import pull_usage_panel
-
-WORKFLOW_ID = "consumption-dip-rescue"
-SKILL_NAME = "churn-prevention-strategy"
-GROWTH_AGENT_ID = "growth"
+from ....shared.runtime_paths import workspace_dir
+from ...context import PlayRuntimeContext
+from ...data_loaders import crm, play_candidates
+from ...data_loaders.play_candidates import CandidateRecord
+from ...data_loaders.usage import pull_usage_panel
+from .constants import WORKFLOW_ID
 
 # The gate — all must hold. Mirrors src/crew/context/sales/revenue-strategy.md §2.
 MIN_DECAY_PCT = 0.30
@@ -51,14 +44,14 @@ ORG_SNAPSHOT_SCHEMA: dict[str, dict[str, str]] = {
     "account_age_days": {
         "type": "integer",
         "unit": "days",
-        "description": "Account age at as_of_date. The gate excludes onboarding ramps.",
+        "description": "Account age at as_of_date.",
     },
     # From crm_db (accounts joined to company_enrichment). Present when the warehouse
     # has a value; an org with no enrichment row simply lacks these keys.
     "owner": {
         "type": "string",
         "unit": "name",
-        "description": "Account owner or CSM. Absent means nobody is assigned.",
+        "description": "Account owner or CSM, when assigned.",
     },
     "segment": {
         "type": "string",
@@ -83,8 +76,7 @@ ORG_SNAPSHOT_SCHEMA: dict[str, dict[str, str]] = {
     "headcount": {
         "type": "integer",
         "unit": "people",
-        "description": "Company headcount. The headroom denominator: 14 active devs "
-        "is saturation at 60 people and a beachhead at 3,200.",
+        "description": "Company headcount, used to interpret adoption headroom.",
     },
     "funding_stage": {
         "type": "string",
@@ -94,14 +86,12 @@ ORG_SNAPSHOT_SCHEMA: dict[str, dict[str, str]] = {
     "last_raised_date": {
         "type": "string",
         "unit": "date",
-        "description": "When they last raised, YYYY-MM-DD. Timing: fresh money buys "
-        "attention that a company mid-runway does not have.",
+        "description": "Date of the company's latest funding round, YYYY-MM-DD.",
     },
     "hiring_signals": {
         "type": "integer",
         "unit": "open_roles",
-        "description": "Open engineering roles. Growing headcount means the dip is "
-        "not a shrinking team.",
+        "description": "Number of open engineering roles.",
     },
 }
 
@@ -144,47 +134,38 @@ USAGE_SNAPSHOT_SCHEMA: dict[str, dict[str, str]] = {
 }
 
 
-class ChurnRunInput(BaseModel):
-    """Workflow input: which day the signal is measured against."""
+
+class ConsumptionDipInput(BaseModel):
+    """Workflow input: which day the signal is measured against, and where it lands.
+
+    ``workspace_id`` is required, with no default and no fallback. It is what the commit
+    step writes the artifact into, and a run submitted without one is rejected at
+    submission rather than nine minutes later at the artifact write.
+    """
 
     as_of_date: str
+    workspace_id: str
 
 
 class CandidateSet(BaseModel):
-    """Step 1 → step 2. Everything about the run except the rows themselves."""
+    """Step 1 -> step 2. The complete, read-only input to the judgment step."""
 
-    run_id: str
-    workflow_id: str
     as_of_date: str
-    candidate_count: int
-    selection_sql: str
-    org_snapshot_schema: dict[str, dict[str, str]] = Field(default_factory=dict)
-    usage_snapshot_schema: dict[str, dict[str, str]] = Field(default_factory=dict)
-
-
-class CurationSummary(BaseModel):
-    """The agent step's output: the run's bookkeeping. The content is the artifact."""
-
-    run_id: str
-    workflow_id: str
-    plays_created: int
-    orgs_assigned: int
-    unassigned_remaining: int
-    artifact_id: Optional[str] = None
-    notes: Optional[str] = None
+    org_snapshot_schema: dict[str, dict[str, str]]
+    usage_snapshot_schema: dict[str, dict[str, str]]
+    candidates: list[CandidateRecord]
 
 
 def select_candidates(
     ctx: PlayRuntimeContext, as_of_date: str
-) -> tuple[list[CandidateRecord], str]:
+) -> list[CandidateRecord]:
     """The deterministic WHO: gate the usage panel and shape each org's snapshots.
 
-    Returns the rows plus the SQL that produced them. This gate is the only thing that
-    decides which orgs are in a run — the agent decides what to do about them and
-    never re-litigates membership.
+    This gate is the only thing that decides which orgs are in a run. The agent decides
+    what to do about them and never re-litigates membership.
     """
 
-    panel, selection_sql = pull_usage_panel(ctx, as_of_date)
+    panel, _selection_sql = pull_usage_panel(ctx, as_of_date)
     candidates = [
         row
         for row in panel
@@ -220,59 +201,47 @@ def select_candidates(
         for row in candidates
     ]
     records.sort(key=lambda r: r.usage_snapshot["dollars_at_risk"], reverse=True)
-    return records, selection_sql
+    return records
 
 
 def _select_step(ctx: PlayRuntimeContext):
-    def run(inp: ChurnRunInput, step_ctx: StepContext) -> CandidateSet:
-        records, selection_sql = select_candidates(ctx, inp.as_of_date)
-        count = play_candidates.insert_run(
+    def run(inp: ConsumptionDipInput, step_ctx: StepContext) -> CandidateSet:
+        # The gate's first act: a workspace that does not exist fails here, before the
+        # run costs a selection query and an agent turn. Every later use of it is an
+        # explicit bind — nothing in this workflow resolves a workspace from config.
+        workspace_dir(inp.workspace_id, require_exists=True)
+
+        records = select_candidates(ctx, inp.as_of_date)
+        play_candidates.insert_run(
             ctx,
             run_id=step_ctx.run_id,
             workflow_id=WORKFLOW_ID,
             records=records,
         )
         return CandidateSet(
-            run_id=step_ctx.run_id,
-            workflow_id=WORKFLOW_ID,
             as_of_date=inp.as_of_date,
-            candidate_count=count,
-            selection_sql=selection_sql,
             org_snapshot_schema=ORG_SNAPSHOT_SCHEMA,
             usage_snapshot_schema=USAGE_SNAPSHOT_SCHEMA,
+            candidates=records,
         )
 
     return run
 
 
-def build_churn_detection_workflow(ctx: PlayRuntimeContext) -> WorkflowSpec:
-    return WorkflowSpec(
-        workflow_id=WORKFLOW_ID,
-        input_model=ChurnRunInput,
-        steps=[
-            CodeStep(
-                step_id="select-play-candidates",
-                run=_select_step(ctx),
-                input=ChurnRunInput,
-                output=CandidateSet,
-            ),
-            AgentStep(
-                step_id="curate-plays",
-                agent_id=GROWTH_AGENT_ID,
-                input=CandidateSet,
-                output=CurationSummary,
-                skill_name=SKILL_NAME,
-            ),
-        ],
+def build_select_play_candidates_step(ctx: PlayRuntimeContext) -> CodeStep:
+    return CodeStep(
+        step_id="select-play-candidates",
+        run=_select_step(ctx),
+        input=ConsumptionDipInput,
+        output=CandidateSet,
     )
 
 
 __all__ = [
     "CandidateSet",
-    "ChurnRunInput",
-    "CurationSummary",
-    "SKILL_NAME",
-    "WORKFLOW_ID",
-    "build_churn_detection_workflow",
+    "ConsumptionDipInput",
+    "ORG_SNAPSHOT_SCHEMA",
+    "USAGE_SNAPSHOT_SCHEMA",
+    "build_select_play_candidates_step",
     "select_candidates",
 ]

@@ -80,13 +80,14 @@ def test_build_pool_registers_flat_pool_with_no_hosts(tmp_path):
         ]
 
         # The play workflow: code selects the run's candidates, the growth agent
-        # curates them into plays.
+        # curates them into plays, code commits the curation.
         assert [
             (step.step_id, step.kind)
-            for step in workflows["consumption-dip-rescue"].steps
+            for step in workflows["consumption-dip"].steps
         ] == [
             ("select-play-candidates", "code"),
             ("curate-plays", "agent"),
+            ("commit-plays", "code"),
         ]
 
 

@@ -1,24 +1,17 @@
-"""An empty run — `candidate_count` 0 — is a valid outcome, not a failure.
+"""An empty candidate set is a valid outcome, not a failure.
 
-The code step still writes the run (zero rows) and the agent step still runs, so both
-halves have to handle it: the tools read an empty run back cleanly instead of rejecting
-every field name, and the prompt and skill tell the agent to stop without an artifact.
+The code step still writes the run (zero rows) and the agent step still runs. The skill
+returns an empty curation, and generic candidate reads remain well-defined for callers.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 import pytest
 
 from crew.agents.growth.prompt import build_base_prompt
 from crew.plays.data_loaders import play_candidates
-
-SKILL_MD = (
-    Path(__file__).resolve().parents[1]
-    / "src/crew/agents/growth/skills/churn-prevention-strategy/SKILL.md"
-)
 
 
 class _FakeContext:
@@ -87,19 +80,11 @@ def test_unknown_field_still_rejected_when_the_run_has_rows() -> None:
         )
 
 
-def test_growth_prompt_tells_the_agent_to_stop_on_an_empty_run() -> None:
-    prompt = build_base_prompt()
+def test_empty_run_rule_does_not_leak_into_the_reusable_agent_prompt() -> None:
+    """The workflow always loads its named skill before asking for the curation."""
 
-    assert "EMPTY RUNS" in prompt
-    assert "`candidate_count` 0 means nothing qualified" in prompt
-    assert "no tool calls, no artifact" in prompt
-
-
-def test_churn_skill_gates_the_playbook_on_candidate_count() -> None:
-    skill = SKILL_MD.read_text()
-
-    assert "If `candidate_count` is 0" in skill
-    assert "no tool calls, no artifact, no" in skill
+    assert "candidate_count" not in build_base_prompt()
+    assert "no candidates" not in build_base_prompt()
 
 
 def test_growth_agent_has_no_warehouse_connection() -> None:
@@ -110,5 +95,6 @@ def test_growth_agent_has_no_warehouse_connection() -> None:
     prompt = build_base_prompt()
 
     assert GrowthAgentSpec().build_mcp_servers() == []
+    assert GrowthAgentSpec().build_tools().list_tools() == []
     assert "execute_sql" not in prompt
     assert "MCP" not in prompt

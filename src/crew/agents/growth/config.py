@@ -12,6 +12,5 @@ load_agent_env("growth")
 GEMINI_MODEL = os.getenv("GROWTH_GEMINI_MODEL") or "gemini-3.7-flash"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
 
-# No BigQuery connection by design. Everything a play needs is on the candidate row
-# the selection step wrote; the agent reads it with `read_candidates` and writes
-# through the candidate tools. It has no SQL.
+# No BigQuery connection by design. Workflow code passes the selected candidate rows
+# directly to the agent and owns every write.

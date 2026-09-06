@@ -105,6 +105,54 @@ class PlayRuntimeContext:
         job_config = bigquery.QueryJobConfig(query_parameters=params or [])
         self.client().query(sql, job_config=job_config, location=self.location).result()
 
+    def execute_transaction(self, statements: list[tuple[str, list[Any]]]) -> None:
+        """Run several DML statements as one BigQuery multi-statement transaction.
+
+        The sibling of ``execute_write`` for writes that are one fact: the statements
+        commit together or not at all. A failure in any of them rolls the whole script
+        back and re-raises, so a caller never sees a half-applied write.
+
+        Query parameters are script-wide, so the statements share one namespace: a name
+        used by two statements must carry the same value, and a genuine conflict is a
+        programming error caught here rather than a silent overwrite.
+        """
+
+        if not statements:
+            return
+
+        merged: dict[str, Any] = {}
+        for _, params in statements:
+            for param in params or []:
+                name = str(getattr(param, "name", "") or "")
+                if not name:
+                    # A positional parameter has no name to share by, and the script
+                    # concatenates the statements, so its placeholder would bind
+                    # against the wrong one.
+                    raise ValueError(
+                        "a transaction's query parameters must be named; "
+                        f"{type(param).__name__} was passed without a name"
+                    )
+                existing = merged.get(name)
+                if existing is not None and existing.to_api_repr() != param.to_api_repr():
+                    raise ValueError(
+                        f"transaction parameter '{name}' is bound to two different "
+                        "values; parameters are script-wide"
+                    )
+                merged[name] = param
+
+        body = "\n".join(f"{sql.strip().rstrip(';')};" for sql, _ in statements)
+        script = (
+            "BEGIN\n"
+            "BEGIN TRANSACTION;\n"
+            f"{body}\n"
+            "COMMIT TRANSACTION;\n"
+            "EXCEPTION WHEN ERROR THEN\n"
+            "ROLLBACK TRANSACTION;\n"
+            "RAISE;\n"
+            "END;"
+        )
+        self.execute_write(script, list(merged.values()))
+
     def query(self, sql: str, params: list[Any] | None = None) -> list[dict[str, Any]]:
         """Run a hand-written SELECT and return rows as dicts.
 

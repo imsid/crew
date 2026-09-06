@@ -1045,6 +1045,8 @@ def test_workflow_command_surface_dispatches_host_service(tmp_path: Path) -> Non
                 "workflow_id": "masher-trace-digest",
                 "status": "queued",
             }
+            # The command route injects the request's workspace, so a workflow that
+            # writes knows where to without trusting the body for it.
             assert captured["run"] == {
                 "workflow_id": "masher-trace-digest",
                 "dedup_key": "trace-123",
@@ -1052,6 +1054,7 @@ def test_workflow_command_surface_dispatches_host_service(tmp_path: Path) -> Non
                     "mode": "trace",
                     "session_id": "s1",
                     "trace_id": "t1",
+                    "workspace_id": "marketing_db",
                 },
             }
 

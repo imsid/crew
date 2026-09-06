@@ -4,13 +4,13 @@ Three pieces, in dependency order:
 
 - ``context`` — the BigQuery client and the query primitives everything shares.
 - ``data_loaders`` — one module per table, holding the SQL that reads and writes it.
-- ``workflows`` — one module per workflow, calling those loaders.
+- ``workflows`` — one package per workflow, calling those loaders.
 - ``migrations`` — the tables' schema, as SQL, applied at crew-host boot.
 
 ``render`` sits beside them: pure copy-template functions, no database.
 
-The judgment over these numbers belongs to the ``growth`` agent, which reaches the
-same tables through the tools in ``crew.agents.growth.tools``.
+The workflows pass selected rows to the ``growth`` agent for judgment; code alone owns
+the database reads and writes.
 """
 
 from __future__ import annotations

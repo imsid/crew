@@ -3,9 +3,9 @@
 One row per (run_id, org_id). Every play workflow writes its run here, so nothing in
 the schema names a play or a workflow's particular signals: the per-workflow facts
 live inside two JSON snapshots (``org_snapshot`` = who the org is, ``usage_snapshot``
-= why it qualified), and ``play_id`` is the only column the agent writes.
+= why it qualified). Workflow code writes every column, including ``play_id``.
 
-Field names supplied by the agent (``order_by``, ``where``) are compiled against the
+Field names supplied by a caller (``order_by``, ``where``) are compiled against the
 snapshot keys the run actually has — never interpolated as given — and literals bind
 as query parameters.
 """
@@ -18,7 +18,7 @@ from datetime import date, datetime, timezone
 from typing import Any, Iterable, Optional
 
 from google.cloud import bigquery
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict
 
 from ..context import PlayRuntimeContext
 
@@ -30,7 +30,18 @@ MAX_ROWS = 200
 
 # Columns a caller may name directly. Everything else has to be a snapshot key.
 SCALAR_COLUMNS = ("org_id", "org_name")
+
+# What a caller gets when it names no ordering: the rows that are worth the most, first.
+# Declared here rather than left to each caller so no caller spends a decision on it.
+DEFAULT_ORDER_BY = "dollars_at_risk DESC"
+
 SNAPSHOT_COLUMNS = ("org_snapshot", "usage_snapshot")
+
+# The struct one assignment arrives as, for the set-based UPDATE.
+_ASSIGNMENT_STRUCT_TYPE = bigquery.StructQueryParameterType(
+    bigquery.ScalarQueryParameterType("STRING", name="org_id"),
+    bigquery.ScalarQueryParameterType("STRING", name="play_id"),
+)
 
 _ORDER_BY_RE = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*(ASC|DESC)?\s*$", re.I)
 _PREDICATE_RE = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*(>=|<=|!=|=|>|<)\s*(.+?)\s*$")
@@ -40,10 +51,12 @@ _PREDICATE_RE = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*(>=|<=|!=|=|>|<)\s*(
 class CandidateRecord(BaseModel):
     """One qualifying org as a workflow's selection produces it, before it is written."""
 
+    model_config = ConfigDict(extra="forbid")
+
     org_id: str
     org_name: str
-    org_snapshot: dict[str, Any] = Field(default_factory=dict)
-    usage_snapshot: dict[str, Any] = Field(default_factory=dict)
+    org_snapshot: dict[str, Any]
+    usage_snapshot: dict[str, Any]
 
 
 def table_ref(ctx: PlayRuntimeContext) -> str:
@@ -112,29 +125,62 @@ def insert_run(
     return len(rows)
 
 
+def set_play_id_statement(
+    ctx: PlayRuntimeContext,
+    *,
+    run_id: str,
+    assignments: dict[str, str],
+    now: Optional[datetime] = None,
+) -> tuple[str, list[Any]]:
+    """The SQL and parameters that stamp ``org_id -> play_id`` onto a run, unrun.
+
+    One set-based ``UPDATE`` over an ``ARRAY<STRUCT>`` parameter however many plays a
+    run has, so the commit step can put the whole assignment in one transaction beside
+    the plays without the per-play statements colliding on ``@play_id``.
+
+    Only touches rows where ``play_id IS NULL``, so an org is never silently moved from
+    one play to another — and a retry after a committed write is a no-op rather than a
+    reassignment.
+    """
+
+    values = [
+        bigquery.StructQueryParameter(
+            None,
+            bigquery.ScalarQueryParameter("org_id", "STRING", org_id),
+            bigquery.ScalarQueryParameter("play_id", "STRING", play_id),
+        )
+        for org_id, play_id in sorted(assignments.items())
+    ]
+    sql = f"""
+        UPDATE {table_ref(ctx)} AS target
+        SET play_id = source.play_id, updated_at = @now
+        FROM UNNEST(@assignments) AS source
+        WHERE target.run_id = @run_id
+          AND target.org_id = source.org_id
+          AND target.play_id IS NULL
+        """
+    params: list[Any] = [
+        bigquery.ArrayQueryParameter("assignments", _ASSIGNMENT_STRUCT_TYPE, values),
+        bigquery.ScalarQueryParameter("run_id", "STRING", run_id),
+        bigquery.ScalarQueryParameter("now", "TIMESTAMP", now or _now()),
+    ]
+    return sql, params
+
+
 def set_play_id(
     ctx: PlayRuntimeContext, *, run_id: str, play_id: str, org_ids: list[str]
 ) -> int:
-    """Stamp ``play_id`` onto the run's unassigned rows for ``org_ids``.
+    """Stamp one play onto the run's unassigned rows for ``org_ids``.
 
-    Only touches rows where ``play_id IS NULL``, so an org is never silently moved
-    from one play to another. Returns the number of rows updated.
+    The thin executor over ``set_play_id_statement``, for callers assigning a single
+    play on its own. Returns the number of rows updated.
     """
 
     before = coverage(ctx, run_id)["unassigned_remaining"]
-    ctx.execute_write(
-        f"""
-        UPDATE {table_ref(ctx)}
-        SET play_id = @play_id, updated_at = @now
-        WHERE run_id = @run_id AND org_id IN UNNEST(@org_ids) AND play_id IS NULL
-        """,
-        [
-            bigquery.ScalarQueryParameter("run_id", "STRING", run_id),
-            bigquery.ArrayQueryParameter("org_ids", "STRING", list(org_ids)),
-            bigquery.ScalarQueryParameter("play_id", "STRING", play_id),
-            bigquery.ScalarQueryParameter("now", "TIMESTAMP", _now()),
-        ],
+    sql, params = set_play_id_statement(
+        ctx, run_id=run_id, assignments={org_id: play_id for org_id in org_ids}
     )
+    ctx.execute_write(sql, params)
     return before - coverage(ctx, run_id)["unassigned_remaining"]
 
 
@@ -156,6 +202,10 @@ def select_candidates(
 
     ``order_by`` ("dollars_at_risk DESC") and ``where`` ("decay_pct >= 0.4 AND
     plan_tier = 'enterprise'") name snapshot fields; both compile to JSON extraction.
+
+    ``order_by`` defaults to ``DEFAULT_ORDER_BY`` — worth-first is what a caller wants
+    every time, so nobody spends a turn asking for it. A run with no snapshot keys has
+    nothing to compile that against and falls back to ``org_id ASC``.
     """
 
     keys = snapshot_keys(ctx, run_id)
@@ -168,7 +218,11 @@ def select_candidates(
     predicates = ["run_id = @run_id"] + (
         _compile_where(where, keys, params) if where else []
     )
-    order_sql = _compile_order_by(order_by, keys) if order_by else "org_id ASC"
+    order_sql = (
+        _compile_order_by(order_by, keys)
+        if order_by
+        else _default_order_by_sql(keys)
+    )
 
     rows = ctx.query(
         f"""
@@ -230,6 +284,21 @@ def select_org_ids(ctx: PlayRuntimeContext, *, run_id: str, org_ids: list[str]) 
         ],
     )
     return {str(row["org_id"]): row.get("play_id") for row in rows}
+
+
+def run_org_ids(ctx: PlayRuntimeContext, run_id: str) -> set[str]:
+    """Every org in a run, unpaged.
+
+    ``select_candidates`` is a paged read capped at ``MAX_ROWS``, which makes it the
+    wrong thing to check coverage against: a run larger than one page would look
+    complete after covering its first page.
+    """
+
+    rows = ctx.query(
+        f"SELECT org_id FROM {table_ref(ctx)} WHERE run_id = @run_id",
+        [bigquery.ScalarQueryParameter("run_id", "STRING", run_id)],
+    )
+    return {str(row["org_id"]) for row in rows}
 
 
 def coverage(ctx: PlayRuntimeContext, run_id: str) -> dict[str, int]:
@@ -305,6 +374,20 @@ def field_sql(field: str, keys: dict[str, dict[str, str]]) -> str:
     if spec["json_type"] == "boolean":
         return f"SAFE_CAST({extract} AS BOOL)"
     return extract
+
+
+def _default_order_by_sql(keys: dict[str, dict[str, str]]) -> str:
+    """``DEFAULT_ORDER_BY`` when the run has the field, ``org_id ASC`` when it does not.
+
+    A caller that named no ordering has expressed no opinion, so a run whose snapshots
+    lack the default field gets a stable order rather than an error. A field the caller
+    *did* name and the run does not have is still rejected.
+    """
+
+    try:
+        return _compile_order_by(DEFAULT_ORDER_BY, keys)
+    except ValueError:
+        return "org_id ASC"
 
 
 def _compile_order_by(order_by: str, keys: dict[str, dict[str, str]]) -> str:
