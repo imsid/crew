@@ -41,7 +41,6 @@ crew workflow run expansion-pqa \
 
 ## Documentation
 
-- [Product overview](docs/product.md)
-- [Growth Agent](docs/growth-expert-pitch.html)
+- [Crew product site](docs/index.html)
 - [Semantic Layer guide](docs/semantic-layer-guide.md)
 - [Development and deployment](CONTRIBUTING.md)
