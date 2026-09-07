@@ -1,8 +1,4 @@
-"""The ``consumption-dip`` workflow: one module per step, named for its ``step_id``.
-
-``run.py`` is the only module that imports all three steps; ``constants.py`` holds the
-ids they share, so the step modules never have to import the builder.
-"""
+"""Consumption-specific selection and explicit three-step workflow assembly."""
 
 from __future__ import annotations
 

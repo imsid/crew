@@ -58,7 +58,7 @@ workflow or publishes an artifact is not yet a customer.
 - **"Review every PR without hiring for it."** — CI-native review, command→workflow.
 - **"Scale spend with controls, not surprises."** — business-tier upgrade (budgets/analytics).
 
-## Self-serve nudge principles (for the Growth Crew's `personalize_play`)
+## Self-serve nudge principles (for the Growth Crew's `curate-plays` step)
 
 When a workflow decides the right motion is **self-serve** (hobbyist signals, small startup ceilings,
 low-revenue dips), the drafted copy must:

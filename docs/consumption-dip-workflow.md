@@ -1,6 +1,6 @@
 # Consumption dip workflow
 
-Status: implemented on `feat/candidate-table-workflow`
+Status: implemented
 
 ## Goal
 
@@ -120,7 +120,7 @@ units, so the skill remains valid when a workflow changes its fields or threshol
 
 ## What stays deterministic
 
-- qualification and dedupe rules;
+- qualification rules;
 - workspace and run identity;
 - candidate persistence;
 - assignment and template validation;
@@ -148,6 +148,7 @@ the complete source snapshots.
 
 ## Reuse
 
-The shared postcheck does not name consumption fields or branch on the workflow ID. A
-second play workflow can reuse `CuratedRun`, validation, persistence, and rendering by
-supplying its own deterministic selector, snapshot schemas, company context, and skill.
+The shared postcheck does not name consumption fields or branch on the workflow ID. The
+Expansion/PQA workflow reuses `CandidateSet`, `CuratedRun`, the agent step, validation,
+persistence, and rendering while supplying its own deterministic selector, snapshot
+schemas, and skill.

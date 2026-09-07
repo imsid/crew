@@ -11,13 +11,12 @@ database read.
 from __future__ import annotations
 
 from mash.workflows import CodeStep, StepContext
-from pydantic import BaseModel, Field
-
 from ....shared.runtime_paths import workspace_dir
 from ...context import PlayRuntimeContext
 from ...data_loaders import crm, play_candidates
 from ...data_loaders.play_candidates import CandidateRecord
 from ...data_loaders.usage import pull_usage_panel
+from ..contracts import CandidateSet, PlayWorkflowInput
 from .constants import WORKFLOW_ID
 
 # The gate — all must hold. Mirrors src/crew/context/sales/revenue-strategy.md §2.
@@ -135,27 +134,6 @@ USAGE_SNAPSHOT_SCHEMA: dict[str, dict[str, str]] = {
 
 
 
-class ConsumptionDipInput(BaseModel):
-    """Workflow input: which day the signal is measured against, and where it lands.
-
-    ``workspace_id`` is required, with no default and no fallback. It is what the commit
-    step writes the artifact into, and a run submitted without one is rejected at
-    submission rather than nine minutes later at the artifact write.
-    """
-
-    as_of_date: str
-    workspace_id: str
-
-
-class CandidateSet(BaseModel):
-    """Step 1 -> step 2. The complete, read-only input to the judgment step."""
-
-    as_of_date: str
-    org_snapshot_schema: dict[str, dict[str, str]]
-    usage_snapshot_schema: dict[str, dict[str, str]]
-    candidates: list[CandidateRecord]
-
-
 def select_candidates(
     ctx: PlayRuntimeContext, as_of_date: str
 ) -> list[CandidateRecord]:
@@ -205,7 +183,7 @@ def select_candidates(
 
 
 def _select_step(ctx: PlayRuntimeContext):
-    def run(inp: ConsumptionDipInput, step_ctx: StepContext) -> CandidateSet:
+    def run(inp: PlayWorkflowInput, step_ctx: StepContext) -> CandidateSet:
         # The gate's first act: a workspace that does not exist fails here, before the
         # run costs a selection query and an agent turn. Every later use of it is an
         # explicit bind — nothing in this workflow resolves a workspace from config.
@@ -232,14 +210,13 @@ def build_select_play_candidates_step(ctx: PlayRuntimeContext) -> CodeStep:
     return CodeStep(
         step_id="select-play-candidates",
         run=_select_step(ctx),
-        input=ConsumptionDipInput,
+        input=PlayWorkflowInput,
         output=CandidateSet,
     )
 
 
 __all__ = [
     "CandidateSet",
-    "ConsumptionDipInput",
     "ORG_SNAPSHOT_SCHEMA",
     "USAGE_SNAPSHOT_SCHEMA",
     "build_select_play_candidates_step",

@@ -1,6 +1,6 @@
 """Growth agent spec for the unified Mash host.
 
-The Growth Expert persona (CMO/CRO judgment) that runs the curate step of the play
+The Growth Agent persona (CMO/CRO judgment) that runs the curate step of the play
 workflows: it reads a run of candidates, groups them into a few plays with per-play
 copy, and returns the curation. It writes nothing — the workflow's commit step does.
 
@@ -29,7 +29,7 @@ SKILLS_DIR = Path(__file__).resolve().parent / "skills"
 
 
 class GrowthAgentSpec(AgentSpec):
-    """Growth Expert specialist: turns a run of candidates into a handful of plays."""
+    """Growth Agent specialist: turns a run of candidates into a handful of plays."""
 
     def __init__(self) -> None:
         self._skills: SkillRegistry | None = None
@@ -88,7 +88,7 @@ class GrowthAgentSpec(AgentSpec):
 
     def build_subagent_metadata(self) -> AgentMetadata:
         return AgentMetadata(
-            display_name="Growth Expert",
+            display_name="Growth Agent",
             description=(
                 "Interprets selected account signals, consolidates them into actionable "
                 "plays, and drafts evidence-based copy."

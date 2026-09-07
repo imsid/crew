@@ -1,4 +1,4 @@
-"""Step 3 of ``consumption-dip`` — the postcheck.
+"""The shared postcheck for candidate-table play workflows.
 
 The only step that writes plays, assignments and the artifact. It takes the agent's
 :class:`CuratedRun`, fills in the columns the agent has no business producing, checks the
@@ -24,15 +24,15 @@ from typing import Any, Optional
 from mash.workflows import CodeStep, StepContext
 from pydantic import BaseModel
 
-from ....artifacts.service.context import build_tool_context
-from ....artifacts.service.pathing import list_existing_artifact_paths
-from ....artifacts.service.repo import write_new_artifact_file
-from ....shared.runtime_paths import workspace_dir
-from ....shared.workspace_context import bound_workspace
-from ... import render
-from ...context import PlayRuntimeContext
-from ...data_loaders import play_candidates, plays
-from ...data_loaders.plays import PlayRecord
+from ...artifacts.service.context import build_tool_context
+from ...artifacts.service.pathing import list_existing_artifact_paths
+from ...artifacts.service.repo import write_new_artifact_file
+from ...shared.runtime_paths import workspace_dir
+from ...shared.workspace_context import bound_workspace
+from .. import render
+from ..context import PlayRuntimeContext
+from ..data_loaders import play_candidates, plays
+from ..data_loaders.plays import PlayRecord
 from .curate_plays import CuratedCandidate, CuratedPlay, CuratedRun
 
 # artifact_id has a narrower charset than a run id, which is colon-delimited.
