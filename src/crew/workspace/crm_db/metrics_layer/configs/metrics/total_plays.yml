@@ -7,7 +7,4 @@ base_source: plays
 expr: play_count
 dimensions:
   - workflow_id
-  - play_type
-  - status
-  - segment
-  - holdout_arm
+  - run_id

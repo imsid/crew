@@ -6,9 +6,17 @@ from mash.api import MashHostConfig, run_host
 from mash.runtime import Pool
 
 from .app import build_pool, define_default_host
+from .plays import PlayRuntimeContext, run_migrations
+from .shared.config import load_project_env
 
 
 def build_host_pool() -> Pool:
+    # .env first: the context reads BIGQUERY_PROJECT_ID from the environment, and
+    # build_pool is what would otherwise load it.
+    load_project_env()
+    # The play workflows' tables are created before anything can run against them.
+    # Every statement is CREATE TABLE IF NOT EXISTS, so this is a no-op once applied.
+    run_migrations(PlayRuntimeContext.from_env())
     pool = build_pool()
     define_default_host(pool)
     return pool

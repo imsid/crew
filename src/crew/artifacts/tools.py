@@ -8,6 +8,7 @@ from typing import Any, Callable, List
 from mash.tools.base import FunctionTool, Tool
 
 from ..shared.workspace_context import current_workspace_dir
+from .service.constants import artifact_contract_hint
 from .service.context import build_tool_context
 from .service.tool_entrypoints import (
     list_artifacts_tool,
@@ -71,16 +72,37 @@ def build_artifact_tools(workspace_root: Path | None = None) -> List[Tool]:
             name="write_new_artifact_file",
             description=(
                 "Validate and write one new artifact document. "
-                "Use markdown for prose-first artifacts and html for richer layout, SVG, or self-contained interactivity. "
-                "HTML artifacts must be self-contained with inline CSS/JS/SVG only."
+                + artifact_contract_hint()
+                + " Use markdown for prose-first artifacts and html for richer layout, "
+                "SVG, or self-contained interactivity. HTML artifacts must be "
+                "self-contained with inline CSS/JS/SVG only."
             ),
             parameters={
                 "type": "object",
                 "properties": {
-                    "artifact_content": {"type": "string"},
-                    "artifact_document": {"type": "string"},
-                    "artifact_markdown": {"type": "string"},
-                    "format": {"type": "string", "enum": ["markdown", "html"]},
+                    "artifact_content": {
+                        "type": "string",
+                        "description": (
+                            "The whole document: frontmatter block then body. "
+                            + artifact_contract_hint()
+                        ),
+                    },
+                    "artifact_document": {
+                        "type": "string",
+                        "description": "Alias for artifact_content.",
+                    },
+                    "artifact_markdown": {
+                        "type": "string",
+                        "description": "Alias for artifact_content.",
+                    },
+                    "format": {
+                        "type": "string",
+                        "enum": ["markdown", "html"],
+                        "description": (
+                            "Defaults to the frontmatter's format field; pass it only "
+                            "to override."
+                        ),
+                    },
                 },
             },
             _executor=_workspace_tool_executor(write_new_artifact_file_tool, workspace_root),

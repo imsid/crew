@@ -8,13 +8,13 @@ deploying the whole stack with a single command. For day-to-day usage, see
 
 - Docker
 - [uv](https://docs.astral.sh/uv/) (Python venv, for running the tests)
-- An Anthropic API key
+- A Gemini API key (`data`, `pm`, and `growth` run on Gemini)
 
 ## Setup
 
 ```bash
 uv sync --extra dev                  # venv for the test suite
-cp .env.example .env                 # then set ANTHROPIC_API_KEY + CREW_BETA_*
+cp .env.example .env                 # then set GEMINI_API_KEY + CREW_BETA_*
 ```
 
 `.env` notes:

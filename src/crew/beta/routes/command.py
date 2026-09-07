@@ -84,6 +84,10 @@ async def _execute_command(
                     code="INVALID_COMMAND",
                     message="workflow input must be a JSON object",
                 )
+            # The request's workspace, already validated by `_require_workspace`, is
+            # the one a workflow writes into. Injected rather than trusted from the
+            # body so a caller cannot aim a run at a workspace it did not ask for.
+            workflow_input = {**workflow_input, "workspace_id": workspace_id}
             result = await state.host_client.data(
                 "POST",
                 f"/api/v1/workflow/{quote(workflow_id, safe='')}/run",

@@ -13,6 +13,7 @@ import yaml
 from .constants import (
     ARTIFACT_REQUIRED_FRONTMATTER_FIELDS,
     ARTIFACT_REQUIRED_SECTIONS,
+    artifact_contract_hint,
 )
 from .pathing import normalize_artifact_format, normalize_artifact_id
 
@@ -65,7 +66,10 @@ def parse_artifact_document(
 
     lines = artifact_text.splitlines()
     if not lines or lines[0].strip() != "---":
-        raise ValueError("artifact document must start with YAML frontmatter")
+        raise ValueError(
+            "artifact document must start with YAML frontmatter. "
+            + artifact_contract_hint()
+        )
 
     end_idx = None
     for idx in range(1, len(lines)):
@@ -73,7 +77,9 @@ def parse_artifact_document(
             end_idx = idx
             break
     if end_idx is None:
-        raise ValueError("artifact frontmatter is missing closing ---")
+        raise ValueError(
+            "artifact frontmatter is missing closing ---. " + artifact_contract_hint()
+        )
 
     frontmatter_text = "\n".join(lines[1:end_idx])
     try:
@@ -100,30 +106,67 @@ def parse_artifact_document(
 
 
 def validate_parsed_artifact(parsed: ParsedArtifact) -> Dict[str, Any]:
+    """Validate a parsed artifact, reporting every problem at once.
+
+    One raise per problem would make a caller pay a round trip per missing field —
+    an agent discovering the contract four failures deep. Everything checkable is
+    collected first, so one attempt returns the whole list of what to fix.
+    """
+
     frontmatter = dict(parsed.frontmatter)
     frontmatter["format"] = parsed.format
+    problems: list[str] = []
+
+    missing: list[str] = []
     for field in ARTIFACT_REQUIRED_FRONTMATTER_FIELDS:
         value = frontmatter.get(field)
-        if value is None:
-            raise ValueError(f"frontmatter field '{field}' is required")
-        normalized_value = _normalize_frontmatter_value(field, value)
+        normalized_value = (
+            _normalize_frontmatter_value(field, value) if value is not None else None
+        )
         if not normalized_value:
-            raise ValueError(f"frontmatter field '{field}' is required")
+            missing.append(field)
+            continue
         frontmatter[field] = normalized_value
+    if missing:
+        problems.append(
+            "missing or empty frontmatter fields: " + ", ".join(missing)
+        )
 
-    frontmatter["artifact_id"] = normalize_artifact_id(frontmatter["artifact_id"])
-    frontmatter["format"] = normalize_artifact_format(frontmatter["format"])
+    if "artifact_id" not in missing:
+        try:
+            frontmatter["artifact_id"] = normalize_artifact_id(
+                frontmatter["artifact_id"]
+            )
+        except ValueError as exc:
+            problems.append(str(exc))
+    if "format" not in missing:
+        try:
+            frontmatter["format"] = normalize_artifact_format(frontmatter["format"])
+        except ValueError as exc:
+            problems.append(str(exc))
 
-    if frontmatter["format"] == "markdown":
+    if frontmatter.get("format") == "markdown":
         normalized_sections = {
             name.strip().lower(): content for name, content in parsed.sections.items()
         }
-        for required in ARTIFACT_REQUIRED_SECTIONS:
-            content = normalized_sections.get(required)
-            if not isinstance(content, str) or not content.strip():
-                raise ValueError(f"required section '## {required.title()}' is missing")
+        missing_sections = [
+            f"## {required.title()}"
+            for required in ARTIFACT_REQUIRED_SECTIONS
+            if not isinstance(normalized_sections.get(required), str)
+            or not normalized_sections[required].strip()
+        ]
+        if missing_sections:
+            problems.append(
+                "missing required sections: " + ", ".join(missing_sections)
+            )
     else:
-        _validate_html_body(parsed.body)
+        try:
+            _validate_html_body(parsed.body)
+        except ValueError as exc:
+            problems.append(str(exc))
+
+    if problems:
+        raise ValueError("; ".join(problems))
 
     return frontmatter
 

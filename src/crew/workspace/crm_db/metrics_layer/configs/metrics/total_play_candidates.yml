@@ -1,0 +1,12 @@
+kind: metric
+version: 1
+id: total_play_candidates
+label: Total Play Candidates
+type: simple
+base_source: play_candidates
+expr: candidate_count
+dimensions:
+  - workflow_id
+  - run_id
+  - plan_tier
+  - assignment_status

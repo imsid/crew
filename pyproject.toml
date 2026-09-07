@@ -8,6 +8,11 @@ license = { text = "Proprietary" }
 authors = [{ name = "imsid" }]
 dependencies = [
   "mashpy>=0.21.1",
+  # mashpy depends on `anthropic>=0.39.0` with no upper bound, but 1.0.0 removed
+  # `temperature` from AsyncMessages.stream() while mashpy's AnthropicProvider still
+  # passes it — every request through `data` or `pm` fails. The Dockerfile installs
+  # with pip and ignores uv.lock, so the bound has to live here or images drift.
+  "anthropic<1.0.0",
   "python-dotenv>=1.0",
   "google-auth>=2",
   "google-cloud-bigquery>=3.11",
@@ -46,6 +51,7 @@ crew = [
   "metrics_layer/schema/*.yml",
   "experimentation/schema/*.yml",
   "code_index/*.sh",
+  "plays/migrations/*.sql",
   "workspace/*/artifacts/*.md",
   "workspace/*/artifacts/*.html",
   "workspace/*/metrics_layer/configs/sources/*.yml",

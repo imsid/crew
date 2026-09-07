@@ -17,6 +17,7 @@ from mash.core.llm.types import LLMContentBlock, LLMRequest, LLMResponse, LLMTok
 from mash.workflows.service import WorkflowService
 
 from crew.agents.data.spec import DataAgentSpec
+from crew.agents.growth.spec import GrowthAgentSpec
 from crew.agents.pm.spec import PMAgentSpec
 from crew.app import build_pool
 from tests.memory_fakes import InMemoryMemoryStore
@@ -122,6 +123,15 @@ def _build_test_client(tmp_path: Path):
         )
         stack.enter_context(
             patch.object(EvalJudgeAgentSpec, "build_memory_store", _memory_store)
+        )
+        # The growth agent is only ever listed by these tests, never invoked, but its
+        # provider builds a real client at construction and its MCP server does an ADC
+        # token refresh. Both are stubbed so the suite needs no credentials.
+        stack.enter_context(
+            patch.object(GrowthAgentSpec, "build_llm", return_value=_EchoLLM())
+        )
+        stack.enter_context(
+            patch.object(GrowthAgentSpec, "build_mcp_servers", return_value=[])
         )
         pool = build_pool()
         app = create_app(pool, config=MashHostConfig())

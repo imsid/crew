@@ -3,9 +3,11 @@ version: 1
 id: total_dollars_at_risk
 label: Total Dollars At Risk
 type: simple
-base_source: plays
+base_source: play_candidates
 expr: dollars_at_risk_sum
 dimensions:
-  - segment
-  - status
+  - workflow_id
+  - run_id
+  - plan_tier
+  - assignment_status
 format: $#,##0.00

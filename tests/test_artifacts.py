@@ -4,6 +4,8 @@ import asyncio
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from crew.agents.data.spec import DataAgentSpec
 from crew.agents.engineer.spec import EngineerAgentSpec
 from crew.agents.pm.spec import PMAgentSpec
@@ -272,3 +274,40 @@ def test_shared_artifact_skill_and_tools_are_available_across_agents(
             "search_artifacts",
             "write_new_artifact_file",
         }.issubset(set(engineer_spec.build_tools().list_tools()))
+
+
+def test_validation_reports_every_problem_in_one_message() -> None:
+    """A caller should learn the whole contract from one failure, not four."""
+
+    from crew.artifacts.service.parser import parse_and_validate_artifact
+
+    document = """---
+id: run:with-colons
+title: Consumption Dip Rescue Briefing
+---
+
+# Body
+
+Text.
+"""
+
+    with pytest.raises(ValueError) as excinfo:
+        parse_and_validate_artifact(document)
+
+    message = str(excinfo.value)
+    for field in ("artifact_id", "source_agent", "description", "kind", "session_id"):
+        assert field in message
+    assert "## Summary" in message and "## Next Steps" in message
+
+
+def test_missing_frontmatter_error_states_the_contract() -> None:
+    from crew.artifacts.service.parser import parse_and_validate_artifact
+
+    with pytest.raises(ValueError, match="must start with YAML frontmatter"):
+        parse_and_validate_artifact("# Just a heading\n\nbody")
+
+    try:
+        parse_and_validate_artifact("# Just a heading\n\nbody")
+    except ValueError as exc:
+        assert "artifact_id" in str(exc)
+        assert "## Next Steps" in str(exc)

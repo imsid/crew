@@ -37,6 +37,26 @@ dimensions:
   - name: thesis
     expr: thesis
     data_type: STRING
+  - name: headcount
+    expr: headcount
+    data_type: INT64
+    source: company_enrichment
+  - name: funding_stage
+    expr: funding_stage
+    data_type: STRING
+    source: company_enrichment
+  - name: last_raised_date
+    expr: last_raised_date
+    data_type: DATE
+    source: company_enrichment
+  - name: hiring_signals
+    expr: hiring_signals
+    data_type: INT64
+    source: company_enrichment
+  - name: industry
+    expr: industry
+    data_type: STRING
+    source: company_enrichment
 measures:
   - name: account_count
     expr: "1"
@@ -52,7 +72,7 @@ measures:
     data_type: INT64
 joins:
   - to_source: company_enrichment
-    join_type: INNER
+    join_type: LEFT
     left_key: domain
     right_key: domain
     relationship: many_to_one

@@ -120,8 +120,8 @@ demand, without a human driving each step.
 
 ```bash
 crew workflow list
-crew workflow run consumption-dip-who --input '{"as_of_date":"2026-05-29"}'
-crew workflow status consumption-dip-rescue <run_id>
+crew workflow run consumption-dip --input '{"as_of_date":"2026-05-29"}'
+crew workflow status consumption-dip <run_id>
 ```
 
 Use workflow mode when the task is recurring, the output must be auditable, or the result

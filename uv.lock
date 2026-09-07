@@ -1042,6 +1042,7 @@ name = "mash-crew"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "anthropic" },
     { name = "google-auth" },
     { name = "google-cloud-bigquery" },
     { name = "mashpy" },
@@ -1063,6 +1064,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "anthropic", specifier = "<1.0.0" },
     { name = "build", marker = "extra == 'dev'", specifier = ">=1.2.2" },
     { name = "google-auth", specifier = ">=2" },
     { name = "google-cloud-bigquery", specifier = ">=3.11" },

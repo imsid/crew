@@ -664,6 +664,29 @@ def _run_compose_command(args: argparse.Namespace, renderer: RichRenderer) -> in
         client.close()
 
 
+def _workflow_run_workspace(args: argparse.Namespace) -> str:
+    """The workspace a run writes into: ``--workspace``, else the selected one.
+
+    No default fallback. A workflow's artifact landing in ``marketing_db`` because
+    nobody had chosen a workspace is the failure this exists to prevent, so an
+    unselected workspace is an error the user fixes before the run starts.
+    """
+
+    explicit = str(getattr(args, "workspace", None) or "").strip()
+    if not explicit:
+        from ..shared.config import get_current_workspace
+
+        explicit = str(get_current_workspace() or "").strip()
+    if not explicit:
+        raise ValueError(
+            "a workflow run needs a workspace: pass --workspace <name> or run "
+            "`crew workspace set <name>` first"
+        )
+    workspace = selected_workspace_name(explicit)
+    workspace_dir(workspace, require_exists=True)
+    return workspace
+
+
 def _run_workflow_command(args: argparse.Namespace, renderer: RichRenderer) -> int:
     client = _mash_client(args)
     try:
@@ -676,7 +699,7 @@ def _run_workflow_command(args: argparse.Namespace, renderer: RichRenderer) -> i
             return 0
 
         if args.workflow_command == "run":
-            workflow_input = None
+            workflow_input: dict[str, Any] = {}
             if args.input is not None:
                 try:
                     decoded_input = json.loads(args.input)
@@ -687,6 +710,13 @@ def _run_workflow_command(args: argparse.Namespace, renderer: RichRenderer) -> i
                 if not isinstance(decoded_input, dict):
                     raise ValueError("workflow input must be a JSON object")
                 workflow_input = decoded_input
+            # A workflow that writes does so into the selected workspace. Passed
+            # explicitly rather than left to the host to resolve, so the run and the
+            # CLI session can never disagree about where the output landed.
+            workflow_input = {
+                **workflow_input,
+                "workspace_id": _workflow_run_workspace(args),
+            }
             run = client.run_workflow(
                 args.workflow_id,
                 dedup_key=args.dedup_key,

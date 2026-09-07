@@ -7,6 +7,7 @@ from mash.runtime import Host, HostBuilder, Pool
 from .agents.data.spec import DataAgentSpec
 from .agents.growth.spec import GrowthAgentSpec
 from .agents.pm.spec import PMAgentSpec
+from .plays import PlayRuntimeContext, build_play_workflows
 from .shared.config import load_agent_env, load_project_env
 from .shared.runtime_paths import crew_root_dir
 
@@ -25,6 +26,10 @@ def build_pool() -> Pool:
     load_agent_env("growth")
 
     os.environ.setdefault("MASH_DATA_DIR", str(crew_root_dir()))
+    # Only workflow code receives the play context. Its BigQuery client is lazy, so
+    # constructing the pool is free until a workflow actually queries.
+    play_ctx = PlayRuntimeContext.from_env()
+
     pm = PMAgentSpec()
     data = DataAgentSpec()
     growth = GrowthAgentSpec()
@@ -35,6 +40,13 @@ def build_pool() -> Pool:
         .agent(growth, metadata=growth.build_subagent_metadata())
         .build()
     )
+
+    # The play workflows: a code step selects candidates into `crm_db.play_candidates`,
+    # then the `growth` agent curates them into plays. Registered as defaults so they
+    # attach to the datasquad host defined in define_default_host().
+    for workflow in build_play_workflows(play_ctx):
+        pool.register_default_workflow(workflow)
+
     return pool
 
 

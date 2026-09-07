@@ -29,3 +29,20 @@ ARTIFACT_EXTENSION_TO_FORMAT = {
     extension: artifact_format
     for artifact_format, extension in ARTIFACT_FORMAT_TO_EXTENSION.items()
 }
+
+
+def artifact_contract_hint() -> str:
+    """The document contract in one line, for tool descriptions and parse errors.
+
+    Both places quote the same string, so what a caller is told up front and what it
+    is told on failure can never drift apart.
+    """
+
+    fields = ", ".join(ARTIFACT_REQUIRED_FRONTMATTER_FIELDS)
+    sections = ", ".join(f"## {name.title()}" for name in ARTIFACT_REQUIRED_SECTIONS)
+    return (
+        "An artifact document opens with a YAML frontmatter block delimited by --- "
+        f"lines, carrying: {fields}. artifact_id must match "
+        f"{ARTIFACT_ID_RE.pattern} (no colons, slashes or dots). format is markdown "
+        f"or html. Markdown bodies must include the sections: {sections}."
+    )

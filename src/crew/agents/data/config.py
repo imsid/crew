@@ -8,8 +8,9 @@ from ...shared.config import load_agent_env
 
 load_agent_env("data")
 
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
-ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL") or "claude-haiku-4-5-20251001"
+# The data agent runs on Gemini, like `growth`; only `engineer` stays on Anthropic.
+GEMINI_MODEL = os.getenv("DATA_GEMINI_MODEL") or "gemini-3.7-flash"
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
 
 BIGQUERY_MCP_URL = (
     os.getenv("BIGQUERY_MCP_URL") or "https://bigquery.googleapis.com/mcp"

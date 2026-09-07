@@ -793,6 +793,8 @@ def test_workflow_run_uses_mash_client(monkeypatch, tmp_path, capsys) -> None:
         == 0
     )
 
+    # The CLI injects its selected workspace, so a workflow that writes knows where
+    # to, and a run cannot land somewhere the session did not choose.
     assert captured["run"] == {
         "workflow_id": "masher-trace-digest",
         "dedup_key": "trace-123",
@@ -800,6 +802,7 @@ def test_workflow_run_uses_mash_client(monkeypatch, tmp_path, capsys) -> None:
             "mode": "trace",
             "session_id": "s1",
             "trace_id": "t1",
+            "workspace_id": "marketing_db",
         },
     }
     output = _normalize_output(capsys.readouterr().out)
