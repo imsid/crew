@@ -11,7 +11,7 @@ audience: stakeholders
 - `data` is the primary agent and main user entry point
 - `pm` and `growth` are specialist subagents
 - deterministic `workflows` for driving NRR
-- the `crew` CLI and the web UI are two front doors onto the same sessions
+- CLI and web UI sessions can be continued in either interface
 
 The goal is to help teams answer business questions with grounded answers, publish artifacts for humans and agents to collaborate,
 and run deterministic workflows.
@@ -69,8 +69,8 @@ crew repl --session-id <id>      # resume where you left off
 crew browse                      # see the agent pool, workflows, and your hosts
 ```
 
-Sessions are shared with the web UI, so a conversation started in the terminal can be
-picked up in the browser and vice versa. `crew sessions` lists them.
+Start a session in the terminal or web UI and continue it from the other. `crew sessions`
+lists them.
 
 Users begin with the `data` agent. When a question needs product judgment or growth
 judgment rather than analysis alone, `data` brings in a subagent:
@@ -120,8 +120,9 @@ demand, without a human driving each step.
 
 ```bash
 crew workflow list
-crew workflow run consumption-dip --input '{"as_of_date":"2026-05-29"}'
+crew workflow run consumption-dip --input '{"as_of_date":"2026-05-29","workspace_id":"product_usage_db"}'
 crew workflow status consumption-dip <run_id>
+crew workflow run expansion-pqa --input '{"as_of_date":"2026-05-29","workspace_id":"product_usage_db"}'
 ```
 
 Use workflow mode when the task is recurring, the output must be auditable, or the result
@@ -148,15 +149,15 @@ work, and keep analysis tied to durable definitions.
 The data agent works through `analyst` SKILL for metric-backed analysis against compiled SQL, 
 and `experiment-analyst` for readouts tied to exposure data, 
 and `steward` for approval-gated changes to the metric definitions. The
-growth agent has SKILLs for diagnosing consumption dip, building an expansion thesis,
-and choosing the outbound play that are used inside the NRR workflows below.
+growth agent has separate `consumption-dip` and `expansion-pqa` SKILLs that guide the
+single curation step inside each NRR workflow below.
 
 The memory layer preserves conversational context over time. Agent sessions persist through
 the `MemoryStore` interface — conversation turns, structured logs, signals, preferences, and
 per-session app data — backed by Postgres, so the agent has durable session history instead
 of treating every interaction as stateless.
 
-## Metrics Layer
+## Semantic Layer
 
 The `metrics_layer` is the semantic source of truth for metric and source definitions. It
 is a **read model**: it compiles definitions to SQL and reads results. Writes are not part
@@ -251,61 +252,48 @@ leaving it trapped in one session.
 
 ## Growth Workflow: Net Revenue Retention
 
-Crew ships two deterministic workflows focused on Net Reveue Retention (NRR) for any consumption business by integrating with an existing GTM stack via MCP:
+Crew ships two workflows focused on Net Revenue Retention (NRR) for a consumption
+business. Both use the same candidate-table architecture:
 
 | | Role | What Crew uses it for |
 |---|---|---|
-| **Warehouse** | Product signal · read | Tokens, surfaces, and active devs per org; usage trajectory and decay. |
-| **Signals** | Company signal · read | Firmographics, funding stage, hiring signals, tech stack. |
-| **CRM** | System of record · read + write | Reads open plays and opportunities for dedupe; writes back thesis, play, and outcome. |
-| **Outbound** | Engagement · read + actuate | Reads prior touches; delivers outbound and rep briefings. |
+| **Product warehouse** | Evidence · read | Tokens, surfaces, and active developers per org. |
+| **CRM warehouse** | Evidence · read | Owner, segment, lifecycle, headcount, funding, and hiring context. |
+| **Candidate and play tables** | Decision record · write | Run-scoped snapshots, validated play definitions, and account assignments. |
+| **Artifacts** | Briefing · write | A readable curation generated from the same structured result committed to the tables. |
+
+Each workflow is `select-play-candidates` (code) → `curate-plays` (Growth agent) →
+`commit-plays` (code). The agent has no warehouse connection and never writes state.
 
 
 ### Workflow 1: Consumption Dip Rescue
 
 Runs daily. Catches accounts whose consumption is falling.
 
-Crew compares each org's token trajectory against that org's own rolling baseline, weights
-the decay by revenue, and drops accounts that already have a play in flight.
+Crew compares each org's token trajectory against that org's own rolling baseline, applies
+fixed age and revenue gates, and snapshots the qualifying usage plus account context.
 
-For each account that passes, it identifies which surface dropped and whether the cause is
-one power user leaving or broad decay across the team, picks the motion for that segment and
-tier, and drafts the copy against the account's usage evidence and prior touches.
+For each account that passes, the Growth agent groups accounts that need the same retention
+action and drafts reusable copy grounded in their supplied evidence.
 
-Output: a rescue play on the account, with the outcome written back to the CRM.
+Output: committed play definitions, candidate assignments, and a retention briefing.
 
 ### Workflow 2: Expansion / PQA Engine
 
 Runs weekly. Catches accounts whose consumption is rising.
 
-Crew scores accounts on token slope, active-developer growth, and new surface adoption,
-resolves each org to a company, and pulls headcount, funding stage, hiring signals, and tech
-stack. It combines usage and company signal into a thesis: which motion to run, the size of
-the opportunity, and a confidence level.
+Crew scores accounts on token slope, active-developer growth, and new-surface adoption,
+removes accounts with an open opportunity, and snapshots the qualifying usage plus account
+context. The Growth agent combines usage trajectory, company headroom, and timing to choose
+the action.
 
 Company size is what separates the two motions. 3 → 9 active devs with tokens up 140% is
 near the ceiling in a 12-person startup, so the play is a self-serve upgrade nudge. The same
 delta in a 4,000-person enterprise that just raised is a small fraction of the account, so
 the play is a sales briefing.
 
-Output: a self-serve nudge or a rep briefing, with the usage evidence and company context
-attached, deduped against open opportunities.
+Output: committed self-serve and sales-expansion play definitions, candidate assignments,
+and an expansion briefing.
 
-### Preview before it acts
-
-Each workflow has a read-only twin that runs the account selection and stops — no reasoning
-steps, no outreach, no writes. It returns the same account list the full workflow would act
-on, so you can review it first.
-
-Neither workflow sends outbound on its own. The play is staged for a human to send.
-
-### The readouts
-
-Each workflow has a paired weekly readout:
-
-- **Dip rescue** — $ at-risk → $ rescued → lift vs. holdout → gross retention.
-- **Expansion** — pipeline generated → converted → incremental consumption → NRR
-  contribution.
-
-The holdout arm is assigned on every run, so lift is computed from control data rather than
-estimated.
+Neither workflow sends outbound, routes a live rep task, assigns holdouts, or updates an
+account thesis. The validated play set and briefing are the deliverables.

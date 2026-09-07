@@ -1,4 +1,4 @@
-"""Step 2 of ``consumption-dip`` — one reasoning pass over an immutable input.
+"""The shared Growth judgment step for candidate-table play workflows.
 
 The agent groups the selected candidates into plays and returns the template values each
 play needs. The result is self-contained: the commit step can validate, render, and write
@@ -20,8 +20,9 @@ from pydantic import (
     StrictStr,
 )
 
-from .constants import GROWTH_AGENT_ID, SKILL_NAME
-from .select_play_candidates import CandidateSet
+from .contracts import CandidateSet
+
+GROWTH_AGENT_ID = "growth"
 
 
 TemplateFormat: TypeAlias = Literal["percent", "usd", "integer", "number", "text"]
@@ -108,13 +109,13 @@ class CuratedRun(StructuredOutput):
     plays: list[CuratedPlay]
 
 
-def build_curate_plays_step() -> AgentStep:
+def build_curate_plays_step(skill_name: str) -> AgentStep:
     return AgentStep(
         step_id="curate-plays",
         agent_id=GROWTH_AGENT_ID,
         input=CandidateSet,
         output=CuratedRun,
-        skill_name=SKILL_NAME,
+        skill_name=skill_name,
     )
 
 

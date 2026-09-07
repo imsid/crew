@@ -13,23 +13,20 @@ from mash.runtime.structured_output import serialize_structured_output
 from crew.plays.data_loaders import plays
 from crew.plays.data_loaders.play_candidates import CandidateRecord
 from crew.plays.workflows.consumption_dip import WORKFLOW_ID
-from crew.plays.workflows.consumption_dip.commit_plays import (
+from crew.plays.workflows.commit_plays import (
     _commit_step,
     artifact_id_for,
     render_curated_document,
     validate_curated_run,
 )
-from crew.plays.workflows.consumption_dip.curate_plays import (
+from crew.plays.workflows.curate_plays import (
     CuratedCandidate,
     CuratedPlay,
     CuratedRun,
     TemplateValue,
     TemplateVariable,
 )
-from crew.plays.workflows.consumption_dip.select_play_candidates import (
-    CandidateSet,
-    ConsumptionDipInput,
-)
+from crew.plays.workflows.contracts import CandidateSet, PlayWorkflowInput
 
 RUN_ID = "mw:r_CBsgvU7QMtXz:consumption-dip:iCmMgCXUQPzzmANG"
 
@@ -587,7 +584,7 @@ def test_duplicate_variable_and_value_names_are_rejected() -> None:
 
 def test_a_run_without_a_workspace_is_rejected_at_input_validation() -> None:
     with pytest.raises(Exception) as excinfo:
-        ConsumptionDipInput.model_validate({"as_of_date": "2026-05-28"})
+        PlayWorkflowInput.model_validate({"as_of_date": "2026-05-28"})
 
     assert "workspace_id" in str(excinfo.value)
 

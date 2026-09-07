@@ -79,16 +79,16 @@ def test_build_pool_registers_flat_pool_with_no_hosts(tmp_path):
             "code",
         ]
 
-        # The play workflow: code selects the run's candidates, the growth agent
-        # curates them into plays, code commits the curation.
-        assert [
-            (step.step_id, step.kind)
-            for step in workflows["consumption-dip"].steps
-        ] == [
-            ("select-play-candidates", "code"),
-            ("curate-plays", "agent"),
-            ("commit-plays", "code"),
-        ]
+        # Both play workflows share the same code/agent/code architecture.
+        for workflow_id in ("consumption-dip", "expansion-pqa"):
+            assert [
+                (step.step_id, step.kind)
+                for step in workflows[workflow_id].steps
+            ] == [
+                ("select-play-candidates", "code"),
+                ("curate-plays", "agent"),
+                ("commit-plays", "code"),
+            ]
 
 
 def test_define_default_host_composes_datasquad(tmp_path):
