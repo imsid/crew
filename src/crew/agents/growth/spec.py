@@ -49,6 +49,12 @@ class GrowthAgentSpec(AgentSpec):
         # tool is provided by the runtime when skills are enabled.
         return ToolRegistry()
 
+    def enable_runtime_tools(self) -> bool:
+        # Memory search is useful in an open-ended chat but harmful in this bounded
+        # workflow step: the complete run is already in the input, and retrieving an
+        # older curation can substitute stale org ids while consuming the whole loop.
+        return False
+
     def build_skills(self) -> SkillRegistry:
         if self._skills is None:
             skills = SkillRegistry()

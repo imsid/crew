@@ -49,20 +49,26 @@ returns one structured answer:
 
 ```python
 class TemplateVariable(BaseModel):
+    name: str
     format: Literal["percent", "usd", "integer", "number", "text"]
+
+
+class TemplateValue(BaseModel):
+    name: str
+    value: StrictStr | StrictInt | StrictFloat | StrictBool
 
 
 class CuratedCandidate(BaseModel):
     org_id: str
     org_name: str
-    values: dict[str, StrictStr | StrictInt | StrictFloat | StrictBool]
+    values: list[TemplateValue]
 
 
 class CuratedPlay(BaseModel):
     play_name: str
     criteria: str
     copy_template: str
-    template_vars: dict[str, TemplateVariable]
+    template_vars: list[TemplateVariable]
     candidates: list[CuratedCandidate]
 
 

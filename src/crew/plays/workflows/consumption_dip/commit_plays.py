@@ -17,6 +17,7 @@ carries its candidates and template values, so the postcheck needs no snapshot r
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -32,7 +33,7 @@ from ... import render
 from ...context import PlayRuntimeContext
 from ...data_loaders import play_candidates, plays
 from ...data_loaders.plays import PlayRecord
-from .curate_plays import CuratedCandidate, CuratedRun
+from .curate_plays import CuratedCandidate, CuratedPlay, CuratedRun
 
 # artifact_id has a narrower charset than a run id, which is colon-delimited.
 _ARTIFACT_ID_UNSAFE_RE = re.compile(r"[^A-Za-z0-9_-]+")
@@ -78,13 +79,30 @@ def validate_curated_run(
         )
 
     for play in curated.plays:
-        template_vars = {
-            name: spec.model_dump() for name, spec in play.template_vars.items()
-        }
+        duplicate_vars = _duplicate_names(var.name for var in play.template_vars)
+        if duplicate_vars:
+            problems.append(
+                f"play '{play.play_name}' declares template variables more than once: "
+                + ", ".join(duplicate_vars)
+            )
+
+        duplicate_values = sorted(
+            {
+                name
+                for candidate in play.candidates
+                for name in _duplicate_names(value.name for value in candidate.values)
+            }
+        )
+        if duplicate_values:
+            problems.append(
+                f"play '{play.play_name}' has duplicate candidate values: "
+                + ", ".join(duplicate_values)
+            )
+
         try:
             render.validate_template(
                 play.copy_template,
-                template_vars,
+                _template_vars(play),
                 [_flatten(candidate) for candidate in play.candidates],
             )
         except ValueError as exc:
@@ -120,7 +138,7 @@ def validate_curated_run(
         {
             key
             for candidate in candidates
-            for key in candidate.values
+            for key in (value.name for value in candidate.values)
             if key in {"org_id", "org_name"}
         }
     )
@@ -147,13 +165,26 @@ def artifact_id_for(workflow_id: str, run_id: str) -> str:
     return _ARTIFACT_ID_UNSAFE_RE.sub("_", f"{workflow_id}-{run_id}").strip("_-") or "run"
 
 
+def _duplicate_names(names: Iterable[str]) -> list[str]:
+    """Repeated names, sorted for stable validation messages."""
+
+    values = list(names)
+    return sorted({name for name in values if values.count(name) > 1})
+
+
+def _template_vars(play: CuratedPlay) -> dict[str, dict[str, str]]:
+    """Convert the provider-safe list to the renderer and database mapping."""
+
+    return {variable.name: {"format": variable.format} for variable in play.template_vars}
+
+
 def _flatten(candidate: CuratedCandidate) -> dict[str, Any]:
     """One candidate as the flat row ``render`` and the table both read."""
 
     return {
         "org_id": candidate.org_id,
         "org_name": candidate.org_name,
-        **candidate.values,
+        **{item.name: item.value for item in candidate.values},
     }
 
 
@@ -163,7 +194,8 @@ def _value_columns(curated: CuratedRun) -> list[str]:
     columns: list[str] = []
     for play in curated.plays:
         for candidate in play.candidates:
-            for key in candidate.values:
+            for item in candidate.values:
+                key = item.name
                 if key not in columns:
                     columns.append(key)
     return columns
@@ -238,11 +270,8 @@ def render_curated_document(
         ]
         if orgs:
             example = orgs[0]
-            template_vars = {
-                name: spec.model_dump() for name, spec in play.template_vars.items()
-            }
             rendered = render.render(
-                play.copy_template, template_vars, _flatten(example)
+                play.copy_template, _template_vars(play), _flatten(example)
             )
             lines += [
                 f"- **Rendered for {example.org_name}**:",
@@ -366,10 +395,7 @@ def _commit_step(ctx: PlayRuntimeContext, workflow_id: str):
                 play_name=play.play_name,
                 criteria=play.criteria,
                 copy_template=play.copy_template,
-                template_vars={
-                    name: spec.model_dump()
-                    for name, spec in play.template_vars.items()
-                },
+                template_vars=_template_vars(play),
             )
             for play in inp.plays
         ]

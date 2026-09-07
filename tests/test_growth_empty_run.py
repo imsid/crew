@@ -96,5 +96,6 @@ def test_growth_agent_has_no_warehouse_connection() -> None:
 
     assert GrowthAgentSpec().build_mcp_servers() == []
     assert GrowthAgentSpec().build_tools().list_tools() == []
+    assert GrowthAgentSpec().enable_runtime_tools() is False
     assert "execute_sql" not in prompt
     assert "MCP" not in prompt

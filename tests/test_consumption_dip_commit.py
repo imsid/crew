@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 import pytest
+from mash.runtime.structured_output import serialize_structured_output
 
 from crew.plays.data_loaders import plays
 from crew.plays.data_loaders.play_candidates import CandidateRecord
@@ -22,6 +23,7 @@ from crew.plays.workflows.consumption_dip.curate_plays import (
     CuratedCandidate,
     CuratedPlay,
     CuratedRun,
+    TemplateValue,
     TemplateVariable,
 )
 from crew.plays.workflows.consumption_dip.select_play_candidates import (
@@ -148,7 +150,7 @@ def _curated_candidate(
     return CuratedCandidate(
         org_id=org_id,
         org_name=org_name,
-        values={"decay_pct": decay_pct},
+        values=[TemplateValue(name="decay_pct", value=decay_pct)],
     )
 
 
@@ -160,10 +162,10 @@ def _play(
         play_name=name,
         criteria="Accounts with a sustained consumption decline.",
         copy_template="{org_name} is down {decay_pct} from baseline.",
-        template_vars={
-            "org_name": TemplateVariable(format="text"),
-            "decay_pct": TemplateVariable(format="percent"),
-        },
+        template_vars=[
+            TemplateVariable(name="org_name", format="text"),
+            TemplateVariable(name="decay_pct", format="percent"),
+        ],
         candidates=candidates
         if candidates is not None
         else [
@@ -195,16 +197,16 @@ def test_validation_reports_every_problem_at_once() -> None:
                 play_name="Broken template",
                 criteria="c",
                 copy_template="{org_name} score {score}.",
-                template_vars={
-                    "org_name": TemplateVariable(format="text"),
-                    "score": TemplateVariable(format="number"),
-                },
+                template_vars=[
+                    TemplateVariable(name="org_name", format="text"),
+                    TemplateVariable(name="score", format="number"),
+                ],
                 candidates=[
                     CuratedCandidate(
-                        org_id="org-1", org_name="Northwind Labs", values={}
+                        org_id="org-1", org_name="Northwind Labs", values=[]
                     ),
                     CuratedCandidate(
-                        org_id="org-1", org_name="Northwind Labs", values={}
+                        org_id="org-1", org_name="Northwind Labs", values=[]
                     ),
                 ],
             )
@@ -228,13 +230,13 @@ def test_a_candidate_missing_a_template_value_is_rejected() -> None:
                 play_name="Diagnostic",
                 criteria="c",
                 copy_template="{org_name} is down {decay_pct}.",
-                template_vars={
-                    "org_name": TemplateVariable(format="text"),
-                    "decay_pct": TemplateVariable(format="percent"),
-                },
+                template_vars=[
+                    TemplateVariable(name="org_name", format="text"),
+                    TemplateVariable(name="decay_pct", format="percent"),
+                ],
                 candidates=[
                     CuratedCandidate(
-                        org_id="org-1", org_name="Northwind Labs", values={}
+                        org_id="org-1", org_name="Northwind Labs", values=[]
                     )
                 ],
             )
@@ -288,7 +290,7 @@ def test_an_empty_play_is_rejected() -> None:
 
 def test_null_template_values_are_rejected_by_the_output_model() -> None:
     with pytest.raises(Exception):
-        CuratedCandidate(org_id="org-1", org_name="Northwind", values={"score": None})
+        TemplateValue(name="score", value=None)
 
 
 def test_agent_output_rejects_fields_outside_the_contract() -> None:
@@ -296,9 +298,23 @@ def test_agent_output_rejects_fields_outside_the_contract() -> None:
         CuratedCandidate(
             org_id="org-1",
             org_name="Northwind",
-            values={},
+            values=[],
             usage_snapshot={},
         )
+
+
+def test_curated_run_discards_forwarded_workflow_envelope_fields() -> None:
+    curated = _curated_run()
+    payload = {
+        **curated.model_dump(),
+        "as_of_date": "2026-05-28",
+        "workspace_id": "product_usage_db",
+    }
+
+    parsed = CuratedRun.model_validate(payload)
+
+    assert parsed.model_dump() == curated.model_dump()
+    assert serialize_structured_output(CuratedRun)["additionalProperties"] is False
 
 
 def test_numeric_formats_reject_string_values() -> None:
@@ -309,7 +325,7 @@ def test_numeric_formats_reject_string_values() -> None:
                     CuratedCandidate(
                         org_id="org-1",
                         org_name="Northwind Labs",
-                        values={"decay_pct": "0.48"},
+                        values=[TemplateValue(name="decay_pct", value="0.48")],
                     )
                 ]
             )
@@ -358,15 +374,15 @@ def test_the_document_names_no_consumption_specific_field() -> None:
                 play_name="Seat expansion",
                 criteria="Saturated teams still hiring.",
                 copy_template="{org_name} is at {seat_utilization} of its licences.",
-                template_vars={
-                    "org_name": TemplateVariable(format="text"),
-                    "seat_utilization": TemplateVariable(format="percent"),
-                },
+                template_vars=[
+                    TemplateVariable(name="org_name", format="text"),
+                    TemplateVariable(name="seat_utilization", format="percent"),
+                ],
                 candidates=[
                     CuratedCandidate(
                         org_id="org-9",
                         org_name="Helio Robotics",
-                        values={"seat_utilization": 0.94},
+                        values=[TemplateValue(name="seat_utilization", value=0.94)],
                     )
                 ],
             )
@@ -524,6 +540,49 @@ def test_agent_exposes_one_percent_and_one_usd_format() -> None:
         "number",
         "text",
     ]
+
+
+def test_agent_output_uses_provider_safe_lists_for_named_values() -> None:
+    schema = serialize_structured_output(CuratedRun)
+
+    assert schema is not None
+    play = schema["$defs"]["CuratedPlay"]
+    candidate = schema["$defs"]["CuratedCandidate"]
+    assert play["properties"]["template_vars"]["type"] == "array"
+    assert candidate["properties"]["values"]["type"] == "array"
+
+
+def test_duplicate_variable_and_value_names_are_rejected() -> None:
+    curated = _curated_run(
+        plays=[
+            CuratedPlay(
+                play_name="Duplicate names",
+                criteria="c",
+                copy_template="{org_name} is down {decay_pct}.",
+                template_vars=[
+                    TemplateVariable(name="org_name", format="text"),
+                    TemplateVariable(name="decay_pct", format="percent"),
+                    TemplateVariable(name="decay_pct", format="number"),
+                ],
+                candidates=[
+                    CuratedCandidate(
+                        org_id="org-1",
+                        org_name="Northwind Labs",
+                        values=[
+                            TemplateValue(name="decay_pct", value=0.48),
+                            TemplateValue(name="decay_pct", value=0.49),
+                        ],
+                    )
+                ],
+            )
+        ]
+    )
+
+    with pytest.raises(ValueError) as excinfo:
+        validate_curated_run(curated, run_org_ids={"org-1"})
+
+    assert "declares template variables more than once: decay_pct" in str(excinfo.value)
+    assert "duplicate candidate values: decay_pct" in str(excinfo.value)
 
 
 def test_a_run_without_a_workspace_is_rejected_at_input_validation() -> None:
