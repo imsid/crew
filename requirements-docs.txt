@@ -1,0 +1,4 @@
+# Tooling for building the Crew documentation site (Zensical). Kept separate
+# from runtime dependencies so it never ships with `pip install mash-crew`.
+# Install with: pip install -r requirements-docs.txt
+zensical==0.0.45

@@ -17,6 +17,7 @@ pnpm-debug.log*
 *.egg-info/
 dist/
 build/
+/site/
 .pytest_cache/
 .mypy_cache/
 .coverage

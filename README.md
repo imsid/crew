@@ -41,6 +41,14 @@ crew workflow run expansion-pqa \
 
 ## Documentation
 
-- [Crew product site](docs/index.html)
+- [Crew documentation site](https://imsid.github.io/crew/)
+- [Product overview](docs/product.html)
 - [Semantic Layer guide](docs/semantic-layer-guide.md)
 - [Development and deployment](CONTRIBUTING.md)
+
+Preview the documentation locally:
+
+```bash
+pip install -r requirements-docs.txt
+zensical serve
+```
